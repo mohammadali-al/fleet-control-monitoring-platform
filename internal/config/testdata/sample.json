@@ -1,0 +1,9 @@
+{
+  "server": {
+    "log": { "level": "debug", "format": "json" }
+  },
+  "agent": {
+    "role": "monitor",
+    "log": { "level": "warn", "format": "text" }
+  }
+}

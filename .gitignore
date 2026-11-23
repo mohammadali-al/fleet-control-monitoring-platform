@@ -1,1 +1,5 @@
 *.bak.md
+/bin/
+*.out
+coverage.*
+*.coverprofile
