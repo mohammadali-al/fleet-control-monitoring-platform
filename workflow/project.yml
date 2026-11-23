@@ -1,0 +1,23 @@
+# The only file that names the stack. `wf` reads it; everything else stays generic.
+module: github.com/mohammadali-al/fleet-control-monitoring-platform
+
+test:
+  all: scripts/test.sh
+  groups: [server, agent, e2e]        # by package path; see scripts/test.sh
+
+build:
+  cmd: scripts/build.sh
+  output: bin/
+  must_be_reproducible: true
+
+# No web panel exists yet. These are filled in by the task that introduces it.
+app_check:
+  start: TBD
+  shot: TBD
+  stop: TBD
+
+# Off-limits to doers (D-0002). None exist yet; listed so the guard is ready when they do.
+real_data: [data/, evidence/, monitor-data/, ca/, secrets/]
+
+version_files: [VERSION]
+ui_language: en            # tentative — see decisions/D-0003
