@@ -10,3 +10,8 @@
 - **Commits** are small and scoped to the task; message says what and why, not how.
 - **Decisions** are one-per-file ADRs; when something visible must give way, that is its own question
   to the operator.
+
+## Doer toolchain
+
+- **Claude-only for now.** Briefs set `model: {claude: ...}`. Codex may be used later; the
+  `model:` front matter can gain a `codex:` slot then, without any other change.
