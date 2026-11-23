@@ -1,7 +1,7 @@
 ---
 id: T-0001
 title: project-skeleton
-state: ready
+state: merged
 touches: [go.mod, go.sum, Makefile, VERSION, .gitignore,
           cmd/fleet-server/main.go, cmd/fleet-agent/main.go,
           internal/version/version.go, internal/version/version_test.go,

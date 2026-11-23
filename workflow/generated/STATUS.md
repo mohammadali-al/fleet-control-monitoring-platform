@@ -5,10 +5,10 @@
 ## Now (running / in review)
 _none_
 ## Next (ready, in order)
+_none_
+## Waiting for the operator (merged → see CHECKS.md)
 - **T-0001** project-skeleton  `after: []`
 
-## Waiting for the operator (merged → see CHECKS.md)
-_none_
 ## Blocked
 _none_
 ## Recently closed (last 20)
