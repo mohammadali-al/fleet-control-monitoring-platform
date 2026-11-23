@@ -1,0 +1,215 @@
+{
+  "sim": {
+    "duration": 120.0,
+    "dt": 0.05
+  },
+  "machine": {
+    "background": {
+      "cpu": {
+        "mean": 8.0,
+        "sd": 1.5,
+        "tau": 15.0
+      },
+      "ram": {
+        "mean": 20.0,
+        "sd": 0.5,
+        "tau": 30.0
+      }
+    },
+    "sample_noise": {
+      "cpu": 1.0,
+      "ram": 0.2
+    },
+    "pid_noise": 0.03,
+    "lag_load_coef": 1.0,
+    "lag_conc_coef": 0.08
+  },
+  "types": {
+    "big": {
+      "cpu": 12.0,
+      "ram": 5.0,
+      "fp_sd": 0.15,
+      "lag_median": 2.5,
+      "lag_sigma": 0.3,
+      "lifetime": 60.0,
+      "ramp": 0.4
+    },
+    "small": {
+      "cpu": 3.0,
+      "ram": 1.2,
+      "fp_sd": 0.15,
+      "lag_median": 1.2,
+      "lag_sigma": 0.25,
+      "lifetime": 40.0,
+      "ramp": 0.2
+    }
+  },
+  "profile": {
+    "cpu": [
+      [
+        0,
+        15
+      ],
+      [
+        5,
+        15
+      ],
+      [
+        20,
+        50
+      ],
+      [
+        30,
+        50
+      ],
+      [
+        30,
+        80
+      ],
+      [
+        45,
+        80
+      ],
+      [
+        45,
+        40
+      ],
+      [
+        55,
+        40
+      ],
+      [
+        55,
+        75
+      ],
+      [
+        56,
+        75
+      ],
+      [
+        56,
+        40
+      ],
+      [
+        65,
+        40
+      ],
+      [
+        65,
+        75
+      ],
+      [
+        68,
+        75
+      ],
+      [
+        68,
+        40
+      ],
+      [
+        75,
+        40
+      ],
+      [
+        75,
+        75
+      ],
+      [
+        81,
+        75
+      ],
+      [
+        81,
+        40
+      ],
+      [
+        90,
+        40
+      ],
+      [
+        90,
+        20
+      ],
+      [
+        100,
+        20
+      ],
+      [
+        100,
+        60
+      ],
+      [
+        120,
+        60
+      ]
+    ],
+    "ram": [
+      [
+        0,
+        60
+      ],
+      [
+        84,
+        60
+      ],
+      [
+        84,
+        33
+      ],
+      [
+        95,
+        33
+      ],
+      [
+        95,
+        60
+      ],
+      [
+        120,
+        60
+      ]
+    ]
+  },
+  "controller": {
+    "margin": {
+      "cpu": 2.0,
+      "ram": 1.0
+    },
+    "shed_frac": 0.5,
+    "lag_q_lo": 0.05,
+    "lag_q_hi": 0.95,
+    "fp_q_hi": 0.9,
+    "timeout_mult": 1.5,
+    "poll": 0.2,
+    "agg_period": 1.0,
+    "detect_frac": 0.3,
+    "infer_frac": 0.6,
+    "settle": 1.0,
+    "fb_tau": 10.0,
+    "overlaunch": 0.5,
+    "max_spares": 6,
+    "handover": true,
+    "handover_q": 0.5,
+    "kill_order": "oldest",
+    "type_order": "spread",
+    "burst_lead": true,
+    "calib_launches": 12,
+    "calib_loads": [
+      8,
+      40,
+      65,
+      90
+    ],
+    "calib_conc": [
+      0,
+      1,
+      4,
+      8,
+      12,
+      20
+    ],
+    "min_bucket_samples": 8,
+    "hi_fallback": 1.5,
+    "horizon": 15.0
+  }
+}
