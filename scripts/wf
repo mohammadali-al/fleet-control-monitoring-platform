@@ -32,7 +32,7 @@ cmd_lint(){
   if grep -IlP '[\x{200B}-\x{200F}\x{202A}-\x{202E}\x{2060}\x{2066}-\x{2069}\x{00AD}\x{FEFF}]' "$t" >/dev/null 2>&1; then
     echo "lint: raw bidi/invisible character in brief (R-02)"; ok=0; fi
   # facts: every file:line reference must point at an existing file
-  grep -oE '[A-Za-z0-9_./-]+\.(md|go|js|jsx|sh|ya?ml):[0-9]+' "$t" | sed 's/:.*//' | sort -u | while read -r f; do
+  { grep -oE '[A-Za-z0-9_./-]+\.(md|go|js|jsx|sh|ya?ml):[0-9]+' "$t" || true; } | sed 's/:.*//' | sort -u | while read -r f; do
     [ -e "$ROOT/$f" ] || echo "lint: fact references missing file: $f"; done
   [ "$ok" = 1 ] && echo "lint: $id OK" || { echo "lint: $id FAILED"; return 1; }
 }
