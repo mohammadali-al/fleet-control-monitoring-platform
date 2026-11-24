@@ -39,7 +39,9 @@ each is a later task.
 ## Out of scope
 
 - Monitor data, Watchdog, Evidence, Backup page wiring (separate tasks as those backends land).
-- Any Maneuver / Load Controller execution (deferred, D-0005) — leave that page a stub.
+- Any Maneuver / Load Controller execution (deferred, D-0005) — leave that page a stub. **But** fix the
+  stub to show the **Spike** pattern **disabled (greyed, unclickable)** with a reason ("needs the Load
+  Controller — deferred") and make **all-in-one the default** (D-0005).
 - New visual design — reuse the approved components; this is wiring, not a redesign.
 
 ## Done means

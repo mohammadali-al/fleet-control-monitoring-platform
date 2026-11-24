@@ -17,3 +17,7 @@ needed mainly for **spike** load patterns.
 ## Consequences
 - Near-term implementation focuses on the control channel, commands, evidence, monitors, and the panel.
 - The `launchkill-sim` work stays as the reference for when the controller is picked up.
+- **Maneuver UI:** the **Spike** load pattern is shown **disabled (greyed, unclickable)** with a
+  reason ("needs the Load Controller — deferred"), and the **default pattern is all-in-one** (not
+  Spike). All-in-one and linear may be enabled when basic Maneuver execution is built; **Spike stays
+  disabled until the Load Controller lands**.
