@@ -59,4 +59,4 @@ cert), unreachable machine, target validation.
 Checks: `gofmt -l .` empty; `go vet ./...` clean; `scripts/test.sh server` passes (also `-race` on registry
 and onboard, count=3); `scripts/build.sh` ok. Nothing left running; temp dirs are `t.TempDir()`.
 
-<!-- wf: commits=PENDING left=- tests=server:pass blocked=no -->
+<!-- wf: commits=0f9a35c left=- tests=server:pass blocked=no -->
