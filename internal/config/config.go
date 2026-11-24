@@ -36,6 +36,16 @@ const (
 	MonitorDirName  = "monitor"
 	// WatchdogDirName holds the watchdog's last-known policy and guard counters.
 	WatchdogDirName = "watchdog"
+	// ProjectsDirName holds Maneuver/project metadata (part of the backup set,
+	// T-0013).
+	ProjectsDirName = "projects"
+)
+
+// Backup state files under <data>/config/ (T-0013). They are deliberately not
+// part of the backup set: the credential file never leaves the main server.
+const (
+	BackupStateFile      = "backup.json"       // backup server record, schedule, last run
+	BackupCredentialFile = "backup-credential" // SSH key (or fallback password), mode 0600
 )
 
 // Control-channel defaults for the main server (architecture 4.1, 4.2).
