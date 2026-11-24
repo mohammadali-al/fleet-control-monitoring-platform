@@ -1,7 +1,7 @@
 ---
 id: T-0015
 title: evidence-capture-fixes
-state: ready
+state: merged
 touches: [internal/capture/records.go, internal/capture/records_test.go,
           internal/capture/segments.go, internal/capture/manifest.go, internal/capture/segments_test.go]
 tests: [agent]

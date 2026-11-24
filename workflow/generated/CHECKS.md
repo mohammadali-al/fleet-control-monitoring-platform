@@ -13,3 +13,4 @@
 - [ ] T-0006 machine-registry-onboarding — Backend (no UI). Verified by review: gofmt/vet clean, server tests + registry/onboard -race pass. Confirm to close.
 - [ ] T-0008 evidence-capture — **Needs a ROOT / real-machine smoke test**: run a command that makes outbound traffic on a real worker and confirm session records/segments appear (correct SHA/counts). Unit logic verified; the live nftables/NFLOG path is untested off-root. Confirm after a real run.
 - [ ] T-0009 evidence-sync-export — Backend (no UI). Verified by review: gofmt/vet clean, server+agent tests + evidence -race pass; pcapng validated (capinfos/tshark). Confirm to close.
+- [ ] T-0015 evidence-capture-fixes — Backend (no UI). Verified by review: full payloads stored, manifest concurrency-safe, capture+evidence -race pass. Confirm to close.
