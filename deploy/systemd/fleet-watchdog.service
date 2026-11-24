@@ -1,0 +1,25 @@
+# Fleet watchdog: the agent-side load-safety net (architecture chapter 11).
+# Part of the agent binary. It must run as root: its ladder uses systemctl,
+# cgroup writes and tc. It is a safety net, not a tamper-proof supervisor.
+#
+# NOTE: the "watchdog" subcommand of fleet-agent is wired by a later task; this
+# unit names the intended invocation (same config file and data dir as the agent).
+[Unit]
+Description=Fleet watchdog (load-safety net)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/fleet-agent watchdog --config /etc/fleet-agent/config.json
+WorkingDirectory=/var/lib/fleet-agent
+# Instant restart on any exit (layer 1 of "who watches the watchdog").
+Restart=always
+RestartSec=2
+# Never let the load the watchdog guards against take the watchdog down first.
+OOMScoreAdjust=-900
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target

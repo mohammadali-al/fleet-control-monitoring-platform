@@ -1,0 +1,9 @@
+# One-shot run by fleet-watchdog-liveness.timer: if fleet-watchdog.service is not
+# active, start it, and log that it had to be (trust model: such events are logged).
+[Unit]
+Description=Fleet watchdog liveness check
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/bin/sh -c 'systemctl is-active --quiet fleet-watchdog.service || { logger -t fleet-watchdog-liveness "fleet-watchdog.service was not active; starting it"; systemctl start fleet-watchdog.service; }'
