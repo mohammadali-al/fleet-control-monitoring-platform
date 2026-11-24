@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="fleet-control-monitoring-platform report v{{.D.SchemaVersion}}">
+<title>Test report: {{if .D.TestName}}{{.D.TestName}}{{else}}{{.D.TestID}}{{end}}{{if .D.Project}} - {{.D.Project}}{{end}}</title>
+<style>{{.CSS}}</style>
+</head>
+<body>
+<div class="layout">
+<nav class="toc" aria-label="Report sections">
+  <div class="toc__brand">Fleet test report<small>{{.D.TestID}}</small></div>
+  <a href="#overview">Overview</a>
+  {{- if .Plan}}
+  <a href="#maneuver">Maneuver &amp; pattern</a>
+  {{- end}}
+  <a href="#workers">Worker agents</a>
+  <a href="#usage">Resource usage</a>
+  <a href="#commands">Commands</a>
+  <a href="#monitor">Monitor</a>
+  <a href="#evidence">Evidence &amp; hashes</a>
+  <a href="#alignment">Start alignment</a>
+  <a href="#watchdog">Watchdog</a>
+  <button type="button" class="btn" id="toggle-all">Collapse all</button>
+  <button type="button" class="btn" id="theme-toggle">Light / dark</button>
+</nav>
+
+<main>
+<header class="top">
+  <h1>{{if .D.TestName}}{{.D.TestName}}{{else}}Test {{.D.TestID}}{{end}}</h1>
+  <p>{{if .D.Project}}Project <strong>{{.D.Project}}</strong> &middot; {{end}}Target <span class="mono">{{.D.Target.IP}}{{if .D.Target.Origin}} &middot; {{.D.Target.Origin}}{{end}}</span> &middot; generated {{stamp .D.GeneratedAt}}</p>
+</header>
+
+<noscript><p class="note">JavaScript is off: the charts are still drawn, but the hover readout is unavailable.</p></noscript>
+{{range .D.Notes}}<p class="note" role="note">{{.}}</p>
+{{end}}
+
+<details class="card" id="overview" open>
+  <summary><h2>Overview</h2></summary>
+  <div class="card__body">
+    <dl class="kv">
+      <dt>Project</dt><dd>{{if .D.Project}}{{.D.Project}}{{else}}-{{end}}</dd>
+      <dt>Test</dt><dd><span class="mono">{{.D.TestID}}</span>{{if .D.TestName}} &middot; {{.D.TestName}}{{end}}</dd>
+      <dt>Target IP</dt><dd class="mono">{{.D.Target.IP}}</dd>
+      <dt>Target origin</dt><dd class="mono">{{if .D.Target.Origin}}{{.D.Target.Origin}}{{else}}(none, IP only){{end}}</dd>
+      {{- if .D.Target.Paths}}<dt>Paths</dt><dd class="mono">{{join .D.Target.Paths ", "}}</dd>{{end}}
+      <dt>History key</dt><dd class="mono">{{.D.History}}</dd>
+      <dt>Window</dt><dd>{{stamp .D.Start}} &rarr; {{stamp .D.End}} ({{.D.Duration}})</dd>
+      <dt>Kind</dt><dd>{{if .D.Plan}}Maneuver test{{else}}Manual commands only (no Maneuver){{end}}</dd>
+    </dl>
+    <div class="stats">
+      <div class="stat"><div class="stat__label">Worker agents</div><div class="stat__value">{{.D.Totals.Workers}}</div></div>
+      <div class="stat"><div class="stat__label">Commands</div><div class="stat__value">{{.D.Totals.Commands}}</div></div>
+      <div class="stat"><div class="stat__label">Packets</div><div class="stat__value">{{.D.Totals.Packets}}</div></div>
+      <div class="stat"><div class="stat__label">Flows</div><div class="stat__value">{{.D.Totals.Flows}}</div></div>
+      <div class="stat"><div class="stat__label">Peak CPU (aggregate)</div><div class="stat__value">{{printf "%.2f" .D.Totals.PeakCores}} <small>cores</small></div></div>
+      <div class="stat"><div class="stat__label">Peak RAM (aggregate)</div><div class="stat__value">{{printf "%.2f" .D.Totals.PeakRAMGB}} <small>GB</small></div></div>
+      <div class="stat"><div class="stat__label">Availability</div><div class="stat__value">{{if ge .D.Totals.Availability 0.0}}{{printf "%.2f" .D.Totals.Availability}} <small>%</small>{{else}}-{{end}}</div></div>
+      <div class="stat"><div class="stat__label">Capture drops</div><div class="stat__value">{{.D.Totals.Dropped}} <small>packets</small></div></div>
+      <div class="stat"><div class="stat__label">Missed agents</div><div class="stat__value">{{.D.Totals.Missed}}</div></div>
+      <div class="stat"><div class="stat__label">Watchdog events</div><div class="stat__value">{{.D.Totals.Watchdog}}</div></div>
+    </div>
+  </div>
+</details>
+
+{{if .Plan}}
+<details class="card" id="maneuver" open>
+  <summary><h2>Maneuver plan &amp; load pattern</h2></summary>
+  <div class="card__body">
+    <dl class="kv">
+      <dt>Maneuver</dt><dd>{{.Plan.Name}}</dd>
+      <dt>Load pattern</dt><dd><span class="chip">{{.Plan.Pattern}}</span></dd>
+      <dt>Total time</dt><dd>{{.Plan.Total}}</dd>
+      {{range .Plan.Params}}<dt>{{.K}}</dt><dd>{{.V}}</dd>{{end}}
+    </dl>
+    {{with index .Charts "pattern"}}<figure class="fig"><figcaption>Resource ceiling over time</figcaption>{{.}}</figure>{{end}}
+    {{if .Plan.HasGnt}}
+    <div>
+      <h3>Items on the timeline</h3>
+      <div class="gantt">
+        {{range .Plan.Gantt}}
+        <div class="gantt__row">
+          <div><strong>{{.Name}}</strong>{{if .Command}}<br><code class="muted">{{.Command}}</code>{{end}}</div>
+          <div class="gantt__lane" title="{{.Name}}: starts at {{.Offset}}, runs {{.Length}}"><div class="gantt__bar" style="left:{{.Left}}%;width:{{.Width}}%"></div></div>
+        </div>
+        {{end}}
+      </div>
+    </div>
+    {{end}}
+  </div>
+</details>
+{{end}}
+
+<details class="card" id="workers" open>
+  <summary><h2>Participating worker agents</h2><span class="muted">{{len .D.Workers}}</span></summary>
+  <div class="card__body tbl">
+    {{if .D.Workers}}
+    <table>
+      <thead><tr><th>Worker agent</th><th class="num">Commands</th><th class="num">Packets</th><th class="num">Flows</th><th class="num">Mean CPU</th><th class="num">Peak CPU</th><th class="num">Mean RAM</th><th class="num">Peak RAM</th><th class="num">Capture drops</th><th>Start</th></tr></thead>
+      <tbody>
+      {{range .D.Workers}}
+      <tr>
+        <td><span class="mono">{{.Machine}}</span>{{if .Label}}<br><span class="muted">{{.Label}}</span>{{end}}</td>
+        <td class="num">{{.Commands}}</td><td class="num">{{.Packets}}</td><td class="num">{{.Flows}}</td>
+        <td class="num">{{if .Samples}}{{cores .MeanCores}}{{else}}-{{end}}</td><td class="num">{{if .Samples}}{{cores .PeakCores}}{{else}}-{{end}}</td>
+        <td class="num">{{if .Samples}}{{gb .MeanRAMGB}}{{else}}-{{end}}</td><td class="num">{{if .Samples}}{{gb .PeakRAMGB}}{{else}}-{{end}}</td>
+        <td class="num">{{.Dropped}}</td>
+        <td>{{if .Missed}}<span class="chip chip--danger">missed</span>{{else}}<span class="chip chip--ok">ok</span>{{end}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}<p class="empty">No worker agents are recorded for this test.</p>{{end}}
+  </div>
+</details>
+
+<details class="card" id="usage" open>
+  <summary><h2>Resource usage over the window</h2><span class="muted">cores used &middot; GB RAM</span></summary>
+  <div class="card__body">
+    <dl class="kv">
+      <dt>Aggregate CPU</dt><dd>mean {{cores .D.Usage.MeanCores}}, peak {{cores .D.Usage.PeakCores}} (sum over all workers)</dd>
+      <dt>Aggregate RAM</dt><dd>mean {{gb .D.Usage.MeanRAMGB}}, peak {{gb .D.Usage.PeakRAMGB}} (sum over all workers)</dd>
+      <dt>Resolution</dt><dd>{{printf "%.0f" .D.Usage.BucketSeconds}} s buckets</dd>
+    </dl>
+    <figure class="fig"><figcaption>CPU used (cores)</figcaption>{{index .Charts "cores"}}</figure>
+    <figure class="fig"><figcaption>RAM used (GB)</figcaption>{{index .Charts "ram"}}</figure>
+  </div>
+</details>
+
+<details class="card" id="commands" open>
+  <summary><h2>Commands run</h2><span class="muted">{{len .D.Commands}}</span></summary>
+  <div class="card__body tbl">
+    {{if .D.Commands}}
+    <table>
+      <thead><tr><th>Start</th><th>Worker agent</th><th>Command</th><th>Mode</th><th class="num">Duration</th><th class="num">Exit</th><th class="num">Packets</th><th class="num">Flows</th><th class="num">Payload</th><th>Session</th></tr></thead>
+      <tbody>
+      {{range .D.Commands}}
+      <tr>
+        <td>{{stamp .Start}}</td><td class="mono">{{.Machine}}</td><td class="cmd">{{.Command}}</td><td>{{.Mode}}</td>
+        <td class="num">{{.Duration}}</td><td class="num">{{.ExitCode}}</td>
+        <td class="num">{{.Packets}}</td><td class="num">{{.Flows}}</td><td class="num">{{bytes .PayloadBytes}}</td>
+        <td class="mono">{{.SessionID}}</td>
+      </tr>
+      {{end}}
+      <tr class="sum"><td colspan="6">Total</td><td class="num">{{.D.Totals.Packets}}</td><td class="num">{{.D.Totals.Flows}}</td><td class="num">{{bytes .D.Totals.PayloadBytes}}</td><td></td></tr>
+      </tbody>
+    </table>
+    <p class="muted">A flow is a distinct protocol / source / destination triple on one worker agent among the packets of the session. The total counts distinct flows across all commands.</p>
+    {{else}}<p class="empty">No commands are recorded for this test.</p>{{end}}
+  </div>
+</details>
+
+<details class="card" id="monitor" open>
+  <summary><h2>Monitor: availability &amp; response time</h2><span class="muted">{{.D.History}}</span></summary>
+  <div class="card__body">
+    {{if .D.Monitor.Available}}
+    <dl class="kv">
+      <dt>Probes</dt><dd>{{.D.Monitor.Probes}} ({{.D.Monitor.OK}} ok)</dd>
+      <dt>Availability</dt><dd>{{pct .D.Monitor.Availability}}</dd>
+      <dt>Response time</dt><dd>mean {{ms .D.Monitor.MeanMS}}, p95 {{ms .D.Monitor.P95MS}}, max {{ms .D.Monitor.MaxMS}}</dd>
+      <dt>Monitor agents</dt><dd class="mono">{{join .D.Monitor.Agents ", "}}</dd>
+      <dt>Resolution</dt><dd>{{printf "%.0f" .D.Monitor.BucketSeconds}} s buckets</dd>
+    </dl>
+    {{end}}
+    <figure class="fig"><figcaption>Availability (%)</figcaption>{{index .Charts "availability"}}</figure>
+    <figure class="fig"><figcaption>Response time (ms)</figcaption>{{index .Charts "response"}}</figure>
+    <p class="muted">Shaded bands mark the span of each command; hover a chart to read values and see which commands were running.</p>
+  </div>
+</details>
+
+<details class="card" id="evidence" open>
+  <summary><h2>Evidence: hashes &amp; manifest references</h2><span class="muted">{{.D.Evidence.Segments}} segments</span></summary>
+  <div class="card__body">
+    {{if .D.Evidence.Available}}
+    <dl class="kv">
+      <dt>Archive</dt><dd class="mono">{{.D.Evidence.Root}}/&lt;machine&gt;/&lt;session&gt;/&lt;segment&gt;</dd>
+      <dt>Evidence digest</dt><dd class="mono">{{if .D.Evidence.Digest}}{{.D.Evidence.Digest}}{{else}}-{{end}}</dd>
+      <dt>Capture drops</dt><dd>{{.D.Evidence.Dropped}} packets (best-effort count from the segment manifests)</dd>
+    </dl>
+    {{range .D.Evidence.Machines}}
+    <div>
+      <h3><span class="mono">{{.Machine}}</span></h3>
+      <dl class="kv">
+        <dt>Manifest</dt><dd class="mono">{{.Manifest}}</dd>
+        <dt>Manifest digest</dt><dd class="mono">{{.Digest}}</dd>
+        <dt>Packets / flows</dt><dd>{{.Packets}} / {{.Flows}}</dd>
+        <dt>Capture drops</dt><dd>{{.Dropped}}</dd>
+      </dl>
+      <div class="tbl">
+      <table>
+        <thead><tr><th>Segment</th><th>SHA-256</th><th class="num">Bytes</th><th class="num">Records</th><th class="num">Dropped</th><th>First record</th><th>Last record</th><th>Archive path</th></tr></thead>
+        <tbody>
+        {{range .Segments}}
+        <tr><td class="mono">{{.File}}</td><td class="hash">{{.SHA256}}</td><td class="num">{{.Bytes}}</td><td class="num">{{.Records}}</td><td class="num">{{.Dropped}}</td><td>{{stamp .Start}}</td><td>{{stamp .End}}</td><td class="mono">{{.Path}}</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+      </div>
+    </div>
+    {{else}}<p class="empty">No archived segments were found for this test's sessions.</p>{{end}}
+    <p class="muted">The evidence digest is the SHA-256 over every machine digest; each machine digest is the SHA-256 over its sorted "segment sha256" lines. Recompute them from the archive manifests to verify this report.</p>
+    {{else}}<p class="empty">No evidence archive was available when this report was generated.</p>{{end}}
+  </div>
+</details>
+
+<details class="card" id="alignment" open>
+  <summary><h2>Start alignment</h2>{{if .D.Align}}<span class="muted">spread {{printf "%.2f" .D.Align.SpreadMS}} ms</span>{{end}}</summary>
+  <div class="card__body tbl">
+    {{with .D.Align}}
+    <dl class="kv">
+      <dt>Committed start (T)</dt><dd>{{stamp .Intended}}</dd>
+      <dt>Spread</dt><dd>{{printf "%.2f" .SpreadMS}} ms between the earliest and latest agent that started</dd>
+      <dt>Missed agents</dt><dd>{{if .Missed}}<span class="chip chip--danger">{{join .Missed ", "}}</span>{{else}}none{{end}}</dd>
+    </dl>
+    <table>
+      <thead><tr><th>Worker agent</th><th>Outcome</th><th>Started at</th><th class="num">Offset from T</th><th>Note</th></tr></thead>
+      <tbody>
+      {{range .Agents}}
+      <tr><td class="mono">{{.Machine}}</td>
+        <td>{{if .Missed}}<span class="chip chip--danger">missed</span>{{else if .Started}}<span class="chip chip--ok">started</span>{{else}}<span class="chip chip--warn">did not start</span>{{end}}</td>
+        <td>{{if .Started}}{{stamp .StartedAt}}{{else}}-{{end}}</td>
+        <td class="num">{{if .Started}}{{offset .OffsetMS}}{{else}}-{{end}}</td>
+        <td>{{.Note}}</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}<p class="empty">No synchronized start was recorded for this test (manual commands start when issued).</p>{{end}}
+  </div>
+</details>
+
+<details class="card" id="watchdog" open>
+  <summary><h2>Watchdog events</h2><span class="muted">{{len .D.Watchdog}} in the window</span></summary>
+  <div class="card__body tbl">
+    {{if .D.Watchdog}}
+    <table>
+      <thead><tr><th>Time</th><th>Worker agent</th><th>Action</th><th>Session</th><th>Detail</th></tr></thead>
+      <tbody>
+      {{range .D.Watchdog}}
+      <tr><td>{{stamp .Time}}</td><td class="mono">{{.Machine}}</td><td><span class="chip chip--warn">{{.Action}}</span></td><td class="mono">{{.SessionID}}</td><td>{{.Detail}}</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}<p class="empty">No watchdog events occurred during the test window.</p>{{end}}
+    {{if .D.WatchdogOutside}}<p class="muted">{{.D.WatchdogOutside}} supplied event(s) fell outside the window and are not listed.</p>{{end}}
+  </div>
+</details>
+
+<p class="muted">Generated from the evidence archive and the monitor data after the test window closed. All data is embedded in this file; it makes no network requests.</p>
+</main>
+</div>
+<script type="application/json" id="report-data">{{.JSON}}</script>
+<script>{{.JS}}</script>
+</body>
+</html>
