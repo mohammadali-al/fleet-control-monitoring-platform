@@ -133,9 +133,15 @@ func TestNextGroupDistinct(t *testing.T) {
 	}
 }
 
+// smokeHangTimeout bounds the whole live smoke body. The T-0017 hang blocked a
+// root run until an outer 30 s kill; this internal watchdog makes a hang fail
+// fast with a useful message instead of blocking a CI/root run.
+const smokeHangTimeout = 10 * time.Second
+
 // TestLiveCaptureSmoke exercises the real nftables+NFLOG path. It needs root
 // (CAP_NET_ADMIN), cgroup v2 and the nft binary, so it is skipped by default
-// and in CI. Run as root to exercise it.
+// and in CI. Run as root to exercise it. The body runs under a watchdog so a
+// regression that blocks setup, read, or Close fails fast (T-0017).
 func TestLiveCaptureSmoke(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("live capture is Linux-only")
@@ -159,28 +165,48 @@ func TestLiveCaptureSmoke(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Remove(cgDir) })
 
-	src, err := newLiveSource(cgDir, DefaultNFLOGGroupBase+999, nil)
-	if err != nil {
-		t.Fatalf("newLiveSource: %v", err)
-	}
-	// Move ourselves into the cgroup so our traffic matches, send a UDP datagram.
-	_ = os.WriteFile(filepath.Join(cgDir, "cgroup.procs"), []byte("0"), 0o644)
-	conn, derr := net.Dial("udp", "203.0.113.1:9")
-	if derr == nil {
-		conn.Write([]byte("live-capture-smoke"))
-		conn.Close()
-	}
+	// Verbose setup/teardown trace so a hang (should one reappear) shows exactly
+	// where it stopped making progress.
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	got := false
+	// Run the live body under a watchdog. Only t.Error/t.Log are safe from a
+	// non-test goroutine, so the body uses those and the watchdog (on the test
+	// goroutine) does the fatal on a hang.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		src, err := newLiveSource(cgDir, DefaultNFLOGGroupBase+999, log)
+		if err != nil {
+			t.Errorf("newLiveSource: %v", err)
+			return
+		}
+		// Move ourselves into the cgroup so our traffic matches, send a UDP datagram.
+		_ = os.WriteFile(filepath.Join(cgDir, "cgroup.procs"), []byte("0"), 0o644)
+		conn, derr := net.Dial("udp", "203.0.113.1:9")
+		if derr == nil {
+			conn.Write([]byte("live-capture-smoke"))
+			conn.Close()
+		}
+
+		got := false
+		select {
+		case <-src.Packets():
+			got = true
+		case <-time.After(2 * time.Second):
+		}
+		if err := src.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+		if !got {
+			t.Log("no packet observed (environment-dependent); setup/teardown path still exercised")
+		}
+	}()
+
 	select {
-	case <-src.Packets():
-		got = true
-	case <-time.After(2 * time.Second):
-	}
-	if err := src.Close(); err != nil {
-		t.Errorf("Close: %v", err)
-	}
-	if !got {
-		t.Log("no packet observed (environment-dependent); setup path still exercised")
+	case <-done:
+	case <-time.After(smokeHangTimeout):
+		// Leaves the body goroutine parked, but a failing hang test is meant to
+		// surface the bug; the nft table is torn down by Close in the fix path.
+		t.Fatalf("live capture smoke hung (>%s): a netlink op or Close did not return", smokeHangTimeout)
 	}
 }
