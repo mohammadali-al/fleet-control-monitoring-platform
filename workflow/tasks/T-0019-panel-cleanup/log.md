@@ -25,4 +25,4 @@
   embedded in FS"), and `workflow/design/panel.md` / `panel-wiring.md` describing the stamp script. `git grep` shows no
   code reference to the deleted files.
 
-<!-- wf: commits=PENDING left=- tests=server:pass blocked=no -->
+<!-- wf: commits=38933fa left=- tests=server:pass blocked=no -->
