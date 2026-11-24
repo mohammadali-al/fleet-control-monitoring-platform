@@ -5,7 +5,6 @@
 ## Now (running / in review)
 _none_
 ## Next (ready, in order)
-- **T-0008** evidence-capture  `after: [T-0007]`
 - **T-0009** evidence-sync-export  `after: [T-0008]`
 - **T-0010** monitors  `after: [T-0003]`
 - **T-0011** panel-wiring  `after: [T-0005, T-0006, T-0007]`
@@ -21,6 +20,7 @@ _none_
 - **T-0005** serve-panel  `after: [T-0001, T-0004]`
 - **T-0006** machine-registry-onboarding  `after: [T-0002, T-0003]`
 - **T-0007** command-executor  `after: [T-0003]`
+- **T-0008** evidence-capture  `after: [T-0007]`
 
 ## Blocked
 _none_

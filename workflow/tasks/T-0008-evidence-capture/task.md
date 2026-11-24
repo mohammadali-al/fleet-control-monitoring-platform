@@ -1,7 +1,7 @@
 ---
 id: T-0008
 title: evidence-capture
-state: ready
+state: merged
 touches: [internal/capture/capture.go, internal/capture/records.go, internal/capture/srcip.go,
           internal/capture/segments.go, internal/capture/manifest.go, internal/capture/capture_test.go,
           internal/capture/records_test.go, internal/capture/segments_test.go,
