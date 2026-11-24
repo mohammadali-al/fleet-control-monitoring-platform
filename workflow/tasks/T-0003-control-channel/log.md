@@ -29,4 +29,4 @@ Built package `internal/channel` for the `server_dial` direction (agent listens,
 - Self-check: `gofmt -l .` empty; `go vet ./...` clean; `go test -race -count=5 ./internal/channel` and
   `scripts/test.sh server` pass; `scripts/build.sh` ok (bin/ removed afterwards).
 
-<!-- wf: commits=PENDING left=- tests=server:pass blocked=no -->
+<!-- wf: commits=46e9027 left=- tests=server:pass blocked=no -->
