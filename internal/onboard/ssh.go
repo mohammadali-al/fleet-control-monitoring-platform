@@ -584,6 +584,14 @@ func renderAgentConfig(m registry.Machine, l Layout) ([]byte, error) {
 	return append(data, '\n'), nil
 }
 
+// renderUnit builds the systemd unit. The agent runs as root (architecture
+// section 5): evidence capture, PTY-as-root, cgroup tracking and the watchdog
+// all need it, so the unit does not drop to the dedicated user. The same unit
+// is used for the worker and the monitor profile; the headless monitor runs as
+// root too, for simplicity. The dedicated service user is kept only to own the
+// config and state directories. The data dir is set explicitly through
+// FLEET_DATA_DIR so evidence and registry state land in StateDir instead of
+// depending on the binary's location (D-0006).
 func renderUnit(l Layout) string {
 	return fmt.Sprintf(`[Unit]
 Description=Fleet agent
@@ -591,16 +599,17 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-User=%[1]s
-Group=%[1]s
-ExecStart=%[2]s --config %[3]s
-WorkingDirectory=%[4]s
+User=root
+Group=root
+Environment=FLEET_DATA_DIR=%[3]s
+ExecStart=%[1]s --config %[2]s
+WorkingDirectory=%[3]s
 Restart=always
 RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
-`, l.ServiceUser, l.Binary, l.configFile(), l.StateDir)
+`, l.Binary, l.configFile(), l.StateDir)
 }
 
 // CertFingerprint is the lowercase hex SHA-256 of the first certificate in a
