@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 )
 
 // Agent roles (one binary, two role profiles).
@@ -28,9 +29,23 @@ type LogConfig struct {
 	Format string `json:"format"` // text|json
 }
 
+// Defaults and environment overrides for the server (D-0004, D-0006).
+const (
+	DefaultListenAddr = ":6789"
+	EnvListenAddr     = "FLEET_LISTEN_ADDR"
+	EnvDataDir        = "FLEET_DATA_DIR"
+)
+
 // ServerConfig is the fleet-server configuration.
 type ServerConfig struct {
-	Log LogConfig `json:"log"`
+	// ListenAddr is the panel's listen address (default ":6789"). The
+	// FLEET_LISTEN_ADDR environment variable overrides the file value.
+	ListenAddr string `json:"listen_addr"`
+	// DataDir is the base data directory for all persistent state. Empty
+	// means "use the default"; see ResolveDataDir. The FLEET_DATA_DIR
+	// environment variable overrides the file value.
+	DataDir string    `json:"data_dir"`
+	Log     LogConfig `json:"log"`
 }
 
 // AgentConfig is the fleet-agent configuration.
@@ -51,7 +66,7 @@ type Config struct {
 func Defaults() Config {
 	log := LogConfig{Level: "info", Format: "text"}
 	return Config{
-		Server: ServerConfig{Log: log},
+		Server: ServerConfig{ListenAddr: DefaultListenAddr, Log: log},
 		Agent:  AgentConfig{Log: log},
 	}
 }
@@ -70,23 +85,60 @@ func (a AgentConfig) Validate() error {
 
 // Load reads the config file at path. An empty path or a missing file yields
 // Defaults(); any other read or parse error is returned. Fields absent from
-// the file keep their default values.
+// the file keep their default values. Server environment overrides
+// (FLEET_LISTEN_ADDR, FLEET_DATA_DIR) are applied last and win over the file.
 func Load(path string) (Config, error) {
 	cfg := Defaults()
-	if path == "" {
-		return cfg, nil
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return cfg, nil
+	if path != "" {
+		data, err := os.ReadFile(path)
+		switch {
+		case err == nil:
+			dec := json.NewDecoder(bytes.NewReader(data))
+			dec.DisallowUnknownFields()
+			if err := dec.Decode(&cfg); err != nil {
+				return Config{}, fmt.Errorf("parse config %s: %w", path, err)
+			}
+		case errors.Is(err, fs.ErrNotExist):
+			// Missing file: keep the defaults.
+		default:
+			return Config{}, fmt.Errorf("read config %s: %w", path, err)
 		}
-		return Config{}, fmt.Errorf("read config %s: %w", path, err)
 	}
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&cfg); err != nil {
-		return Config{}, fmt.Errorf("parse config %s: %w", path, err)
-	}
+	cfg.Server.applyEnv()
 	return cfg, nil
+}
+
+func (s *ServerConfig) applyEnv() {
+	if v := os.Getenv(EnvListenAddr); v != "" {
+		s.ListenAddr = v
+	}
+	if v := os.Getenv(EnvDataDir); v != "" {
+		s.DataDir = v
+	}
+}
+
+// ResolveDataDir returns the absolute base data directory (D-0006) and creates
+// it (mode 0o750) if it does not exist. The directory is s.DataDir (config or
+// FLEET_DATA_DIR) when set; otherwise it is a "data" directory one level above
+// the binary's install dir, i.e. <dir of exe>/../data. exePath is the path of
+// the running binary (os.Executable). Nothing is written into the directory.
+func (s ServerConfig) ResolveDataDir(exePath string) (string, error) {
+	dir := s.DataDir
+	if dir == "" {
+		if exePath == "" {
+			return "", errors.New("resolve data dir: no data_dir configured and binary path unknown")
+		}
+		if real, err := filepath.EvalSymlinks(exePath); err == nil {
+			exePath = real
+		}
+		dir = filepath.Join(filepath.Dir(exePath), "..", "data")
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", fmt.Errorf("resolve data dir %q: %w", dir, err)
+	}
+	if err := os.MkdirAll(abs, 0o750); err != nil {
+		return "", fmt.Errorf("create data dir %s: %w", abs, err)
+	}
+	return abs, nil
 }

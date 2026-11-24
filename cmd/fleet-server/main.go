@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -10,7 +11,9 @@ import (
 
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/logging"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/panel"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/version"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/web"
 )
 
 func main() { os.Exit(run()) }
@@ -36,11 +39,34 @@ func run() int {
 		return 1
 	}
 
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	exe, err := os.Executable()
+	if err != nil {
+		log.Warn("cannot determine binary path", "component", "fleet-server", "err", err)
+	}
+	dataDir, err := cfg.Server.ResolveDataDir(exe)
+	if err != nil {
+		log.Error("data dir", "component", "fleet-server", "err", err)
+		return 1
+	}
+
+	ln, err := panel.Listen(cfg.Server.ListenAddr)
+	if err != nil {
+		log.Error("listen", "component", "fleet-server", "addr", cfg.Server.ListenAddr, "err", err)
+		return 1
+	}
+
+	// SIGINT/SIGTERM cancel ctx, which triggers graceful shutdown of the panel.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	log.Info("starting", "component", "fleet-server", "version", version.Version, "config", *cfgPath)
-	sig := <-sigs
-	log.Info("shutting down", "component", "fleet-server", "signal", sig.String())
+	log.Info("data directory", "component", "fleet-server", "path", dataDir)
+	log.Info("panel listening", "component", "fleet-server", "url", panel.URL(cfg.Server.ListenAddr), "addr", ln.Addr().String())
+
+	if err := panel.Serve(ctx, ln, panel.Handler(web.FS), log); err != nil {
+		log.Error("panel server", "component", "fleet-server", "err", err)
+		return 1
+	}
+	log.Info("shutting down", "component", "fleet-server", "reason", "signal")
 	return 0
 }
