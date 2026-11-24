@@ -47,4 +47,4 @@ Note for the supervisor: running `./bin/fleet-server` from this repo with no ove
 `<repo>/data` (one level above `bin/`), which is inside the repo tree and not in `.gitignore`
 (`.gitignore` is not in touches). Suggest adding `/data/` to `.gitignore` or setting `FLEET_DATA_DIR` for local dev.
 
-<!-- wf: commits=PLACEHOLDER left=- tests=server:pass blocked=no -->
+<!-- wf: commits=3efd7e3 left=- tests=server:pass blocked=no -->
