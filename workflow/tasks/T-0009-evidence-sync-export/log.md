@@ -66,4 +66,4 @@ nanosecond timestamps, dissected as TCP/HTTP/UDP/ICMP/ICMPv6).
 Self-check: `gofmt -l .` empty, `go vet ./...` clean, `scripts/build.sh` ok, `scripts/test.sh server` and
 `scripts/test.sh agent` pass.
 
-<!-- wf: commits=PENDING left=- tests=server:pass,agent:pass blocked=no -->
+<!-- wf: commits=6e0e1fe left=- tests=server:pass,agent:pass blocked=no -->
