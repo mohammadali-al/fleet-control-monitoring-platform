@@ -1,0 +1,49 @@
+{{/* Fragments that are rendered with the page and re-fetched by the browser when live data changes
+   (GET /fragments/<name>). Keep them free of page chrome. Data: the panel's pageData. */}}
+
+{{define "state-chip"}}{{if eq . "online"}}<span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span>{{else if eq . "reconnecting"}}<span class="chip chip--warn"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Reconnecting</span>{{else}}<span class="chip chip--danger"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>Offline</span>{{end}}{{end}}
+
+{{define "role-chip"}}{{if eq . "worker"}}<span class="chip chip--accent">Worker agent</span>{{else}}<span class="chip chip--info">Monitor agent</span>{{end}}{{end}}
+
+{{define "machines-tiles"}}
+        <div class="card stat col-3 col-3--md-6"><div class="stat__label">Worker agents</div><div class="stat__value">{{.Summary.WorkersOnline}} <small>/ {{.Summary.Workers}} online</small></div><div class="stat__note">{{if .Summary.Workers}}{{if eq .Summary.WorkersOnline .Summary.Workers}}All connected{{else}}{{sub .Summary.Workers .Summary.WorkersOnline}} not connected{{end}}{{else}}None registered{{end}}</div></div>
+        <div class="card stat col-3 col-3--md-6"><div class="stat__label">Monitor agents</div><div class="stat__value">{{.Summary.MonitorsOnline}} <small>/ {{.Summary.Monitors}} online</small></div><div class="stat__note">{{if .Summary.Monitors}}{{if eq .Summary.MonitorsOnline .Summary.Monitors}}All connected{{else}}{{sub .Summary.Monitors .Summary.MonitorsOnline}} not connected{{end}}{{else}}None registered{{end}}</div></div>
+        <div class="card stat col-3 col-3--md-6"><div class="stat__label">Needs attention</div><div class="stat__value">{{len .Summary.NeedsAttention}}</div><div class="stat__note">{{if .Summary.NeedsAttention}}{{join .Summary.NeedsAttention ", "}}{{else}}Nothing to do{{end}}</div></div>
+        <div class="card stat col-3 col-3--md-6"><div class="stat__label">Disk guard</div><div class="stat__value">{{add (len .Summary.DiskWarn) (len .Summary.DiskCritical)}}</div><div class="stat__note">{{if or .Summary.DiskWarn .Summary.DiskCritical}}{{if .Summary.DiskWarn}}warning: {{join .Summary.DiskWarn ", "}}{{end}}{{if and .Summary.DiskWarn .Summary.DiskCritical}}; {{end}}{{if .Summary.DiskCritical}}intake paused: {{join .Summary.DiskCritical ", "}}{{end}}{{else}}No disk reports yet{{end}}</div></div>
+{{end}}
+
+{{define "machines-rows"}}
+{{- range .Machines}}
+              <tr data-id="{{.ID}}" data-role="{{.Role}}" data-state="{{.State}}"{{if .Removed}} data-removed{{end}}>
+                <th scope="row" class="cell-primary mono">{{.ID}}{{if .Removed}} <span class="chip chip--outline">Decommissioned</span>{{end}}{{if .Note}}<div class="cell-sub">{{.Note}}</div>{{end}}</th>
+                <td>{{template "role-chip" .Role}}</td>
+                <td>{{template "state-chip" .State}}</td>
+                <td class="mono">{{.ConnectMode}}</td>
+                <td>{{range .PrivateIPs}}<div class="mono">{{.}}</div>{{else}}<div class="faint">No address</div>{{end}}<div class="cell-sub">{{if .PublicIP}}Public <span class="mono">{{.PublicIP}}</span>{{if .PublicIPAt}} · {{ago .PublicIPAt}}{{end}}{{else}}Public IP not checked yet{{end}}</div></td>
+                <td>{{with disk .Disk}}<div class="meter{{if .Class}} meter--{{.Class}}{{end}}"><div class="meter__bar"><div class="meter__fill" style="width:{{.Pct}}%"></div></div><div class="meter__text"><span>{{.Used}} / {{.Total}}</span><span>{{.Pct}}%{{if .Word}} · {{.Word}}{{end}}</span></div></div>{{else}}<span class="faint">Unknown</span>{{end}}</td>
+                <td class="nowrap">{{if .LastSeen}}{{ago .LastSeen}}{{else}}never{{end}}</td>
+                <td class="actions">
+                  {{- if not .Removed}}<button class="icon-btn icon-btn--sm" type="button" aria-label="Refresh public IP of {{.ID}}" title="Refresh public IP" data-stub="The public IP re-check needs the reflector telemetry from the worker agent (a later task)."><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button>
+                  {{- if and (eq .Role "worker") (eq .State "online")}}<a class="icon-btn icon-btn--sm" href="terminal.html?machine={{.ID}}" aria-label="Open terminal on {{.ID}}" title="Open terminal"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg></a>
+                  {{- else if eq .Role "monitor"}}<span class="icon-btn icon-btn--sm" role="link" aria-disabled="true" aria-label="Terminal unavailable: monitor agents have no shell" title="Monitor agents have no shell"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg></span>
+                  {{- else}}<span class="icon-btn icon-btn--sm" role="link" aria-disabled="true" aria-label="Terminal unavailable: {{.ID}} is {{.State}}" title="Terminal unavailable: machine is {{.State}}"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg></span>{{end}}{{end}}
+                  <div class="menu"><button class="icon-btn icon-btn--sm" type="button" aria-label="More actions for {{.ID}}" title="More" aria-haspopup="menu" aria-expanded="false" data-menu-btn><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button><div class="menu__pop" role="menu" hidden><button class="menu__item" role="menuitem" type="button" data-stub="The machine details view comes later.">Details</button><button class="menu__item" role="menuitem" type="button" data-action="reprovision" data-machine="{{.ID}}">Re-provision</button>{{if not .Removed}}<button class="menu__item menu__item--danger" role="menuitem" type="button" data-action="remove" data-machine="{{.ID}}">Remove</button>{{end}}</div></div></td>
+              </tr>
+{{- else}}
+              <tr data-empty-row><td colspan="8" class="empty">No machines are registered yet. Use <strong>Onboard machine</strong> to add the first one.</td></tr>
+{{- end}}
+{{end}}
+
+{{define "command-targets"}}
+{{- range .Workers}}
+                <li class="list__item"><label class="check"><input type="checkbox" value="{{.ID}}" {{if eq .State "online"}}checked{{else}}disabled{{end}} aria-label="{{.ID}}{{if ne .State "online"}} ({{.State}}){{end}}"></label><div class="list__main"><b class="mono">{{.ID}}</b><small>{{if ne .State "online"}}unavailable while {{.State}}{{else if or .Running .Queued}}{{.Running}} running, {{.Queued}} queued{{else}}idle{{end}}</small></div>{{template "state-chip" .State}}</li>
+{{- else}}
+                <li class="list__item"><div class="list__main"><small>No worker agents are registered. Onboard one on the <a href="machines.html">Machines</a> page.</small></div></li>
+{{- end}}
+{{end}}
+
+{{define "shell-hosts"}}
+{{- range .Workers}}<option value="{{.ID}}"{{if ne .State "online"}} disabled{{end}}{{if eq .ID $.Preselect}} selected{{end}}>{{.ID}}{{if ne .State "online"}} ({{.State}}){{end}}</option>
+{{- else}}<option value="" disabled selected>No worker agents</option>
+{{- end}}
+{{end}}

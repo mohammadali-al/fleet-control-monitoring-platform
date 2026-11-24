@@ -1,0 +1,96 @@
+{{define "title"}}Machines{{end}}
+{{define "scripts"}}<script src="assets/js/live.js" defer></script>{{end}}
+{{define "content"}}
+      <div class="page-head">
+        <div class="page-head__text">
+          <h1>Machines</h1>
+          <p>Registry of worker agents and monitor agents: online state, role, connection mode, addresses and disk. Live: the state updates as agents connect and drop.</p>
+        </div>
+        <div class="page-head__actions">
+          <button class="btn" type="button" data-stub="The public IP re-check needs the reflector telemetry from the worker agents (a later task)."><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Refresh public IPs</button>
+          <button class="btn btn--primary" type="button" data-toggle-panel="#onboard" aria-expanded="false" aria-controls="onboard"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Onboard machine</button>
+        </div>
+      </div>
+{{if not .Backend}}
+      <div class="alert alert--warn" role="status" style="margin-bottom: var(--sp-4)"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><div>The panel is running without a backend, so the registry is empty and nothing can be provisioned.</div></div>
+{{end}}
+      <!-- Onboarding form (architecture 4.5): IP + SSH user + password/key + role -->
+      <section class="card panel" id="onboard" hidden aria-labelledby="onboard-title" style="margin-bottom: var(--sp-4)">
+        <div class="card__head">
+          <div><h2 id="onboard-title">Onboard a machine</h2><p>Provisioning installs <code>fleet-agent</code>, creates its client certificate and writes the connect mode.</p></div>
+        </div>
+        <form class="card__body stack" id="onboard-form" data-live-onboard>
+          <div class="form-grid">
+            <div class="field"><label for="f-ip">Machine IP address</label><input class="input input--mono" id="f-ip" name="host" inputmode="decimal" placeholder="10.20.0.30" required><span class="field__hint">Reachable from the main server.</span></div>
+            <div class="field"><label for="f-port">SSH port</label><input class="input input--mono" id="f-port" name="port" inputmode="numeric" value="22"></div>
+            <div class="field"><label for="f-user">SSH username</label><input class="input" id="f-user" name="user" autocomplete="off" placeholder="provision" required></div>
+            <fieldset class="field"><legend>Authentication</legend>
+              <div class="seg" role="radiogroup" aria-label="Authentication method">
+                <label><input type="radio" name="auth" value="password" checked><span>Password</span></label>
+                <label><input type="radio" name="auth" value="key"><span>Private key</span></label>
+              </div>
+            </fieldset>
+            <div class="field" data-auth="password"><label for="f-secret">SSH password</label><input class="input" id="f-secret" name="password" type="password" autocomplete="new-password"><span class="field__hint">Used once for provisioning, then discarded.</span></div>
+            <div class="field field--wide" data-auth="key" hidden><label for="f-key">SSH private key (PEM)</label><textarea class="textarea input--mono" id="f-key" name="private_key" rows="4" spellcheck="false" autocomplete="off"></textarea><span class="field__hint">Used once for provisioning, then discarded. Never stored or logged.</span></div>
+            <div class="field"><label for="f-role">Role</label>
+              <select class="select" id="f-role" name="role"><option value="worker">Worker agent</option><option value="monitor">Monitor agent</option></select>
+              <span class="field__hint">Monitor agents never run commands or shells.</span></div>
+            <div class="field"><label for="f-mode">Connect mode</label>
+              <select class="select" id="f-mode" name="connect_mode"><option value="server_dial">server_dial (default)</option><option value="agent_dial">agent_dial</option></select>
+              <span class="field__hint"><code>agent_dial</code> is for agents on another network.</span></div>
+          </div>
+          <div class="alert" data-form-status role="status" aria-live="polite" hidden></div>
+          <div class="row"><button class="btn btn--primary" type="submit">Start provisioning</button><button class="btn" type="button" data-toggle-panel="#onboard">Cancel</button></div>
+        </form>
+      </section>
+
+      <!-- Summary tiles -->
+      <section class="grid" id="machines-tiles" aria-label="Fleet summary" style="margin-bottom: var(--sp-4)">{{template "machines-tiles" .}}</section>
+
+      <!-- Registry -->
+      <section class="card" aria-labelledby="reg-title">
+        <div class="card__head"><h2 id="reg-title">Registry</h2><span class="muted" data-filter-count aria-live="polite">Showing {{len .Machines}} of {{len .Machines}} machines</span></div>
+        <div class="table-toolbar" role="search">
+          <div class="input-affix"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><input class="input" type="search" data-filter-q placeholder="Filter by ID or IP" aria-label="Filter machines by ID or IP"></div>
+          <div class="seg" role="radiogroup" aria-label="Filter by role">
+            <label><input type="radio" name="role" value="all" checked><span>All</span></label>
+            <label><input type="radio" name="role" value="worker"><span>Worker agents</span></label>
+            <label><input type="radio" name="role" value="monitor"><span>Monitor agents</span></label>
+          </div>
+          <select class="select" data-filter-state aria-label="Filter by state" style="width:auto">
+            <option value="all">Any state</option><option value="online">Online</option><option value="reconnecting">Reconnecting</option><option value="offline">Offline</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table class="table table--sticky-first" data-live-table>
+            <caption class="sr-only">Registered machines</caption>
+            <thead><tr>
+              <th scope="col">Machine</th><th scope="col">Role</th><th scope="col">State</th><th scope="col">Connect mode</th>
+              <th scope="col">Addresses</th><th scope="col">Disk</th><th scope="col">Last seen</th><th scope="col"><span class="sr-only">Actions</span></th>
+            </tr></thead>
+            <tbody id="machines-rows">{{template "machines-rows" .}}</tbody>
+          </table>
+        </div>
+        <p class="empty" data-filter-empty hidden>No machines match the current filter.</p>
+        <div class="card__foot">Live registry. State is derived from the control channel; <em>Reconnecting</em> means the agent was connected since the server started and dropped. Public IP is cached from the last reflector check. Disk guard: 80% raises a warning, 90% pauses capture intake (nothing is deleted). Disk figures arrive with the agent telemetry (a later task).</div>
+      </section>
+
+      <!-- Credentials for re-provision / remove (never stored) -->
+      <dialog class="dialog" id="dlg-cred" aria-labelledby="dlg-cred-title">
+        <form method="dialog" id="cred-form">
+          <div class="dialog__head"><h2 id="dlg-cred-title">Re-provision machine</h2><p data-cred-intro>Enter SSH credentials. They are used once and never stored.</p></div>
+          <div class="dialog__body">
+            <div class="field"><label for="c-user">SSH username</label><input class="input" id="c-user" name="user" autocomplete="off" required></div>
+            <div class="field"><label for="c-secret">SSH password</label><input class="input" id="c-secret" name="password" type="password" autocomplete="new-password"></div>
+            <div class="field"><label for="c-key">or SSH private key (PEM)</label><textarea class="textarea input--mono" id="c-key" name="private_key" rows="3" spellcheck="false" autocomplete="off"></textarea></div>
+            <div class="field"><label for="c-port">SSH port</label><input class="input input--mono" id="c-port" name="port" inputmode="numeric" value="22"></div>
+            <label class="check" data-cred-skip hidden><input type="checkbox" name="skip_remote"><span>Machine is unreachable: decommission in the registry only (skip stopping the agent over SSH)</span></label>
+            <div class="alert alert--danger" data-form-status role="status" aria-live="polite" hidden></div>
+          </div>
+          <div class="dialog__foot">
+            <button class="btn" type="button" data-dialog-close>Cancel</button>
+            <button class="btn btn--primary" type="submit" data-cred-submit>Re-provision</button>
+          </div>
+        </form>
+      </dialog>
+{{end}}

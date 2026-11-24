@@ -1,0 +1,94 @@
+{{define "title"}}Command runner{{end}}
+{{define "scripts"}}<script src="assets/js/live.js" defer></script>{{end}}
+{{define "content"}}
+      <div class="page-head">
+        <div class="page-head__text">
+          <h1>Command runner</h1>
+          <p>Mode A: run a one-shot command on one or more worker agents and watch the output live. Manual commands run strictly one at a time per worker agent; extra runs queue.</p>
+        </div>
+        <div class="page-head__actions">
+          <a class="btn" href="terminal.html"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg>Interactive shell (Mode B)</a>
+        </div>
+      </div>
+{{if not .Backend}}
+      <div class="alert alert--warn" role="status" style="margin-bottom: var(--sp-4)"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><div>The panel is running without a backend, so commands cannot be dispatched.</div></div>
+{{end}}
+      <div class="grid">
+        <!-- ============ New run ============ -->
+        <section class="card col-4" aria-labelledby="run-title">
+          <div class="card__head"><h2 id="run-title">New run</h2></div>
+          <form class="card__body stack" id="run-form" data-live-run>
+            <fieldset class="field">
+              <legend>Target worker agents</legend>
+              <div class="row" style="margin-bottom:var(--sp-1)">
+                <button class="btn btn--sm btn--ghost" type="button" data-select="online">Select all online</button>
+                <button class="btn btn--sm btn--ghost" type="button" data-select="none">Clear</button>
+              </div>
+              <ul class="list" id="targets" style="border:1px solid var(--border);border-radius:var(--radius)">{{template "command-targets" .}}</ul>
+              <span class="field__hint">Monitor agents never appear here: they have no command role.</span>
+            </fieldset>
+            <div class="field"><label for="cmd">Command</label><textarea class="textarea input--mono" id="cmd" name="command" rows="3" spellcheck="false" placeholder="uname -a &amp;&amp; uptime" required></textarea>
+              <span class="field__hint">Runs as the agent's service user on each selected worker agent.</span></div>
+            <div class="field"><label for="to">Timeout (seconds)</label><input class="input input--mono" id="to" name="timeout_sec" value="300" inputmode="numeric" aria-describedby="to-h"><span class="field__hint" id="to-h">Default 300 s. A hung command ends at the timeout and the queue advances.</span></div>
+            <div class="alert"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><div>Traffic produced by this command is captured as <strong>evidence</strong> under its session id.</div></div>
+            <div class="alert alert--danger" data-form-status role="status" aria-live="polite" hidden></div>
+            <div class="row">
+              <button class="btn btn--primary" type="submit" data-run-submit><svg class="icon" aria-hidden="true"><use href="#i-play"/></svg><span data-run-label>Run on 0 worker agents</span></button>
+            </div>
+          </form>
+        </section>
+
+        <!-- ============ Live view ============ -->
+        <div class="col-8 stack">
+          <section class="card" aria-labelledby="live-title">
+            <div class="card__head">
+              <div><h2 id="live-title">Live runs</h2><p class="mono" data-live-command>Nothing running</p></div>
+              <span class="chip chip--outline" data-live-chip>Idle</span>
+            </div>
+            <div class="card__body stack">
+              <div class="runs" id="runs" aria-label="Per worker agent" aria-live="off"></div>
+              <p class="empty" id="runs-empty">Submitted commands appear here, one card per worker agent, with their output streamed live.</p>
+            </div>
+            <div class="card__foot">Output is streamed from the agent as it is produced. Evidence (packets, drops) arrives with the evidence pipeline; open the session in <a href="evidence.html">Evidence</a> for the records.</div>
+          </section>
+
+          <!-- ============ History ============ -->
+          <section class="card" aria-labelledby="hist-title">
+            <div class="card__head"><h2 id="hist-title">History</h2><div class="input-affix" style="min-width:14rem"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><input class="input" type="search" data-history-filter placeholder="Filter commands" aria-label="Filter command history"></div></div>
+            <div class="table-wrap">
+              <table class="table">
+                <caption class="sr-only">Manual command history, including the serial queue</caption>
+                <thead><tr><th scope="col">Session</th><th scope="col">Command</th><th scope="col">Machine</th><th scope="col">Queued</th><th scope="col" class="num">Duration</th><th scope="col">Result</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+                <tbody id="history-rows"><tr><td colspan="7" class="empty">Loading history...</td></tr></tbody>
+              </table>
+            </div>
+            <div class="card__foot">Refusals are logged and shown here, like every other action. History is kept in memory by the main server and is lost on restart.</div>
+          </section>
+        </div>
+      </div>
+
+      <!-- One run card; cloned by live.js -->
+      <template id="tpl-run">
+        <article class="run" data-run>
+          <div class="run__head"><b class="mono" data-run-machine></b><span data-run-chip></span></div>
+          <div class="steps" aria-label="Run lifecycle"><span class="step" data-step="queued">Queued</span><span class="steps__sep"></span><span class="step" data-step="running">Running</span><span class="steps__sep"></span><span class="step" data-step="exited">Exited</span></div>
+          <div class="term-ph" role="log" data-run-out><div class="term-ph__body"></div></div>
+          <div class="row row--between"><span class="muted" data-run-meta></span><button class="btn btn--sm btn--danger" type="button" data-run-cancel>Terminate</button></div>
+        </article>
+      </template>
+
+      <!-- Dangerous-command gate (architecture 4.8). Enforced in the agent; this dialog only collects the operator's confirmation. -->
+      <dialog class="dialog" id="dlg-gate" aria-labelledby="dlg-gate-title">
+        <form method="dialog" id="gate-form">
+          <div class="dialog__head"><h2 id="dlg-gate-title">Confirm a dangerous command</h2><p>This command matches the server-side dangerous-pattern list.</p></div>
+          <div class="dialog__body">
+            <div class="alert alert--danger"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><div><strong>Matched pattern:</strong> <code data-gate-pattern></code><br><strong>Command:</strong> <code data-gate-command></code><br>The attempt is logged.</div></div>
+            <div class="field"><label for="gate-phrase">Type <code>I understand</code> to continue</label><input class="input input--mono" id="gate-phrase" autocomplete="off"><span class="field__hint">The agent refuses the command unless it carries a confirmation token minted by the main server, whatever the browser does.</span></div>
+          </div>
+          <div class="dialog__foot">
+            <button class="btn" type="button" data-dialog-close>Cancel</button>
+            <button class="btn btn--danger" type="submit" data-gate-confirm disabled>Run anyway</button>
+          </div>
+        </form>
+      </dialog>
+{{end}}
