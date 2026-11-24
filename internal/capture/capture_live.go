@@ -50,6 +50,14 @@ const (
 
 const cgroupV2Mount = "/sys/fs/cgroup"
 
+// nflogReadTimeout bounds every blocking netlink recv so the reader can never
+// wait forever: the socket carries SO_RCVTIMEO, so Recvfrom wakes at least this
+// often with EAGAIN, at which point read() re-checks closed and can exit. This
+// is what makes Close() reliably return — closing the fd alone does NOT unblock
+// a Recvfrom already blocked in another goroutine's OS thread on Linux, which
+// was the live-capture hang (T-0017).
+const nflogReadTimeout = 250 * time.Millisecond
+
 // liveSource is a running NFLOG-backed capture for one session cgroup.
 type liveSource struct {
 	group int
@@ -57,11 +65,12 @@ type liveSource struct {
 	fd    int
 	log   *slog.Logger
 
-	pkts   chan capturedPacket
-	drops  atomic.Uint64
-	closed atomic.Bool
-	wg     sync.WaitGroup
-	once   sync.Once
+	pkts      chan capturedPacket
+	drops     atomic.Uint64
+	closed    atomic.Bool
+	installed atomic.Bool // true once the nft table exists (so Close only tears down what it built)
+	wg        sync.WaitGroup
+	once      sync.Once
 }
 
 // newLiveSource installs the nftables rule and binds the NFLOG group. It is the
@@ -81,10 +90,12 @@ func newLiveSource(cgroupPath string, group int, log *slog.Logger) (packetSource
 		return nil, err
 	}
 
-	fd, err := openNFLOG(group)
+	log.Debug("capture: live setup: opening NFLOG socket", "group", group)
+	fd, err := openNFLOG(group, log)
 	if err != nil {
 		return nil, err
 	}
+	log.Debug("capture: live setup: NFLOG socket bound", "group", group, "fd", fd)
 
 	s := &liveSource{
 		group: group,
@@ -93,10 +104,13 @@ func newLiveSource(cgroupPath string, group int, log *slog.Logger) (packetSource
 		log:   log,
 		pkts:  make(chan capturedPacket, captureBuffer),
 	}
+	log.Debug("capture: live setup: installing nft rule", "table", s.table, "level", level, "cgroup", rel)
 	if err := s.installRule(rel, level); err != nil {
 		unix.Close(fd)
 		return nil, err
 	}
+	s.installed.Store(true)
+	log.Debug("capture: live setup: nft rule installed, starting reader", "table", s.table)
 	s.wg.Add(1)
 	go s.read()
 	return s, nil
@@ -105,16 +119,25 @@ func newLiveSource(cgroupPath string, group int, log *slog.Logger) (packetSource
 func (s *liveSource) Packets() <-chan capturedPacket { return s.pkts }
 func (s *liveSource) Drops() uint64                  { return s.drops.Load() }
 
-// Close removes the nft rule, stops the reader and closes the channel.
+// Close stops the reader, removes the nft rule and closes the channel. It is
+// guaranteed to return: setting closed makes the reader exit at its next
+// SO_RCVTIMEO wakeup (<= nflogReadTimeout), so wg.Wait() cannot block forever.
+// The reader is joined BEFORE the fd is closed, so the fd is never closed out
+// from under a blocked Recvfrom (that race, plus closing-fd-doesn't-wake-recv,
+// was the T-0017 hang).
 func (s *liveSource) Close() error {
 	var err error
 	s.once.Do(func() {
+		s.log.Debug("capture: live teardown: stopping reader", "table", s.table)
 		s.closed.Store(true)
-		// Closing the fd unblocks the blocked Recvfrom in read().
+		s.wg.Wait() // reader wakes within nflogReadTimeout, sees closed, returns
+		s.log.Debug("capture: live teardown: reader stopped, closing socket", "table", s.table)
 		err = unix.Close(s.fd)
-		s.removeRule()
-		s.wg.Wait()
+		if s.installed.Load() {
+			s.removeRule()
+		}
 		close(s.pkts)
+		s.log.Debug("capture: live teardown: done", "table", s.table)
 	})
 	return err
 }
@@ -155,9 +178,19 @@ func (s *liveSource) removeRule() {
 	}
 }
 
+// setRecvTimeout arms SO_RCVTIMEO so a blocked Recvfrom on fd wakes with EAGAIN
+// after d. This is the interrupt mechanism the reader relies on to notice Close.
+func setRecvTimeout(fd int, d time.Duration) error {
+	tv := unix.NsecToTimeval(int64(d))
+	return unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &tv)
+}
+
 // openNFLOG opens a netlink socket and binds the NFLOG group with full-packet
-// copy mode.
-func openNFLOG(group int) (int, error) {
+// copy mode. The config exchange is send-only (no NLM_F_ACK), so it never waits
+// on a recv; the receive side is bounded by SO_RCVTIMEO so the reader is always
+// interruptible. The config sends are logged at Debug so a hang (should one ever
+// reappear) pinpoints the exact step.
+func openNFLOG(group int, log *slog.Logger) (int, error) {
 	fd, err := unix.Socket(unix.AF_NETLINK, unix.SOCK_RAW, unix.NETLINK_NETFILTER)
 	if err != nil {
 		return -1, fmt.Errorf("capture: netlink socket: %w", err)
@@ -166,15 +199,23 @@ func openNFLOG(group int) (int, error) {
 		unix.Close(fd)
 		return -1, fmt.Errorf("capture: netlink bind: %w", err)
 	}
+	// Bound receives so the reader can never block indefinitely on Recvfrom.
+	if err := setRecvTimeout(fd, nflogReadTimeout); err != nil {
+		unix.Close(fd)
+		return -1, fmt.Errorf("capture: netlink SO_RCVTIMEO: %w", err)
+	}
 	// Keep the socket alive across buffer overruns; overruns are counted as drops.
 	_ = unix.SetsockoptInt(fd, unix.SOL_NETLINK, unix.NETLINK_NO_ENOBUFS, 1)
 
 	// PF_BIND for IPv4 and IPv6, then bind the group, then full-packet copy mode.
+	log.Debug("capture: nflog config: PF_BIND inet")
 	if err := nflogConfig(fd, 0, nfulnlCfgCmdPFBind, unix.AF_INET, nil); err != nil {
 		unix.Close(fd)
 		return -1, err
 	}
+	log.Debug("capture: nflog config: PF_BIND inet6")
 	_ = nflogConfig(fd, 0, nfulnlCfgCmdPFBind, unix.AF_INET6, nil)
+	log.Debug("capture: nflog config: bind group", "group", group)
 	if err := nflogConfig(fd, uint16(group), nfulnlCfgCmdBind, unix.AF_UNSPEC, nil); err != nil {
 		unix.Close(fd)
 		return -1, err
@@ -183,6 +224,7 @@ func openNFLOG(group int) (int, error) {
 	mode := make([]byte, 6)
 	binary.BigEndian.PutUint32(mode[0:4], 0)
 	mode[4] = nfulnlCopyPacket
+	log.Debug("capture: nflog config: copy mode", "group", group)
 	if err := nflogConfig(fd, uint16(group), 0, unix.AF_UNSPEC, &cfgMode{mode: mode}); err != nil {
 		unix.Close(fd)
 		return -1, err
@@ -240,24 +282,32 @@ func nlAttr(typ uint16, data []byte) []byte {
 }
 
 // read is the receive loop: it pulls NFLOG packets and forwards their payloads.
+// The socket carries SO_RCVTIMEO, so Recvfrom returns EAGAIN at least every
+// nflogReadTimeout even when idle; that is the loop's chance to notice Close
+// (closed) and exit, which is what guarantees Close().wg.Wait() returns.
 func (s *liveSource) read() {
 	defer s.wg.Done()
 	buf := make([]byte, 128*1024)
 	for {
+		if s.closed.Load() {
+			return
+		}
 		n, _, err := unix.Recvfrom(s.fd, buf, 0)
 		if err != nil {
 			if s.closed.Load() {
 				return
 			}
-			if err == unix.ENOBUFS {
+			switch err {
+			case unix.EAGAIN, unix.EINTR:
+				// SO_RCVTIMEO wakeup or interrupted syscall: re-check closed, retry.
+				continue
+			case unix.ENOBUFS:
 				s.drops.Add(1) // kernel dropped messages under burst (§6.3b)
 				continue
+			default:
+				s.log.Error("capture: nflog recv", "err", err)
+				return
 			}
-			if err == unix.EINTR {
-				continue
-			}
-			s.log.Error("capture: nflog recv", "err", err)
-			return
 		}
 		s.dispatch(buf[:n])
 	}
