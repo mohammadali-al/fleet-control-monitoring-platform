@@ -60,4 +60,4 @@ the agent and server processes, real Prometheus/VictoriaMetrics sink.
 - `gofmt -l .` empty, `go vet ./...` clean, `scripts/build.sh` ok, `scripts/test.sh server` and
   `scripts/test.sh agent` pass; `go test -race` on the two new packages passes (go1.26.8).
 
-<!-- wf: commits=PENDING left=- tests=server:pass,agent:pass blocked=no -->
+<!-- wf: commits=93dae27 left=- tests=server:pass,agent:pass blocked=no -->
