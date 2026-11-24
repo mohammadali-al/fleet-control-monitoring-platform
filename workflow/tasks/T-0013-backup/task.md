@@ -1,7 +1,7 @@
 ---
 id: T-0013
 title: backup
-state: ready
+state: merged
 touches: [internal/backup/backup.go, internal/backup/diff.go, internal/backup/restore.go,
           internal/backup/backup_test.go, internal/config/config.go, go.mod, go.sum]
 tests: [server]

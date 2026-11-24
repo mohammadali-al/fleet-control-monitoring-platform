@@ -22,3 +22,4 @@
 - [ ] T-0014 test-report — Generator verified by review (rendered sample is a complete, offline, self-contained HTML report; -race clean). Wire a 'Generate report' action later. Confirm to close.
 - [ ] T-0012 watchdog — Backend lib + systemd units (not yet wired as a `fleet-agent watchdog` subcommand). Verified by review: ladder/guards/policy tests + -race pass. Confirm to close.
 - [ ] T-0020 onboarding-agent-privileges — Worker unit now runs as root + explicit data dir (verified in the written unit). Real check: on a provisioned worker, capture works and a command yields records. Confirm to close.
+- [ ] T-0013 backup — Backend lib (Backup page wiring + Run loop not started from the server yet). Verified by review: additive SHA-256 replication, import round-trip, backup/diff/reminder tests + -race pass. Confirm to close.
