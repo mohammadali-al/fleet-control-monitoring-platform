@@ -10,6 +10,7 @@ _none_
 - **T-0012** watchdog  `after: [T-0003]`
 - **T-0013** backup  `after: [T-0009]`
 - **T-0014** test-report  `after: [T-0009, T-0010]`
+- **T-0016** shell-concurrent-exec  `after: [T-0007]`
 
 ## Waiting for the operator (merged → see CHECKS.md)
 - **T-0001** project-skeleton  `after: []`

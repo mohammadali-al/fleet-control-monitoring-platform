@@ -201,7 +201,8 @@ Removal / re-enrollment is a panel action; re-provisioning the same machine is i
 ### 4.6 One-at-a-time dispatch (manual commands)
 
 - Per worker agent, **manual** commands execute strictly serially: the main server holds a per-machine FIFO queue; the panel shows queued / running / finished.
-- This rule governs operator-typed commands **only**. Maneuver load replicas are concurrent by design and are owned by the Load Controller (chapter 10), not the serial queue.
+- This rule governs operator-typed **one-shot** commands **only**. Maneuver load replicas are concurrent by design and are owned by the Load Controller (chapter 10), not the serial queue.
+- An **interactive shell (Mode B) runs as its own concurrent, long-lived session** and does **not** occupy the one-shot FIFO — one-shot commands may run while a shell is open. (Each session has its own `session_id`/cgroup/capture, so concurrent sessions are safe.) The "one at a time" rule applies among one-shot commands, not to an open shell.
 - A crashed/hung manual command ends by timeout (default 300 s) or operator terminate; the queue advances.
 
 ### 4.7 Live terminal
