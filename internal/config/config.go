@@ -33,6 +33,7 @@ const (
 	RegistryDirName = "registry"
 	CADirName       = "ca"
 	ConfigDirName   = "config"
+	MonitorDirName  = "monitor"
 )
 
 // Control-channel defaults for the main server (architecture 4.1, 4.2).

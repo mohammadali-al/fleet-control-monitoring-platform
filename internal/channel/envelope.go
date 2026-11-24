@@ -48,6 +48,14 @@ const (
 	TypeEvVerify      = "ev-verify"       // server -> agent: the segment verified (or was rejected)
 )
 
+// Monitor envelope types (payload shapes live in internal/probe and
+// internal/monitor). Monitor data is a separate path from evidence: it never
+// rides the ev-* types.
+const (
+	TypeMonConfig = "mon-config" // server -> monitor agent: probe targets, frequency, timeouts
+	TypeMonData   = "mon-data"   // monitor agent -> server: a flushed batch of probe results
+)
+
 // Path is the URL path the agent serves the channel on.
 const Path = "/v1/channel"
 
