@@ -1,7 +1,7 @@
 ---
 id: T-0018
 title: agent-wiring
-state: ready
+state: merged
 touches: [cmd/fleet-agent/main.go, internal/agent/agent.go, internal/agent/worker.go,
           internal/agent/config_apply.go, internal/agent/agent_test.go,
           internal/channel/envelope.go, internal/fleet/fleet.go, internal/config/config.go]
