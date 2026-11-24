@@ -1,0 +1,15 @@
+# Independent 1-minute liveness check for fleet-watchdog.service (architecture
+# 11.7, layer 2): runs fleet-watchdog-liveness.service, a one-shot that starts
+# the watchdog if its unit is not active. Zero steady-state cost. Enable both the
+# timer and fleet-watchdog.service at boot so the watchdog returns after a reboot.
+[Unit]
+Description=Fleet watchdog liveness check (every minute)
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=5s
+Unit=fleet-watchdog-liveness.service
+
+[Install]
+WantedBy=timers.target

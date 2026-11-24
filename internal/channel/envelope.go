@@ -107,6 +107,46 @@ type ConfigAckPayload struct {
 	Error string `json:"error,omitempty"`
 }
 
+// Watchdog envelope types (architecture 11.6; payload semantics live in
+// internal/watchdog). The server pushes a version-stamped YAML policy profile;
+// the agent validates it, applies it live, and acknowledges. A profile that
+// fails validation is refused and the last-known one keeps running.
+const (
+	TypePolicy     = "policy"      // server -> agent: a policy profile (PolicyPayload)
+	TypePolicyAck  = "policy-ack"  // agent -> server: applied, or why not (PolicyAckPayload)
+	TypeWatchdogEv = "watchdog-ev" // agent -> server: a watchdog event to notify the panel (WatchdogEventPayload)
+)
+
+// PolicyPayload is the payload of a policy envelope (server -> agent).
+type PolicyPayload struct {
+	// Version is the profile's version stamp; it must match the "version" key
+	// inside YAML. Informational for logs and the ack.
+	Version int `json:"version"`
+	// YAML is the policy profile text.
+	YAML string `json:"yaml"`
+}
+
+// PolicyAckPayload is the payload of a policy-ack envelope (agent -> server).
+type PolicyAckPayload struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+	// Version is the profile version now in force on the agent.
+	Version int `json:"version"`
+}
+
+// WatchdogEventPayload is the payload of a watchdog-ev envelope (agent ->
+// server): breach, action, alert-only and similar notifications.
+type WatchdogEventPayload struct {
+	Time   time.Time `json:"time"`
+	Kind   string    `json:"kind"`
+	Scope  string    `json:"scope,omitempty"`
+	Metric string    `json:"metric,omitempty"`
+	Value  float64   `json:"value,omitempty"`
+	Target string    `json:"target,omitempty"`
+	Step   string    `json:"step,omitempty"`
+	Detail string    `json:"detail,omitempty"`
+}
+
 // Path is the URL path the agent serves the channel on.
 const Path = "/v1/channel"
 

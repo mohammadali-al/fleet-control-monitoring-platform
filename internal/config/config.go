@@ -34,6 +34,8 @@ const (
 	CADirName       = "ca"
 	ConfigDirName   = "config"
 	MonitorDirName  = "monitor"
+	// WatchdogDirName holds the watchdog's last-known policy and guard counters.
+	WatchdogDirName = "watchdog"
 )
 
 // Control-channel defaults for the main server (architecture 4.1, 4.2).
@@ -140,6 +142,21 @@ type AgentConfig struct {
 	// Capture tunes the worker-agent evidence-capture subsystem (chapter 6,
 	// 7.1). All fields are optional; zero values select the built-in defaults.
 	Capture CaptureConfig `json:"capture,omitempty"`
+
+	// Watchdog holds the host-local watchdog settings (chapter 11). Thresholds
+	// and the ladder are policy, pushed by the server; only what is specific
+	// to this host lives here.
+	Watchdog WatchdogConfig `json:"watchdog,omitempty"`
+}
+
+// WatchdogConfig is the host-local part of the watchdog configuration (T-0012).
+type WatchdogConfig struct {
+	// Groups are the policy-override groups this host belongs to; a profile's
+	// per-group overrides apply in this order, then the host's own override.
+	Groups []string `json:"groups,omitempty"`
+	// EgressInterface is the interface shaped when egress is throttled. Empty
+	// means the default route's interface.
+	EgressInterface string `json:"egress_interface,omitempty"`
 }
 
 // CaptureConfig configures evidence capture on a worker agent (T-0008). It is
