@@ -1,7 +1,7 @@
 ---
 id: T-0004
 title: panel-frontend
-state: ready
+state: running
 touches: [workflow/design/panel.md]
 tests: []
 after: [T-0001]
