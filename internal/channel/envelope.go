@@ -36,6 +36,18 @@ const (
 	TypeConfirm   = "confirm"   // server -> agent: dangerous-command confirmation token
 )
 
+// Evidence-sync envelope types (payload shapes live in internal/evidence). Pull
+// and idle push share one protocol: the agent's manifest is either requested
+// (pull) or offered unprompted (push); either way the main server then diffs it
+// against its archive and requests byte ranges of the segments it lacks.
+const (
+	TypeEvManifestReq = "ev-manifest-req" // server -> agent: send me your manifest
+	TypeEvManifest    = "ev-manifest"     // agent -> server: manifest (reply to a request, or an idle-push offer)
+	TypeEvRange       = "ev-range"        // server -> agent: send bytes of one segment from an offset
+	TypeEvChunk       = "ev-chunk"        // agent -> server: a slice of a segment (last one is flagged)
+	TypeEvVerify      = "ev-verify"       // server -> agent: the segment verified (or was rejected)
+)
+
 // Path is the URL path the agent serves the channel on.
 const Path = "/v1/channel"
 
