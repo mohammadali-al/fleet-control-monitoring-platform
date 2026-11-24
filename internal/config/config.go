@@ -22,6 +22,15 @@ const (
 	RoleMonitor = "monitor"
 )
 
+// Connection initiation modes (architecture 4.2). server_dial is the default.
+const (
+	ConnectModeServerDial = "server_dial"
+	ConnectModeAgentDial  = "agent_dial"
+)
+
+// RegistryDirName is the registry's subdirectory of the base data dir (D-0006).
+const RegistryDirName = "registry"
+
 // LogConfig selects logging behavior. Environment variables
 // (FLEET_LOG_LEVEL, FLEET_LOG_FORMAT) take precedence; see internal/logging.
 type LogConfig struct {
@@ -44,16 +53,34 @@ type ServerConfig struct {
 	// DataDir is the base data directory for all persistent state. Empty
 	// means "use the default"; see ResolveDataDir. The FLEET_DATA_DIR
 	// environment variable overrides the file value.
-	DataDir string    `json:"data_dir"`
-	Log     LogConfig `json:"log"`
+	DataDir string `json:"data_dir"`
+	// AgentBinaryPath is the fleet-agent binary the onboarding flow installs
+	// on new machines (packaging is deferred, so it is configured, not
+	// embedded). Empty means onboarding is unavailable and reports a clear
+	// error.
+	AgentBinaryPath string    `json:"agent_binary_path,omitempty"`
+	Log             LogConfig `json:"log"`
 }
 
 // AgentConfig is the fleet-agent configuration.
 type AgentConfig struct {
 	// Role is "worker" or "monitor". There is deliberately no default: an
 	// agent with no role must fail validation.
-	Role string    `json:"role"`
-	Log  LogConfig `json:"log"`
+	Role string `json:"role"`
+	// The fields below are written by the onboarding flow (architecture 4.5);
+	// all are optional so a hand-written agent config stays valid.
+
+	// MachineID is the identity issued at onboarding (the client cert CN).
+	MachineID string `json:"machine_id,omitempty"`
+	// ConnectMode is the per-machine dial direction: server_dial (default
+	// when empty) or agent_dial.
+	ConnectMode string `json:"connect_mode,omitempty"`
+	// CAFile is the pinned internal CA certificate; CertFile and KeyFile are
+	// this machine's client certificate and key.
+	CAFile   string    `json:"ca_file,omitempty"`
+	CertFile string    `json:"cert_file,omitempty"`
+	KeyFile  string    `json:"key_file,omitempty"`
+	Log      LogConfig `json:"log"`
 }
 
 // Config is the on-disk file: one section per binary.
@@ -73,6 +100,11 @@ func Defaults() Config {
 
 // Validate reports whether the agent configuration is usable.
 func (a AgentConfig) Validate() error {
+	switch a.ConnectMode {
+	case "", ConnectModeServerDial, ConnectModeAgentDial:
+	default:
+		return fmt.Errorf("invalid agent connect_mode %q (must be %q or %q)", a.ConnectMode, ConnectModeServerDial, ConnectModeAgentDial)
+	}
 	switch a.Role {
 	case RoleWorker, RoleMonitor:
 		return nil
