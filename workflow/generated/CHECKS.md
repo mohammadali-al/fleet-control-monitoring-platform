@@ -18,3 +18,4 @@
 - [ ] T-0010 monitors — Backend lib (no UI; not wired into the agent/server runtime yet). Verified by review: probe/monitor tests + -race pass. Confirm to close.
 - [ ] T-0017 capture-live-hang-fix — Hang FIXED (Close-unblock proven off-root, -race clean). **Real-machine smoke still PENDING** — 10.10.10.14 was unreachable during validation; rerun `sudo capture.test -run TestLiveCaptureSmoke -v` on a real worker when reachable.
 - [ ] T-0019 panel-cleanup — Open http://localhost:6789: all pages still render (light/dark); the row 'More' menu no longer scrolls/closes itself.
+- [ ] T-0016 shell-concurrent-exec — Backend (no UI). Verified by review: shells concurrent with one-shots, exec tests + -race pass. Confirm to close.

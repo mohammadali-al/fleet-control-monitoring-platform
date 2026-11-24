@@ -1,7 +1,7 @@
 ---
 id: T-0016
 title: shell-concurrent-exec
-state: ready
+state: merged
 touches: [internal/exec/queue.go, internal/exec/executor.go, internal/exec/pty.go,
           internal/exec/executor_test.go]
 tests: [server, agent]
