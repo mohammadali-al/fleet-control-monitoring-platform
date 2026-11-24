@@ -1,9 +1,12 @@
 // Package exec is the command-execution layer: the worker-agent Executor (Mode
 // A one-shot commands and Mode B PTY shells, each in a tracked per-session
-// cgroup, behind the dangerous-command gate) and the main-server Queue (a
-// per-machine strict FIFO). They talk over the channel (internal/channel) with
+// cgroup, behind the dangerous-command gate) and the main-server Queue (the
+// per-machine one-shot FIFO). They talk over the channel (internal/channel) with
 // the envelope types run, state, chunk, input, exit, resize, terminate and
-// confirm; payload shapes are in messages.go.
+// confirm; payload shapes are in messages.go. The Queue serialises one-shot
+// commands per machine; interactive shells run as concurrent sessions outside
+// that FIFO (see Queue). The Executor itself runs every run request in its own
+// goroutine, so it needs no scheduling change for that.
 package exec
 
 import (
