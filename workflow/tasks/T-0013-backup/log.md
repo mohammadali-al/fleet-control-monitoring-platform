@@ -51,4 +51,4 @@ monitor logs) get one `history/` version per changed night; unlimited retention 
 but a retention/compaction policy is a later decision. (3) Panel wiring (Backup page, surfacing `Reminder`,
 starting `Run` from the server) is a later task.
 
-<!-- wf: commits=PENDING left=- tests=server:pass blocked=no -->
+<!-- wf: commits=2c3a8af left=- tests=server:pass blocked=no -->
