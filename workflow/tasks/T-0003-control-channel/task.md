@@ -1,7 +1,7 @@
 ---
 id: T-0003
 title: control-channel
-state: ready
+state: merged
 touches: [internal/channel/envelope.go, internal/channel/envelope_test.go,
           internal/channel/server.go, internal/channel/agent.go,
           internal/channel/channel_test.go, go.mod, go.sum]
