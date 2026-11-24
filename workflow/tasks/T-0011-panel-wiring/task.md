@@ -1,9 +1,9 @@
 ---
 id: T-0011
 title: panel-wiring
-state: ready
+state: merged
 touches: [internal/panel/server.go, internal/panel/templates.go, internal/panel/api.go,
-          internal/panel/ws.go, internal/panel/api_test.go, web/_src/shell.html,
+          internal/panel/ws.go, internal/panel/api_test.go, web/_src/shell.html, cmd/fleet-server/main.go,
           internal/config/config.go, go.mod, go.sum]
 tests: [server]
 after: [T-0005, T-0006, T-0007]

@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/fleet"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/logging"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/panel"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/version"
@@ -49,6 +50,19 @@ func run() int {
 		return 1
 	}
 
+	// The live fleet: registry, internal CA, onboarding, and the channel links
+	// and command queues the Operate pages are wired to.
+	mgr, err := fleet.Open(fleet.Options{Config: cfg.Server, DataDir: dataDir, Logger: log})
+	if err != nil {
+		log.Error("fleet", "component", "fleet-server", "err", err)
+		return 1
+	}
+	handler, err := panel.New(panel.Options{Assets: web.FS, Templates: web.Templates, Backend: mgr, Logger: log})
+	if err != nil {
+		log.Error("panel", "component", "fleet-server", "err", err)
+		return 1
+	}
+
 	ln, err := panel.Listen(cfg.Server.ListenAddr)
 	if err != nil {
 		log.Error("listen", "component", "fleet-server", "addr", cfg.Server.ListenAddr, "err", err)
@@ -58,12 +72,14 @@ func run() int {
 	// SIGINT/SIGTERM cancel ctx, which triggers graceful shutdown of the panel.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	mgr.Start(ctx)
+	defer mgr.Close()
 
 	log.Info("starting", "component", "fleet-server", "version", version.Version, "config", *cfgPath)
 	log.Info("data directory", "component", "fleet-server", "path", dataDir)
 	log.Info("panel listening", "component", "fleet-server", "url", panel.URL(cfg.Server.ListenAddr), "addr", ln.Addr().String())
 
-	if err := panel.Serve(ctx, ln, panel.Handler(web.FS), log); err != nil {
+	if err := panel.Serve(ctx, ln, handler, log); err != nil {
 		log.Error("panel server", "component", "fleet-server", "err", err)
 		return 1
 	}
