@@ -1,7 +1,7 @@
 ---
 id: T-0002
 title: internal-ca
-state: ready
+state: merged
 touches: [internal/pki/ca.go, internal/pki/ca_test.go,
           internal/pki/tlsconfig.go, internal/pki/tlsconfig_test.go]
 tests: [server]

@@ -5,7 +5,6 @@
 ## Now (running / in review)
 _none_
 ## Next (ready, in order)
-- **T-0002** internal-ca  `after: [T-0001]`
 - **T-0003** control-channel  `after: [T-0002]`
 - **T-0005** serve-panel  `after: [T-0001, T-0004]`
 - **T-0006** machine-registry-onboarding  `after: [T-0002, T-0003]`
@@ -20,6 +19,7 @@ _none_
 
 ## Waiting for the operator (merged → see CHECKS.md)
 - **T-0001** project-skeleton  `after: []`
+- **T-0002** internal-ca  `after: [T-0001]`
 - **T-0004** panel-frontend  `after: [T-0001]`
 
 ## Blocked
