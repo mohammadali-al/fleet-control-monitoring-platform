@@ -41,4 +41,4 @@ Root-gated live capture path, source-IP, disk guard: untouched and not exercised
 Self-check (go1.26.8): `gofmt -l .` empty, `go vet ./...` clean, `scripts/build.sh` ok,
 `scripts/test.sh agent` pass, `go test -race -count=3 ./internal/capture/` pass.
 
-<!-- wf: commits=PENDING left=- tests=agent:pass blocked=no -->
+<!-- wf: commits=1305098 left=- tests=agent:pass blocked=no -->
