@@ -1,0 +1,13 @@
+/* Fleet panel - additions for the live (backend-wired) pages. Loaded after components.css.
+   Kept separate so the approved component sheets stay untouched. */
+
+/* The hidden attribute must win over component display rules (.alert, .check, ...). */
+[hidden] { display: none !important; }
+
+/* Reason text under a disabled option (Maneuver: Spike needs the deferred Load Controller). */
+.tag-reason { display: block; margin-top: var(--sp-1); color: var(--text-muted); }
+.tag-reason strong { color: var(--text); }
+
+/* xterm.js fills the always-dark terminal box. */
+.term-ph .xterm { padding: 0; }
+.term-ph .xterm-viewport { background-color: transparent !important; }

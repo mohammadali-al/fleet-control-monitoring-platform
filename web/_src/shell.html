@@ -1,17 +1,20 @@
-<!doctype html>
+{{/* Layout for every panel page (Go html/template). Data: .Page (active nav key), .Mock (page still shows mock data),
+   plus whatever the page needs. Pages define "title" and "content", and optionally "head" and "scripts". */}}
+{{define "layout"}}<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{title}} · Fleet panel</title>
+  <title>{{template "title" .}} &middot; Fleet panel</title>
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="assets/css/tokens.css">
   <link rel="stylesheet" href="assets/css/base.css">
   <link rel="stylesheet" href="assets/css/components.css">
+  <link rel="stylesheet" href="assets/css/live.css">
   <script src="assets/js/app.js"></script>
+  {{block "head" .}}{{end}}
 </head>
-<body>
-<!-- tmpl:shell-open — becomes the layout template in Go html/template (sprite + sidebar + topbar) -->
+<body data-page="{{.Page}}">
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
   <defs>
     <symbol id="i-fleet" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></symbol>
@@ -65,25 +68,25 @@
     <nav class="nav" aria-label="Pages">
       <div class="nav__group">
         <div class="nav__label">Operate</div>
-        <a class="nav__link" href="machines.html"{{aria:machines}}><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg>Machines</a>
-        <a class="nav__link" href="projects.html"{{aria:projects}}><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg>Projects &amp; tests</a>
-        <a class="nav__link" href="commands.html"{{aria:commands}}><svg class="icon" aria-hidden="true"><use href="#i-bolt"/></svg>Command runner</a>
-        <a class="nav__link" href="terminal.html"{{aria:terminal}}><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg>Terminal</a>
+        <a class="nav__link" href="machines.html"{{if eq .Page "machines"}} aria-current="page"{{end}}><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg>Machines</a>
+        <a class="nav__link" href="projects.html"{{if eq .Page "projects"}} aria-current="page"{{end}}><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg>Projects &amp; tests</a>
+        <a class="nav__link" href="commands.html"{{if eq .Page "commands"}} aria-current="page"{{end}}><svg class="icon" aria-hidden="true"><use href="#i-bolt"/></svg>Command runner</a>
+        <a class="nav__link" href="terminal.html"{{if eq .Page "terminal"}} aria-current="page"{{end}}><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg>Terminal</a>
       </div>
       <div class="nav__group">
         <div class="nav__label">Plan</div>
-        <a class="nav__link" href="baseline.html"{{aria:baseline}}><svg class="icon" aria-hidden="true"><use href="#i-layers"/></svg>Baseline items</a>
-        <a class="nav__link" href="maneuver.html"{{aria:maneuver}}><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg>Maneuver<span class="chip chip--outline nav__tag">Stub</span></a>
+        <a class="nav__link" href="baseline.html"{{if eq .Page "baseline"}} aria-current="page"{{end}}><svg class="icon" aria-hidden="true"><use href="#i-layers"/></svg>Baseline items</a>
+        <a class="nav__link" href="maneuver.html"{{if eq .Page "maneuver"}} aria-current="page"{{end}}><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg>Maneuver<span class="chip chip--outline nav__tag">Stub</span></a>
       </div>
       <div class="nav__group">
         <div class="nav__label">Observe</div>
-        <a class="nav__link" href="monitor.html"{{aria:monitor}}><svg class="icon" aria-hidden="true"><use href="#i-activity"/></svg>Monitor data</a>
-        <a class="nav__link" href="watchdog.html"{{aria:watchdog}}><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg>Watchdog</a>
-        <a class="nav__link" href="evidence.html"{{aria:evidence}}><svg class="icon" aria-hidden="true"><use href="#i-evidence"/></svg>Evidence</a>
+        <a class="nav__link" href="monitor.html"{{if eq .Page "monitor"}} aria-current="page"{{end}}><svg class="icon" aria-hidden="true"><use href="#i-activity"/></svg>Monitor data</a>
+        <a class="nav__link" href="watchdog.html"{{if eq .Page "watchdog"}} aria-current="page"{{end}}><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg>Watchdog</a>
+        <a class="nav__link" href="evidence.html"{{if eq .Page "evidence"}} aria-current="page"{{end}}><svg class="icon" aria-hidden="true"><use href="#i-evidence"/></svg>Evidence</a>
       </div>
       <div class="nav__group">
         <div class="nav__label">Administer</div>
-        <a class="nav__link" href="backup.html"{{aria:backup}}><svg class="icon" aria-hidden="true"><use href="#i-database"/></svg>Backup</a>
+        <a class="nav__link" href="backup.html"{{if eq .Page "backup"}} aria-current="page"{{end}}><svg class="icon" aria-hidden="true"><use href="#i-database"/></svg>Backup</a>
       </div>
     </nav>
     <div class="sidebar__foot">
@@ -100,18 +103,19 @@
       <button class="icon-btn topbar__menu" type="button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="#i-menu"/></svg></button>
       <span class="chip chip--outline" title="Only one test can be active system-wide"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>Active test: none</span>
       <span class="topbar__spacer"></span>
-      <span class="chip chip--info" title="This page is a static front-end preview"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>Mock data</span>
+      {{if .Mock}}<span class="chip chip--info" title="This page is a static front-end preview"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>Mock data</span>{{end}}
       <button class="icon-btn icon-btn--bordered theme-toggle" type="button" aria-label="Switch to dark theme" title="Switch to dark theme">
         <svg class="icon icon-moon" aria-hidden="true"><use href="#i-moon"/></svg><svg class="icon icon-sun" aria-hidden="true"><use href="#i-sun"/></svg>
       </button>
     </header>
-<!-- /tmpl:shell-open -->
 
     <main class="content" id="main">
-{{content}}
+{{template "content" .}}
     </main>
   </div>
 </div>
 <div class="toast-region" role="status" aria-live="polite"></div>
+{{block "scripts" .}}{{end}}
 </body>
 </html>
+{{end}}

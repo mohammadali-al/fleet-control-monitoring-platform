@@ -28,8 +28,21 @@ const (
 	ConnectModeAgentDial  = "agent_dial"
 )
 
-// RegistryDirName is the registry's subdirectory of the base data dir (D-0006).
-const RegistryDirName = "registry"
+// Subdirectories of the base data dir (D-0006).
+const (
+	RegistryDirName = "registry"
+	CADirName       = "ca"
+	ConfigDirName   = "config"
+)
+
+// Control-channel defaults for the main server (architecture 4.1, 4.2).
+const (
+	// DefaultChannelPort is the port a worker or monitor agent listens on
+	// under server_dial; the main server dials <machine IP>:<port>.
+	DefaultChannelPort = 7443
+	// DefaultServerID is the main server's identity (its client certificate CN).
+	DefaultServerID = "fleet-server"
+)
 
 // LogConfig selects logging behavior. Environment variables
 // (FLEET_LOG_LEVEL, FLEET_LOG_FORMAT) take precedence; see internal/logging.
@@ -58,8 +71,30 @@ type ServerConfig struct {
 	// on new machines (packaging is deferred, so it is configured, not
 	// embedded). Empty means onboarding is unavailable and reports a clear
 	// error.
-	AgentBinaryPath string    `json:"agent_binary_path,omitempty"`
-	Log             LogConfig `json:"log"`
+	AgentBinaryPath string `json:"agent_binary_path,omitempty"`
+	// ChannelPort is the port agents listen on for the control channel under
+	// server_dial. Zero means DefaultChannelPort.
+	ChannelPort int `json:"channel_port,omitempty"`
+	// ServerID is the main server's identity on the control channel (the CN of
+	// its client certificate). Empty means DefaultServerID.
+	ServerID string    `json:"server_id,omitempty"`
+	Log      LogConfig `json:"log"`
+}
+
+// ChannelPortOrDefault returns ChannelPort, or DefaultChannelPort when unset.
+func (s ServerConfig) ChannelPortOrDefault() int {
+	if s.ChannelPort > 0 {
+		return s.ChannelPort
+	}
+	return DefaultChannelPort
+}
+
+// ServerIDOrDefault returns ServerID, or DefaultServerID when unset.
+func (s ServerConfig) ServerIDOrDefault() string {
+	if s.ServerID != "" {
+		return s.ServerID
+	}
+	return DefaultServerID
 }
 
 // AgentConfig is the fleet-agent configuration.
