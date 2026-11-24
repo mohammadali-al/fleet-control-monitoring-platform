@@ -23,6 +23,19 @@ const (
 	TypePong     = "pong"
 )
 
+// Command-execution envelope types (payload shapes live in internal/exec).
+// The envelope ID of each is the session_id it belongs to.
+const (
+	TypeRun       = "run"       // server -> agent: start a one-shot or PTY session
+	TypeState     = "state"     // agent -> server: lifecycle (running, refused)
+	TypeChunk     = "chunk"     // agent -> server: command output
+	TypeInput     = "input"     // server -> agent: PTY input bytes
+	TypeExit      = "exit"      // agent -> server: session ended (code, duration)
+	TypeResize    = "resize"    // server -> agent: PTY window size
+	TypeTerminate = "terminate" // server -> agent: end a session
+	TypeConfirm   = "confirm"   // server -> agent: dangerous-command confirmation token
+)
+
 // Path is the URL path the agent serves the channel on.
 const Path = "/v1/channel"
 
