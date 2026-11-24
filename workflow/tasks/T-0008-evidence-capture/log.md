@@ -46,4 +46,4 @@ against a real kernel — flag for a root run at review.
 Self-check: `gofmt -l .` empty, `go vet ./...` clean, `scripts/build.sh` ok, `scripts/test.sh agent`
 passes. Adds `github.com/google/gopacket v1.1.19`; `golang.org/x/sys` promoted to a direct require.
 
-<!-- wf: commits=<sha> left=- tests=agent:pass blocked=no -->
+<!-- wf: commits=42a0ae0 left=- tests=agent:pass blocked=no -->
