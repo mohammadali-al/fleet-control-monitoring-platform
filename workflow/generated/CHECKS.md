@@ -16,3 +16,4 @@
 - [ ] T-0015 evidence-capture-fixes — Backend (no UI). Verified by review: full payloads stored, manifest concurrency-safe, capture+evidence -race pass. Confirm to close.
 - [ ] T-0011 panel-wiring — Open http://localhost:6789: Machines shows the (empty) live registry; onboard/remove a machine; Command runner streams a one-shot with the serial queue + confirmation gate; Terminal opens a shell (monitors not selectable). NOTE: a real machine shows online only after the agent side is wired (T-0018).
 - [ ] T-0010 monitors — Backend lib (no UI; not wired into the agent/server runtime yet). Verified by review: probe/monitor tests + -race pass. Confirm to close.
+- [ ] T-0017 capture-live-hang-fix — Hang FIXED (Close-unblock proven off-root, -race clean). **Real-machine smoke still PENDING** — 10.10.10.14 was unreachable during validation; rerun `sudo capture.test -run TestLiveCaptureSmoke -v` on a real worker when reachable.

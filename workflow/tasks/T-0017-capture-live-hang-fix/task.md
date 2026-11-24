@@ -1,7 +1,7 @@
 ---
 id: T-0017
 title: capture-live-hang-fix
-state: ready
+state: merged
 touches: [internal/capture/capture_live.go, internal/capture/capture.go, internal/capture/capture_test.go]
 tests: [agent]
 after: [T-0008]
