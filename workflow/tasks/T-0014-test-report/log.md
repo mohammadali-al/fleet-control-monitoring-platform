@@ -10,4 +10,4 @@ Built `internal/report/`: a per-test, self-contained interactive HTML report gen
 - Note for review (R-08): the brief cites architecture lines :578/:579/:580; in the current file the same content is at :579/:580/:581 (off by one). Content matches.
 - `TestWriteSample` writes the fixture report to `$REPORT_SAMPLE_OUT` (skipped otherwise) for eyeballing.
 
-<!-- wf: commits=PENDING left=- tests=server:pass blocked=no -->
+<!-- wf: commits=14b2ce3 left=- tests=server:pass blocked=no -->
