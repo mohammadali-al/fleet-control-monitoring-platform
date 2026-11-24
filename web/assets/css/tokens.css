@@ -1,0 +1,133 @@
+/* ==========================================================================
+   Fleet panel — design tokens (light + dark)
+   Theme switch: <html data-theme="light|dark">. With no attribute (or no JS)
+   the OS preference applies via prefers-color-scheme.
+   Never use raw hex outside this file.
+   ========================================================================== */
+
+:root {
+  /* ---- Typography (system stacks: the panel must work offline) ---- */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "Fira Code", "JetBrains Mono", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --fs-xs: 0.75rem;     /* 12px  chips, table header, captions (floor) */
+  --fs-sm: 0.8125rem;   /* 13px  secondary text */
+  --fs-base: 0.875rem;  /* 14px  body, tables, controls (dense ops UI) */
+  --fs-md: 1rem;        /* 16px  card titles */
+  --fs-lg: 1.25rem;     /* 20px  section heads */
+  --fs-xl: 1.5rem;      /* 24px  page title */
+  --lh: 1.5;
+  --lh-tight: 1.25;
+
+  /* ---- Spacing (4px base) ---- */
+  --sp-1: 0.25rem;  --sp-2: 0.5rem;  --sp-3: 0.75rem;
+  --sp-4: 1rem;     --sp-5: 1.5rem;  --sp-6: 2rem;   --sp-7: 3rem;
+
+  /* ---- Shape / depth / motion ---- */
+  --radius-sm: 4px;  --radius: 8px;  --radius-lg: 12px;
+  --control-h: 2.25rem;            /* 36px; 44px on coarse pointers (see base.css) */
+  --focus-width: 2px;
+  --dur-fast: 120ms;  --dur: 200ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* ---- Layout ---- */
+  --sidebar-w: 15rem;
+  --topbar-h: 3.5rem;
+  --content-max: 90rem;
+  --page-pad: var(--sp-5);
+
+  /* ---- Terminal placeholder is dark in BOTH themes ---- */
+  --term-bg: #0a0f1a;
+  --term-fg: #d6deeb;
+  --term-dim: #7f8ea3;
+  --term-accent: #7dd3a8;
+  --term-border: #263248;
+}
+
+/* ===== LIGHT (default) ===== */
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f4f6fa;              /* app background */
+  --surface: #ffffff;         /* cards, table, inputs */
+  --surface-2: #eef1f7;       /* table header, hover, chart bg */
+  --surface-3: #e3e8f1;       /* pressed / sunken */
+  --border: #d3d9e4;
+  --border-strong: #818da3;   /* input borders: >= 3:1 on surface */
+  --text: #0f172a;
+  --text-muted: #475569;
+  --text-faint: #5b6a7f;      /* still >= 4.5:1 on --bg */
+
+  --accent: #2158d6;          /* primary action / selected nav */
+  --accent-hover: #1a47b0;
+  --accent-soft: #e2eaff;
+  --on-accent: #ffffff;
+  --focus: #1d4ed8;
+
+  --ok: #15703a;       --ok-soft: #dcf5e4;
+  --warn: #8f4a05;     --warn-soft: #fdecc8;
+  --danger: #b42318;   --danger-soft: #fde4e1;
+  --info: #1d5aa8;     --info-soft: #dcebfb;
+  --neutral: #475569;  --neutral-soft: #e6eaf1;
+
+  --shadow-1: 0 1px 2px rgb(15 23 42 / 0.06), 0 1px 1px rgb(15 23 42 / 0.04);
+  --shadow-2: 0 8px 24px rgb(15 23 42 / 0.14);
+  --scrim: rgb(15 23 42 / 0.45);
+
+  /* chart series: distinguishable by lightness + dash as well as hue */
+  --series-1: #2158d6;  --series-2: #b45309;  --series-3: #0f766e;
+  --series-4: #7c3aed;  --series-5: #be185d;
+  --grid-line: #d3d9e4;
+}
+
+/* ===== DARK ===== */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0b1220;
+  --surface: #141d30;
+  --surface-2: #1b263c;
+  --surface-3: #243250;
+  --border: #2a3753;
+  --border-strong: #6a7a98;
+  --text: #f1f5f9;
+  --text-muted: #aab7cb;
+  --text-faint: #8d9bb2;
+
+  --accent: #6aa5ff;
+  --accent-hover: #8dbaff;
+  --accent-soft: #1b2f57;
+  --on-accent: #08101f;
+  --focus: #9cc2ff;
+
+  --ok: #5fd38a;       --ok-soft: #12301f;
+  --warn: #f2b84b;     --warn-soft: #382a0d;
+  --danger: #ff8b82;   --danger-soft: #3d1a19;
+  --info: #7db8ff;     --info-soft: #14284a;
+  --neutral: #aab7cb;  --neutral-soft: #222d45;
+
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-2: 0 8px 24px rgb(0 0 0 / 0.55);
+  --scrim: rgb(2 6 15 / 0.65);
+
+  --series-1: #6aa5ff;  --series-2: #f2b84b;  --series-3: #4fd1c5;
+  --series-4: #b794f6;  --series-5: #f472b6;
+  --grid-line: #2a3753;
+}
+
+/* No data-theme and no JS: follow the OS (keep in sync with the block above) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --bg: #0b1220;  --surface: #141d30;  --surface-2: #1b263c;  --surface-3: #243250;
+    --border: #2a3753;  --border-strong: #6a7a98;
+    --text: #f1f5f9;  --text-muted: #aab7cb;  --text-faint: #8d9bb2;
+    --accent: #6aa5ff;  --accent-hover: #8dbaff;  --accent-soft: #1b2f57;
+    --on-accent: #08101f;  --focus: #9cc2ff;
+    --ok: #5fd38a;  --ok-soft: #12301f;  --warn: #f2b84b;  --warn-soft: #382a0d;
+    --danger: #ff8b82;  --danger-soft: #3d1a19;  --info: #7db8ff;  --info-soft: #14284a;
+    --neutral: #aab7cb;  --neutral-soft: #222d45;
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);  --shadow-2: 0 8px 24px rgb(0 0 0 / 0.55);
+    --scrim: rgb(2 6 15 / 0.65);
+    --series-1: #6aa5ff;  --series-2: #f2b84b;  --series-3: #4fd1c5;
+    --series-4: #b794f6;  --series-5: #f472b6;  --grid-line: #2a3753;
+  }
+}
