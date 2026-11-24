@@ -77,7 +77,7 @@ type Record struct {
 	PayloadStatus    string `json:"payload_status"`         // full | trimmed
 	PayloadBytesFull int    `json:"payload_bytes_full"`     // exact total payload length, always
 	PayloadSHA256    string `json:"payload_sha256"`         // hex SHA-256 of the full payload, always
-	PayloadHead      []byte `json:"payload_head,omitempty"` // first <=threshold bytes when trimmed
+	PayloadHead      []byte `json:"payload_head,omitempty"` // full payload when full; first <=4 KB when trimmed
 
 	SrcIPUsed string `json:"src_ip_used"` // attribution source address (§6.4)
 }
@@ -201,8 +201,9 @@ func endpoint(ip net.IP, port int) string {
 // BuildRecord turns one raw outbound IP packet into a §6.3 Record. ts is the
 // capture time, srcIPUsed the attribution address (§6.4), and trimThreshold the
 // per-node payload threshold (<=0 selects DefaultTrimThreshold). payload_sha256
-// and payload_bytes_full always describe the full payload; payload_head is set
-// (first threshold bytes) only when the payload is trimmed.
+// and payload_bytes_full always describe the full payload. payload_head holds
+// the bytes kept on disk: the complete payload for a full record, or the first
+// threshold bytes (<= 4 KB) for a trimmed one.
 func BuildRecord(sessionID string, ts time.Time, data []byte, srcIPUsed string, trimThreshold int) (Record, error) {
 	d, err := decode(data)
 	if err != nil {
@@ -243,7 +244,13 @@ func buildFromDecoded(sessionID string, ts time.Time, d decoded, srcIPUsed strin
 		copy(head, d.payload[:trimThreshold])
 		rec.PayloadHead = head
 	} else {
+		// A full record retains its complete payload, not only its SHA-256.
 		rec.PayloadStatus = PayloadFull
+		if len(d.payload) > 0 {
+			head := make([]byte, len(d.payload))
+			copy(head, d.payload)
+			rec.PayloadHead = head
+		}
 	}
 	return rec
 }

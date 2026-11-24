@@ -1,8 +1,10 @@
 package capture
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"net"
 	"testing"
 	"time"
@@ -92,8 +94,8 @@ func TestBuildRecordFullPayload(t *testing.T) {
 	if rec.Flags != "ACK" {
 		t.Errorf("flags = %q, want ACK", rec.Flags)
 	}
-	if rec.PayloadStatus != PayloadFull || len(rec.PayloadHead) != 0 {
-		t.Errorf("status=%q head=%d, want full/empty", rec.PayloadStatus, len(rec.PayloadHead))
+	if rec.PayloadStatus != PayloadFull || !bytes.Equal(rec.PayloadHead, payload) {
+		t.Errorf("status=%q head=%q, want full with the complete payload %q", rec.PayloadStatus, rec.PayloadHead, payload)
 	}
 	if rec.PayloadBytesFull != len(payload) {
 		t.Errorf("bytes_full = %d, want %d", rec.PayloadBytesFull, len(payload))
@@ -139,6 +141,90 @@ func TestBuildRecordTrim(t *testing.T) {
 	want := sha256.Sum256(payload)
 	if rec.PayloadSHA256 != hex.EncodeToString(want[:]) {
 		t.Errorf("sha256 is not of the full payload")
+	}
+}
+
+// TestPayloadHeadAtThresholdBoundary pins the full/trimmed split: a payload of
+// exactly the threshold is full (complete payload in payload_head); one byte
+// more is trimmed (first threshold bytes only). Full records round-trip through
+// JSON with their payload intact.
+func TestPayloadHeadAtThresholdBoundary(t *testing.T) {
+	const threshold = 100
+	mk := func(n int) []byte {
+		p := make([]byte, n)
+		for i := range p {
+			p[i] = byte(i*7 + 1)
+		}
+		return p
+	}
+	cases := []struct {
+		name     string
+		size     int
+		status   string
+		wantHead int
+	}{
+		{"empty", 0, PayloadFull, 0},
+		{"one byte", 1, PayloadFull, 1},
+		{"below threshold", threshold - 1, PayloadFull, threshold - 1},
+		{"exactly threshold", threshold, PayloadFull, threshold},
+		{"threshold plus one", threshold + 1, PayloadTrimmed, threshold},
+		{"far above threshold", 5 * threshold, PayloadTrimmed, threshold},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := mk(tc.size)
+			pkt := tcpv4(t, "10.0.0.2", "198.51.100.7", 40000, 443, false, true, payload)
+			rec, err := BuildRecord("s", time.Now(), pkt, "", threshold)
+			if err != nil {
+				t.Fatalf("BuildRecord: %v", err)
+			}
+			if rec.PayloadStatus != tc.status {
+				t.Fatalf("status = %q, want %q", rec.PayloadStatus, tc.status)
+			}
+			if len(rec.PayloadHead) != tc.wantHead {
+				t.Fatalf("payload_head len = %d, want %d", len(rec.PayloadHead), tc.wantHead)
+			}
+			if !bytes.Equal(rec.PayloadHead, payload[:tc.wantHead]) {
+				t.Errorf("payload_head is not the payload's first %d bytes", tc.wantHead)
+			}
+			if rec.PayloadBytesFull != tc.size {
+				t.Errorf("bytes_full = %d, want %d", rec.PayloadBytesFull, tc.size)
+			}
+			sum := sha256.Sum256(payload)
+			if rec.PayloadSHA256 != hex.EncodeToString(sum[:]) {
+				t.Errorf("sha256 is not of the full payload")
+			}
+
+			// JSON round-trip (the segment line format) keeps payload_head.
+			line, err := json.Marshal(rec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var back Record
+			if err := json.Unmarshal(line, &back); err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(back.PayloadHead, rec.PayloadHead) || back.PayloadStatus != rec.PayloadStatus {
+				t.Errorf("payload_head/status did not round-trip through JSON")
+			}
+		})
+	}
+}
+
+// TestFullPayloadHeadIsACopy: the stored payload must not alias the packet
+// buffer (the live loop reuses its read buffer).
+func TestFullPayloadHeadIsACopy(t *testing.T) {
+	payload := []byte("sensitive-evidence")
+	pkt := tcpv4(t, "10.0.0.2", "198.51.100.7", 40000, 443, false, true, payload)
+	rec, err := BuildRecord("s", time.Now(), pkt, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range pkt {
+		pkt[i] = 0
+	}
+	if !bytes.Equal(rec.PayloadHead, payload) {
+		t.Errorf("payload_head changed when the packet buffer was reused: %q", rec.PayloadHead)
 	}
 }
 
