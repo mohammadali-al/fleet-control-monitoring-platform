@@ -275,7 +275,7 @@ All protocols (TCP/UDP/ICMP), **outbound only**, full payload up to the trim thr
 | `payload_status` | `full` or `trimmed` |
 | `payload_bytes_full` | Exact total payload length — always recorded |
 | `payload_sha256` | SHA-256 of the full payload, at capture time — always recorded |
-| `payload_head` | First ≤4 KB when trimmed (threshold configurable per node) |
+| `payload_head` | The payload bytes kept on disk: the **full payload when `full`** (≤ the trim threshold), or the **first ≤4 KB when `trimmed`** (threshold configurable per node). A `full` record always retains its complete payload — not only the SHA-256 |
 | `src_ip_used` | Source address chosen for attribution (6.4) |
 
 **Honest scope of proof:** outbound-only capture records **what the agent sent, including its own half of the TCP handshake** (its SYN, its ACKs, seq/ack numbers). It does **not** see the target's SYN-ACK, so it does not by itself prove the target replied. **Target responsiveness is measured separately by the monitor agents** (chapter 8).
