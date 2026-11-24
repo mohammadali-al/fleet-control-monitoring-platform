@@ -1,0 +1,72 @@
+<!-- title: Terminal -->
+      <div class="page-head">
+        <div class="page-head__text">
+          <h1>Terminal</h1>
+          <p>Mode B: interactive root shells on worker agents. Shells are opt-in; everything they send is captured as evidence under the session id.</p>
+        </div>
+        <div class="page-head__actions">
+          <a class="btn" href="commands.html">{{i:bolt}}One-shot runner (Mode A)</a>
+        </div>
+      </div>
+
+      <div class="split">
+        <!-- ============ Terminal sessions (xterm.js mounts here later) ============ -->
+        <section class="card" aria-label="Open terminal sessions">
+          <div class="tabs" role="tablist" aria-label="Open shells" data-tabs>
+            <button class="tab" role="tab" id="tab-1" aria-controls="pnl-1" aria-selected="true" type="button">{{i:terminal:sm}}wrk-01 <span class="faint mono">s-0151</span></button>
+            <button class="tab" role="tab" id="tab-2" aria-controls="pnl-2" aria-selected="false" type="button" tabindex="-1">{{i:terminal:sm}}wrk-04 <span class="faint mono">s-0152</span></button>
+          </div>
+          <div class="card__body">
+            <div class="tabpanel" role="tabpanel" id="pnl-1" aria-labelledby="tab-1" style="padding-top:0">
+              <div class="row row--between" style="margin-bottom:var(--sp-3)">
+                <div class="row"><span class="chip chip--ok">{{i:check:sm}}Connected</span><span class="chip chip--outline chip--mono">120 x 32</span><span class="muted">idle 0:42</span></div>
+                <div class="row"><button class="btn btn--sm" type="button" data-stub="Static preview: xterm.js is wired in a later task.">{{i:copy:sm}}Copy</button><button class="btn btn--sm btn--danger" type="button" data-stub="Static preview: the session would be terminated.">{{i:stop:sm}}Terminate session</button></div>
+              </div>
+              <div class="term-ph term-ph--tall" role="img" aria-label="Terminal placeholder for wrk-01 (xterm.js mounts here)">
+                <div class="term-ph__bar"><span>root@wrk-01: ~ &middot; session s-0151</span></div>
+                <div class="term-ph__body"><span class="term-ph__prompt">root@wrk-01:~#</span> cd /var/log &amp;&amp; ls | head -4
+auth.log
+fleet-agent.log
+kern.log
+syslog
+<span class="term-ph__prompt">root@wrk-01:/var/log#</span> <span class="term-ph__cursor"></span></div>
+              </div>
+            </div>
+            <div class="tabpanel" role="tabpanel" id="pnl-2" aria-labelledby="tab-2" hidden style="padding-top:0">
+              <div class="row row--between" style="margin-bottom:var(--sp-3)">
+                <div class="row"><span class="chip chip--ok">{{i:check:sm}}Connected</span><span class="chip chip--outline chip--mono">120 x 32</span><span class="muted">idle 5:10</span></div>
+                <div class="row"><button class="btn btn--sm" type="button" data-stub="Static preview: xterm.js is wired in a later task.">{{i:copy:sm}}Copy</button><button class="btn btn--sm btn--danger" type="button" data-stub="Static preview: the session would be terminated.">{{i:stop:sm}}Terminate session</button></div>
+              </div>
+              <div class="term-ph term-ph--tall" role="img" aria-label="Terminal placeholder for wrk-04 showing the dangerous-command prompt">
+                <div class="term-ph__bar"><span>root@wrk-04: ~ &middot; session s-0152</span></div>
+                <div class="term-ph__body"><span class="term-ph__prompt">root@wrk-04:~#</span> systemctl stop fleet-watchdog
+<span class="out-err">Dangerous command (matches: systemctl stop fleet-watchdog).</span>
+<span class="out-err">Type "I understand" to continue, or press Ctrl-C to cancel:</span> <span class="term-ph__cursor"></span></div>
+              </div>
+            </div>
+          </div>
+          <div class="card__foot">Mock content. The confirmation prompt above is how the dangerous-command gate looks in Mode B; the agent enforces it, including on pasted lines.</div>
+        </section>
+
+        <!-- ============ Rail ============ -->
+        <div class="stack">
+          <section class="card" aria-labelledby="ns-title">
+            <div class="card__head"><h2 id="ns-title">New shell</h2></div>
+            <form class="card__body stack" data-stub-form="Static preview: no shell was opened. Terminals are wired in a later task.">
+              <div class="field"><label for="ns-host">Worker agent</label>
+                <select class="select" id="ns-host"><option>wrk-02</option><option>wrk-03</option><option>wrk-07</option><option disabled>wrk-05 (reconnecting)</option><option disabled>wrk-06 (offline)</option></select>
+                <span class="field__hint">Monitor agents are not listed: they have no shell.</span></div>
+              <button class="btn btn--primary" type="submit">{{i:terminal}}Open shell</button>
+            </form>
+          </section>
+
+          <section class="card" aria-labelledby="ss-title">
+            <div class="card__head"><div><h2 id="ss-title">Sessions</h2><p>Every open shell, with terminate.</p></div><span class="muted">2 open</span></div>
+            <ul class="list">
+              <li class="list__item"><div class="list__main"><b>wrk-01 <span class="mono faint">s-0151</span></b><small>opened 13:55 · idle 0:42</small></div><button class="btn btn--sm btn--danger" type="button" aria-label="Terminate session s-0151 on wrk-01" data-stub="Static preview: the session would be terminated.">Terminate</button></li>
+              <li class="list__item"><div class="list__main"><b>wrk-04 <span class="mono faint">s-0152</span></b><small>opened 13:49 · idle 5:10</small></div><button class="btn btn--sm btn--danger" type="button" aria-label="Terminate session s-0152 on wrk-04" data-stub="Static preview: the session would be terminated.">Terminate</button></li>
+            </ul>
+            <div class="card__foot">Closed shells stay in <a href="evidence.html">Evidence</a>.</div>
+          </section>
+        </div>
+      </div>

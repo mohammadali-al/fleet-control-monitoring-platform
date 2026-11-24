@@ -244,3 +244,139 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 dl.kv { display: grid; grid-template-columns: auto 1fr; gap: var(--sp-2) var(--sp-4); }
 dl.kv dt { color: var(--text-muted); }
 dl.kv dd { white-space: nowrap; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+
+/* ==========================================================================
+   Phase 2 components: tabs · menu · dialog · switch · steps/ladder · tooltip ·
+   overlay lane · zoom panels · code block · frame placeholder · run cards
+   ========================================================================== */
+
+/* ---------- Tabs ---------- */
+.tabs { display: flex; gap: var(--sp-1); border-bottom: 1px solid var(--border); overflow-x: auto; overflow-y: hidden; }
+.tab {
+  display: inline-flex; align-items: center; gap: var(--sp-2); min-height: var(--control-h);
+  padding: 0 var(--sp-4); border: 0; border-bottom: 2px solid transparent;
+  background: transparent; color: var(--text-muted); font-weight: 600; cursor: pointer; white-space: nowrap;
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.tab:hover { color: var(--text); background: var(--surface-2); }
+.tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.tabpanel[hidden] { display: none; }
+.tabpanel { padding-top: var(--sp-4); }
+.card > .tabs { padding: 0 var(--sp-3); }
+
+/* ---------- Row action menu (stub) ---------- */
+.menu { display: inline-block; }
+.menu__pop {
+  position: fixed; z-index: 70; min-width: 11rem; padding: var(--sp-1);
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: var(--shadow-2);
+}
+.menu__pop[hidden] { display: none; }
+.menu__item {
+  display: flex; width: 100%; align-items: center; gap: var(--sp-2); min-height: var(--control-h); padding: 0 var(--sp-3);
+  border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text); font-weight: 550; text-align: left; cursor: pointer;
+}
+.menu__item:hover, .menu__item:focus-visible { background: var(--surface-2); }
+.menu__item--danger { color: var(--danger); }
+.menu__item--danger:hover { background: var(--danger-soft); }
+
+/* ---------- Dialog ---------- */
+.dialog { width: min(34rem, calc(100vw - 2rem)); padding: 0; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface); color: var(--text); box-shadow: var(--shadow-2); }
+.dialog::backdrop { background: var(--scrim); }
+.dialog__head { padding: var(--sp-4) var(--sp-4) var(--sp-2); }
+.dialog__head p { color: var(--text-muted); margin-top: var(--sp-1); }
+.dialog__body { padding: var(--sp-2) var(--sp-4) var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-3); }
+.dialog__foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border-top: 1px solid var(--border); background: var(--surface-2); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+
+/* ---------- Switch (checkbox with role=switch) ---------- */
+.switch { display: inline-flex; align-items: center; gap: var(--sp-3); min-height: var(--control-h); cursor: pointer; font-weight: 600; }
+.switch input { position: absolute; opacity: 0; width: 2.5rem; height: 1.5rem; margin: 0; cursor: pointer; }
+.switch__track { position: relative; flex: none; width: 2.5rem; height: 1.5rem; border-radius: 999px; background: var(--surface-3); border: 1px solid var(--border-strong); transition: background var(--dur-fast) var(--ease); }
+.switch__track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 1.1rem; height: 1.1rem; border-radius: 50%; background: var(--text-muted); transition: transform var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease); }
+.switch input:checked + .switch__track { background: var(--accent-soft); border-color: var(--accent); }
+.switch input:checked + .switch__track::after { transform: translateX(1rem); background: var(--accent); }
+.switch input:focus-visible + .switch__track { outline: var(--focus-width) solid var(--focus); outline-offset: 2px; }
+.switch__state { color: var(--text-muted); font-weight: 500; font-size: var(--fs-sm); }
+
+/* ---------- Steps (run lifecycle) and escalation ladder ---------- */
+.steps { display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; font-size: var(--fs-xs); font-weight: 650; }
+.step { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.125rem 0.5rem; border-radius: 999px; border: 1px solid var(--border-strong); color: var(--text-muted); background: var(--surface); }
+.step::before { content: ""; width: 0.5rem; height: 0.5rem; border-radius: 50%; border: 2px solid currentColor; }
+.step--done { color: var(--ok); border-color: var(--ok); }
+.step--done::before { background: currentColor; }
+.step--now { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.step--now::before { background: currentColor; box-shadow: 0 0 0 3px var(--accent-soft); }
+.step--bad { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); }
+.step--bad::before { background: currentColor; }
+.steps__sep { width: 0.75rem; height: 0; border-top: 2px solid var(--border-strong); }
+.ladder { display: inline-flex; gap: 3px; vertical-align: middle; }
+.ladder i { width: 1.1rem; height: 0.5rem; border-radius: 2px; background: var(--surface-3); border: 1px solid var(--border-strong); }
+.ladder i.on { background: var(--warn); border-color: var(--warn); }
+.ladder i.on.hi { background: var(--danger); border-color: var(--danger); }
+
+/* ---------- Tooltip (hover AND keyboard focus) ---------- */
+.tip { position: fixed; z-index: 75; max-width: 20rem; padding: var(--sp-2) var(--sp-3); border-radius: var(--radius); background: var(--text); color: var(--bg); font-size: var(--fs-sm); font-weight: 550; box-shadow: var(--shadow-2); pointer-events: none; }
+.tip[hidden] { display: none; }
+.tip b { display: block; font-variant-numeric: tabular-nums; }
+
+/* ---------- Command overlay on the monitor timeline ---------- */
+.plot { position: relative; }
+.plot__cols { position: absolute; inset: 0; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; }
+.plot__col { border-left: 1px solid transparent; }
+.plot__col:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); border-left-color: var(--accent); }
+.ovl { position: relative; height: 2.25rem; margin-top: var(--sp-1); border-top: 1px solid var(--border); background: var(--surface); border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
+.ovl__label { position: absolute; left: var(--sp-2); top: 50%; translate: 0 -50%; font-size: var(--fs-xs); color: var(--text-faint); font-weight: 600; pointer-events: none; }
+.ovl__mark { position: absolute; top: 0.4rem; bottom: 0.4rem; min-width: 0.9rem; padding: 0; border: 1px solid var(--series-2); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--series-2) 30%, var(--surface)); cursor: pointer; }
+.ovl__mark:hover, .ovl__mark:focus-visible { background: color-mix(in srgb, var(--series-2) 55%, var(--surface)); }
+
+/* ---------- Semantic zoom (history) ---------- */
+.zoom__bar { position: relative; height: 3.25rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.zoom__seg { position: absolute; top: 0.4rem; bottom: 0.4rem; display: flex; align-items: center; justify-content: center; padding: 0 var(--sp-2); border: 1px solid var(--accent); border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent); font-size: var(--fs-xs); font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.zoom__seg--alt { border-color: var(--series-2); background: color-mix(in srgb, var(--series-2) 22%, var(--surface)); color: var(--text); }
+.zoom__seg--gap { border-style: dashed; background: transparent; color: var(--text-muted); }
+.zoom__axis { position: relative; height: 1.5rem; font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.zoom__axis span { position: absolute; top: 0.2rem; transform: translateX(-50%); white-space: nowrap; }
+.zoom__axis span:first-child { transform: none; } .zoom__axis span:last-child { transform: translateX(-100%); }
+.zoom__panel[hidden] { display: none; }
+
+/* ---------- Code / YAML ---------- */
+.codeblock { margin: 0; padding: var(--sp-3) var(--sp-4); background: var(--term-bg); color: var(--term-fg); border: 1px solid var(--term-border); border-radius: var(--radius); font-family: var(--font-mono); font-size: var(--fs-sm); line-height: 1.6; overflow-x: auto; white-space: pre; }
+.codeblock .c { color: var(--term-dim); } .codeblock .k { color: var(--term-accent); }
+.token { font-family: var(--font-mono); padding: 0 0.3em; border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent); }
+
+/* ---------- Embedded Grafana frame placeholder ---------- */
+.frame-ph { display: grid; place-items: center; min-height: 11rem; padding: var(--sp-4); text-align: center; border: 1px dashed var(--border-strong); border-radius: var(--radius); background: repeating-linear-gradient(135deg, var(--surface-2) 0 12px, var(--surface) 12px 24px); color: var(--text-muted); }
+.frame-ph b { color: var(--text); display: block; }
+
+/* ---------- Run cards (Command runner fan-out) ---------- */
+.runs { display: grid; grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr)); gap: var(--sp-3); }
+.run { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); min-width: 0; }
+.run__head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+.run .term-ph__body { min-height: 5.5rem; max-height: 9rem; overflow: auto; padding: var(--sp-2) var(--sp-3); }
+.out-err { color: var(--term-err); }
+.term-ph--tall .term-ph__body { min-height: 22rem; }
+
+/* ---------- Small helpers used by phase 2 pages ---------- */
+.chip--live::before { content: ""; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: currentColor; }
+.hash { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-muted); }
+.truncate { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.field--wide { grid-column: 1 / -1; }
+.field--prominent > label { font-size: var(--fs-base); }
+.field--prominent .input { min-height: 2.75rem; font-size: var(--fs-md); }
+.sticky-rail { position: sticky; top: calc(var(--topbar-h) + var(--sp-4)); }
+@media (max-width: 1199px) { .sticky-rail { position: static; } }
+tr[aria-selected="true"] td, tr[aria-selected="true"] th { background: var(--accent-soft); }
+tr[aria-selected="true"] > :first-child { box-shadow: inset 3px 0 0 var(--accent); }
+
+/* Grouped table rows (tests by date) and terminal dim text */
+.table tbody tr.group th { position: static; background: var(--surface-2); font-size: var(--fs-xs); font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); padding-block: var(--sp-1); }
+.table tbody tr.group:hover { background: transparent; }
+.table--sticky-first tbody tr.group th:first-child { position: static; }
+.term-dim { color: var(--term-dim); }
+details > summary { list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
+details[open] > summary { border-bottom: 1px solid var(--border); }
+.split--rail-left { grid-template-columns: 17rem minmax(0, 1fr); }
+@media (max-width: 1199px) { .split--rail-left { grid-template-columns: minmax(0, 1fr); } }
+details > summary > .icon { transition: transform var(--dur-fast) var(--ease); }
+details[open] > summary > .icon { transform: rotate(180deg); }
+.stat__note .icon { display: inline-block; vertical-align: -0.15em; }

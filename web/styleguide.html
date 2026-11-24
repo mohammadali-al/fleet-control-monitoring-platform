@@ -20,6 +20,7 @@
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.5-4M4 4v4h4M4 13a8 8 0 0 0 14.5 4M20 20v-4h-4"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></symbol>
 </defs></svg>
 <a class="skip-link" href="#main">Skip to content</a>
@@ -65,8 +66,8 @@
     </div></div>
     <div class="card col-6"><div class="card__head"><h2>Disk meters</h2></div><div class="card__body stack">
       <div class="meter"><div class="meter__bar"><div class="meter__fill" style="width:40%"></div></div><div class="meter__text"><span>200 / 500 GB</span><span>40%</span></div></div>
-      <div class="meter meter--warn"><div class="meter__bar"><div class="meter__fill" style="width:88%"></div></div><div class="meter__text"><span>440 / 500 GB</span><span>88% &middot; high</span></div></div>
-      <div class="meter meter--danger"><div class="meter__bar"><div class="meter__fill" style="width:96%"></div></div><div class="meter__text"><span>480 / 500 GB</span><span>96% &middot; critical</span></div></div>
+      <div class="meter meter--warn"><div class="meter__bar"><div class="meter__fill" style="width:88%"></div></div><div class="meter__text"><span>440 / 500 GB</span><span>88% &middot; warning</span></div></div>
+      <div class="meter meter--danger"><div class="meter__bar"><div class="meter__fill" style="width:96%"></div></div><div class="meter__text"><span>480 / 500 GB</span><span>96% &middot; intake paused</span></div></div>
     </div></div>
   </section>
 
@@ -83,6 +84,46 @@
 <span class="term-ph__prompt">operator@wrk-01:~$</span> <span class="term-ph__cursor"></span></div></div>
     </div></div>
   </section>
+
+  <h2 style="font-size:var(--fs-lg)">Phase 2 components</h2>
+
+  <section class="card" aria-labelledby="g-tabs"><div class="card__head"><h2 id="g-tabs">Tabs (arrow keys, Home, End)</h2></div>
+    <div class="tabs" role="tablist" aria-label="Example tabs" data-tabs>
+      <button class="tab" role="tab" id="gt1" aria-controls="gp1" aria-selected="true" type="button">First</button>
+      <button class="tab" role="tab" id="gt2" aria-controls="gp2" aria-selected="false" type="button" tabindex="-1">Second</button>
+      <button class="tab" role="tab" id="gt3" aria-controls="gp3" aria-selected="false" type="button" tabindex="-1">Third</button>
+    </div>
+    <div class="card__body"><div class="tabpanel" role="tabpanel" id="gp1" aria-labelledby="gt1" style="padding-top:0">Panel one.</div><div class="tabpanel" role="tabpanel" id="gp2" aria-labelledby="gt2" hidden style="padding-top:0">Panel two.</div><div class="tabpanel" role="tabpanel" id="gp3" aria-labelledby="gt3" hidden style="padding-top:0">Panel three.</div></div>
+  </section>
+
+  <section class="card" aria-labelledby="g-over"><div class="card__head"><h2 id="g-over">Menu, dialog, tooltip, switch</h2></div><div class="card__body row">
+    <div class="menu"><button class="btn" type="button" aria-haspopup="menu" aria-expanded="false" data-menu-btn>Row menu <svg class="icon icon--sm" aria-hidden="true"><use href="#i-chevron"/></svg></button>
+      <div class="menu__pop" role="menu" hidden><button class="menu__item" role="menuitem" type="button" data-stub="Menu item chosen.">Details</button><button class="menu__item" role="menuitem" type="button" data-stub="Menu item chosen.">Re-provision</button><button class="menu__item menu__item--danger" role="menuitem" type="button" data-stub="Menu item chosen.">Remove</button></div></div>
+    <button class="btn" type="button" data-dialog-open="#g-dlg">Open dialog</button>
+    <button class="btn" type="button" data-tip="Command overlay|HTTP GET flood · 5 worker agents|about 7,000 packets sent">Hover or focus for tooltip</button>
+    <label class="switch"><input type="checkbox" role="switch" checked><span class="switch__track"></span><span>On</span></label>
+  </div></section>
+
+  <section class="card" aria-labelledby="g-steps"><div class="card__head"><h2 id="g-steps">Run steps, escalation ladder, live chip</h2></div><div class="card__body stack">
+    <div class="steps"><span class="step step--done">Queued</span><span class="steps__sep"></span><span class="step step--now">Running</span><span class="steps__sep"></span><span class="step">Exited</span></div>
+    <div class="steps"><span class="step step--done">Queued</span><span class="steps__sep"></span><span class="step step--done">Running</span><span class="steps__sep"></span><span class="step step--bad">Exited</span></div>
+    <div class="row"><span class="ladder" aria-label="Stage 0 of 4"><i></i><i></i><i></i><i></i></span><span class="ladder" aria-label="Stage 1 of 4"><i class="on"></i><i></i><i></i><i></i></span><span class="ladder" aria-label="Stage 4 of 4"><i class="on hi"></i><i class="on hi"></i><i class="on hi"></i><i class="on hi"></i></span>
+      <span class="chip chip--accent chip--live">Active test: Web tier spike probe #4</span></div>
+  </div></section>
+
+  <section class="grid">
+    <div class="card col-6"><div class="card__head"><h2>Code / YAML block</h2></div><div class="card__body"><pre class="codeblock"><span class="c"># policy profile</span>
+<span class="k">version</span>: 12
+<span class="k">detection</span>:
+  sample_interval: 5s</pre></div></div>
+    <div class="card col-6"><div class="card__head"><h2>Grafana frame placeholder</h2></div><div class="card__body"><div class="frame-ph" role="img" aria-label="Frame placeholder"><div><b>Embedded Grafana dashboard mounts here</b>Shared sign-in with the panel.</div></div></div></div>
+  </section>
+
+  <dialog class="dialog" id="g-dlg" aria-labelledby="g-dlg-t">
+    <form method="dialog"><div class="dialog__head"><h2 id="g-dlg-t">Dialog title</h2><p>One clear question, then the actions.</p></div>
+      <div class="dialog__body"><div class="alert alert--warn"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><div>Say what will happen.</div></div></div>
+      <div class="dialog__foot"><button class="btn" type="button" data-dialog-close>Cancel</button><button class="btn btn--primary" type="button" data-dialog-close>Confirm</button></div></form>
+  </dialog>
 </main>
 <div class="toast-region" role="status" aria-live="polite"></div>
 </body>

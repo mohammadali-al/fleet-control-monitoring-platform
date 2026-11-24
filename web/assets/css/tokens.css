@@ -41,6 +41,7 @@
   --term-dim: #7f8ea3;
   --term-accent: #7dd3a8;
   --term-border: #263248;
+  --term-err: #ff9d94;
 }
 
 /* ===== LIGHT (default) ===== */

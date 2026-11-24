@@ -1,15 +1,14 @@
 # Operator panel — front-end design
 
-**Status:** exploring · **Task:** T-0004 (phase 1) · **Decisions:** D-0001 (stack), D-0003 (English UI),
-D-0004 (`:6789`), D-0005 (Maneuver execution deferred) · **Source of truth:** architecture §12
+**Status:** built (T-0004 phase 2 done, awaiting review) · **Task:** T-0004 · **Decisions:** D-0001 (stack),
+D-0003 (English UI), D-0004 (`:6789`), D-0005 (Maneuver execution deferred) · **Source of truth:** architecture §12
 
-Phase 1 delivers this note plus two proof pages under `web/`: **Machines** and **Maneuver / Load
-Controller** (a non-functional stub). `web/styleguide.html` is a reviewer aid showing every shared
-component, including the chart and terminal placeholders. The other eight pages are built in phase 2
-after review.
+Phase 1 (design + two proof pages) was approved in `review-1.md`. Phase 2 built the other eight pages on the
+same shell and components. All ten pages are static, mock-data, English, light and dark, and work from `file://`.
+`web/styleguide.html` is a reviewer aid showing every shared component; it is not a panel page.
 
-How to look at it: open `web/machines.html` or `web/maneuver.html` straight from the filesystem (no
-server, no network). Toggle light/dark with the button at the top right.
+How to look at it: open any page under `web/` straight from the filesystem (no server, no network), starting at
+`web/index.html` (redirects to Machines). Toggle light/dark with the button at the top right.
 
 ---
 
@@ -64,6 +63,21 @@ sections). A global **active-test indicator** sits in the top bar (arch.: one ac
 | Observe | Watchdog | `watchdog.html` | Policy editor, per-host stage and events, counter reset. |
 | Observe | Evidence | `evidence.html` | Session browser, per-session packet records, pull button with sync status, exports. |
 | Administer | Backup | `backup.html` | Add backup server, diff view, suggested nightly schedule, manual backup, import, daily reminder. |
+
+**Signature interactions (all stubs, all keyboard-reachable):**
+- *Monitor data*: command overlay (hover or focus a command marker, or hover the chart, to see the commands and packet
+  counts for that interval; arch. 8.4) and semantic-zoom history (Overview / Day / Hour levels with merged labels).
+  The monitor-job create form puts **Origin / URL first and most prominent**, IP required below it (arch. 8.2).
+- *Evidence*: per-agent pull with live sync status (pulling, behind, synced, agent offline), segment manifest with
+  SHA-256 verification state, export (pcapng / CSV / JSON).
+- *Projects & tests*: confirm-to-start dialog when a test has no monitor (arch. 8.2).
+- *Command runner / Terminal*: dangerous-command confirmation gate (dialog in Mode A, in-terminal prompt in Mode B;
+  enforced agent-side, arch. 4.8), per-agent serial queue shown as queued / running / exited.
+- *Machines*: row menu (stub): Details, Re-provision (idempotent re-enroll, same machine ID), Remove (decommission and
+  revoke the client certificate).
+- *Backup*: once-a-day non-intrusive reminder, diff view, suggested nightly schedule, back up now, import (confirm).
+- *Watchdog*: policy as form or YAML, escalation ladder with per-step switches, guards, per-host stage and counters,
+  events log including attempts to stop the watchdog.
 
 **Page anatomy** (all pages): skip link -> sidebar (brand, nav, server footer) -> top bar (menu button
 on narrow screens, active-test chip, mock-data chip, theme toggle) -> content (`page-head` with title,
@@ -129,7 +143,7 @@ button >= 6.1:1, control borders >= 3.3:1 in both themes. The terminal placehold
 | **Status chip** | Icon + text, six variants; never wraps. Used for state (online, reconnecting, offline), role (worker agent, monitor agent), and tags (Stub, Draft). |
 | **Form** | Visible label on top, hint below, error below with `aria-invalid`; text input, select, segmented control (radio group), checkbox; mono variant for IP/command values; search input with icon. |
 | **Table** | Dense (14 px), sticky header, optional sticky first column, row hover, `scope` attributes, caption for screen readers, toolbar (search + segmented + select + live result count), empty state. |
-| **Meter** | Bar plus numeric text; warn/danger variants carry a word ("high", "critical") not just colour. |
+| **Meter** | Bar plus numeric text; warn/danger variants carry a word, not just colour. Disk thresholds are the architecture's: **80% warning, 90% critical (capture/archive intake paused)**, arch. 6.5 and 7.3. |
 | **Alert** | info / warn / danger / ok, icon + text. |
 | **Toast** | Live region; states why a stubbed action did nothing. |
 | **Chart placeholder** | Dashed frame, grid, sample series (solid and dashed), legend with line-style swatches, centred "placeholder" label; later hosts an embedded Grafana frame. |
@@ -137,6 +151,14 @@ button >= 6.1:1, control borders >= 3.3:1 in both themes. The terminal placehold
 | **Timeline** | Ruler, load-ceiling lane, item lanes with focusable bars, sticky lane labels, idle playhead. A table fallback is the "Resource use" table; the editor itself stays a stub. |
 | **Pattern chooser** | Three radio cards with a small ceiling-shape glyph. |
 | **List / kv** | Checklist rows (worker agents, library) and key-value summary. |
+| **Tabs** | `role=tablist`, roving tabindex, arrow/Home/End keys (Terminal sessions, Monitor data, Evidence, Watchdog policy). |
+| **Row menu** | Button + `role=menu`, fixed-positioned so scrolling tables never clip it; Esc closes and returns focus. |
+| **Dialog** | Native `<dialog>` (focus trap, Esc, backdrop for free); one question, then actions; destructive action in danger style. |
+| **Switch** | Checkbox with `role=switch` plus a text state (On/Off). |
+| **Steps / ladder** | Run lifecycle (queued, running, exited) and the 4-step watchdog escalation ladder; state is text plus shape, not only colour. |
+| **Tooltip** | Opens on hover and on keyboard focus; used for the command overlay and zoom segments. |
+| **Overlay lane / zoom bar** | Command markers aligned to the chart axis; merged-label segments for semantic zoom. |
+| **Code block, frame placeholder, run card** | YAML/command preview; embedded-Grafana placeholder; per-worker-agent live output card. |
 
 ### 4.6 Accessibility
 Skip link; one `h1` per page and sequential headings; landmarks (`aside`, `nav`, `main`, `header`);
@@ -170,26 +192,32 @@ UI strings use the architecture's words and nothing else:
 
 ```
 web/
-  index.html            redirect to machines.html
-  machines.html         proof page 1
-  maneuver.html         proof page 2 (stub)
-  styleguide.html       component reference (not a panel page)
+  index.html               redirect to machines.html
+  machines.html ... backup.html   the ten panel pages (GENERATED, see below)
+  styleguide.html          component reference (hand-written, not a panel page)
   assets/css/tokens.css base.css components.css
-  assets/js/app.js      theme, drawer, toasts, panel toggle, mock table filter
+  assets/js/app.js         theme, drawer, toasts, tabs, menus, dialogs, tooltips, mock filters
+  _src/shell.html          the one layout: head, icon sprite, sidebar, top bar, <main>{{content}}</main>
+  _src/pages/<page>.html   one fragment per page (first line: <!-- title: ... -->)
+scripts/stamp-web.py       DEV-ONLY generator: shell + fragment -> web/<page>.html
 ```
 
-- **No build, no framework, no network.** Relative paths only, so it works from `file://` or any static
-  server. A framework is not justified for ten server-rendered pages with islands of behaviour.
-- The shell (SVG icon sprite, sidebar, top bar) is **duplicated in each page** between
-  `<!-- tmpl:shell-open -->` and `<!-- /tmpl:shell-open -->`: external `fetch` includes do not work on
-  `file://`. In Go it becomes `{{define "layout"}}` with `{{template "sidebar" .}}`; the page-specific
-  `<main class="content">...</main>` becomes `{{define "content"}}`. The active nav item is
-  `aria-current="page"` set from a `.Page` field.
-- Mock rows and mock chips (`data-*`, "Mock data") are placeholders for `{{range}}` blocks.
-- Target serving: `fleet-server` on **`:6789`** (D-0004) serves `web/` via `embed.FS`; `assets/` as static
-  files. `app.js` has no network code; the later wiring task adds `fetch`/WebSocket where needed (xterm.js
-  and Grafana frames are added to the Terminal and Monitor data pages then).
+- **No build at runtime, no framework, no network.** Relative paths only, so every page works from `file://` or any
+  static server. A framework is not justified for ten server-rendered pages with islands of behaviour.
+- **One shell, stamped.** The shell cannot be included at runtime on `file://`, so `scripts/stamp-web.py` (Python
+  stdlib, dev-only) stamps every page from `_src/shell.html`; the committed `web/*.html` is plain static HTML with a
+  "GENERATED" banner. `python3 scripts/stamp-web.py` regenerates; `--check` exits 1 if any page is out of date, so it
+  can run in a check later. Fragments may use small macros (`{{i:name}}` icon, `{{state:online}}`, `{{role:worker}}`)
+  that expand to the same markup shown in the styleguide. Edit `_src/`, never the generated pages.
+- **Go port.** `shell.html` becomes `{{define "layout"}}`; each fragment becomes `{{define "content"}}`; the active nav
+  item is `aria-current="page"` set from a `.Page` field; mock rows become `{{range}}` blocks. The stamp script is then
+  retired. The `{{...}}` in `_src/` are stamp-script tokens, not Go template actions; none remain in the output.
+- Target serving: `fleet-server` on **`:6789`** (D-0004) serves `web/` (without `_src/`) via `embed.FS`. `app.js` has no
+  network code; later tasks add `fetch`/WebSocket, and mount xterm.js (Terminal) and Grafana frames (Monitor data).
 - `data-stub="..."` marks any action that is still a stub; a later task replaces it with the real handler.
+- Verified: every page loads with no JS errors and no external URLs; theme toggle, row menu, dialogs, tabs (mouse and
+  arrow keys), semantic zoom, tooltips on focus, switches, and the Machines filter all behave (scripted check through
+  Chrome DevTools Protocol).
 
 ---
 
@@ -206,25 +234,21 @@ visually but drive no state.
 
 ---
 
-## 8. Open design questions
+## 8. Decisions taken during review (phase 1 questions)
 
-- **Q1. Nav destinations in phase 1.** Links to the eight unbuilt pages are real hrefs and 404 until phase 2.
-  Acceptable for review? (Alternative: ship phase-1 stubs for each.)
-- **Q2. Fonts.** System stacks keep the panel fully offline. If a Fira look is wanted, self-host woff2 files
-  under `web/assets/fonts/` (adds binary files to the repo). Decide before phase 2.
-- **Q3. Accent colour.** Blue accent, green reserved for "ok" (deviates from the skill's green). Confirm.
-- **Q4. Density.** 14 px body, 36 px controls. Is the operator on a large monitor (comfortable) or a laptop
-  (maybe 13 px)?
-- **Q5. Machines "More" menu.** Per-row details/actions (rename, change role, decommission, re-provision) are
-  not in §12.2; shown as a stub kebab. Define the list or drop the kebab.
-- **Q6. Disk thresholds.** 80 % high / 95 % critical are placeholders; no architecture value found.
-- **Q7. Shared shell duplication.** Phase 2 will repeat the shell in eight more files. A tiny script to stamp
-  it from one source (still no runtime dependency) could be added; or accept until the Go templates exist.
+- **Q1** Dead nav links were acceptable; phase 2 built all pages, so every link resolves.
+- **Q2** System font stacks stay (offline wins); no web fonts.
+- **Q3** Blue accent, green reserved for ok/online: confirmed.
+- **Q4** 14 px body, 36 px controls: confirmed (desktop ops console).
+- **Q5** Machines row menu: Details, Re-provision, Remove (stub). No rename.
+- **Q6** Disk thresholds are the architecture's: 80% warning, 90% critical / intake paused.
+- **Q7** Shell is stamped from one source by a dev-only script (section 6).
 
----
+## 9. Open items for later tasks
 
-## 9. Phase 2 plan (after approval)
-
-Build the eight remaining pages on the same shell and components; add only components the pages need
-(tabs for Terminal sessions, a diff view for Backup, a form-section pattern for the policy editors);
-re-run the contrast script when tokens change; keep `styleguide.html` in sync.
+- Threshold example values on the Watchdog page (CPU 95%, RAM 92%, recovery 85%) are placeholders: the architecture
+  names the mechanism (sustained 20 s breach, hysteresis) but not the percentages. The operator should set them.
+- Monitor "per machine" and "per target" chart views are radio buttons only; the data views come with the backend.
+- The Maneuver page keeps its target block ip-first (as agreed); only the monitor-job form is origin-first.
+- Reports (arch. 13) open from "Report" buttons on the Projects page; the report itself is not part of this front-end.
+- When the Go templates exist, retire `scripts/stamp-web.py` and move `_src/` content into `internal/` templates.
