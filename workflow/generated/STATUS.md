@@ -7,7 +7,6 @@ _none_
 ## Next (ready, in order)
 - **T-0012** watchdog  `after: [T-0003]`
 - **T-0013** backup  `after: [T-0009]`
-- **T-0014** test-report  `after: [T-0009, T-0010]`
 
 ## Waiting for the operator (merged → see CHECKS.md)
 - **T-0001** project-skeleton  `after: []`
@@ -21,6 +20,7 @@ _none_
 - **T-0009** evidence-sync-export  `after: [T-0008]`
 - **T-0010** monitors  `after: [T-0003]`
 - **T-0011** panel-wiring  `after: [T-0005, T-0006, T-0007]`
+- **T-0014** test-report  `after: [T-0009, T-0010]`
 - **T-0015** evidence-capture-fixes  `after: [T-0008]`
 - **T-0016** shell-concurrent-exec  `after: [T-0007]`
 - **T-0017** capture-live-hang-fix  `after: [T-0008]`

@@ -1,7 +1,7 @@
 ---
 id: T-0014
 title: test-report
-state: ready
+state: merged
 touches: [internal/report/report.go, internal/report/html.go, internal/report/report_test.go,
           internal/report/template.gohtml]
 tests: [server]
