@@ -81,6 +81,32 @@ type AgentConfig struct {
 	CertFile string    `json:"cert_file,omitempty"`
 	KeyFile  string    `json:"key_file,omitempty"`
 	Log      LogConfig `json:"log"`
+
+	// Capture tunes the worker-agent evidence-capture subsystem (chapter 6,
+	// 7.1). All fields are optional; zero values select the built-in defaults.
+	Capture CaptureConfig `json:"capture,omitempty"`
+}
+
+// CaptureConfig configures evidence capture on a worker agent (T-0008). It is
+// read by internal/capture; zero fields fall back to that package's defaults.
+type CaptureConfig struct {
+	// TrimThresholdBytes is the per-node payload trim threshold (§6.3): a
+	// payload longer than this is stored trimmed (head only). 0 -> default.
+	TrimThresholdBytes int `json:"trim_threshold_bytes,omitempty"`
+	// SegmentMaxBytes and SegmentMaxAgeSeconds roll segments (§7.1): a new
+	// segment starts on the first of 50 MB or 5 min by default. 0 -> default.
+	SegmentMaxBytes      int64 `json:"segment_max_bytes,omitempty"`
+	SegmentMaxAgeSeconds int   `json:"segment_max_age_seconds,omitempty"`
+	// DiskWarnPercent / DiskPausePercent are the local disk guard (§6.5):
+	// warn at 80 %, pause capture writes at 90 % by default. 0 -> default.
+	DiskWarnPercent  int `json:"disk_warn_percent,omitempty"`
+	DiskPausePercent int `json:"disk_pause_percent,omitempty"`
+	// Reflectors overrides the public-IP reflector set (§6.4). Empty ->
+	// default six services.
+	Reflectors []string `json:"reflectors,omitempty"`
+	// NFLOGGroup is the base nftables NFLOG group for the live capture path.
+	// 0 -> default. Each concurrent session uses a distinct group above it.
+	NFLOGGroup int `json:"nflog_group,omitempty"`
 }
 
 // Config is the on-disk file: one section per binary.
