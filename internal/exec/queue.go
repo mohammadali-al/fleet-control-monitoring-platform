@@ -12,10 +12,20 @@ import (
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/channel"
 )
 
-// Queue is the main-server side for ONE machine: a strict FIFO. Manual
-// commands (and PTY sessions) run strictly one at a time -- the next run
-// envelope is not sent until the previous session's exit has arrived. (Maneuver
-// replicas are separate and owned by the Load Controller, not this queue.)
+// Queue is the main-server side for ONE machine. One-shot commands (Mode A) run
+// through a strict FIFO: strictly one at a time -- the next run envelope is not
+// sent until the previous one-shot's exit has arrived. (Maneuver replicas are
+// separate and owned by the Load Controller, not this queue.)
+//
+// Interactive shells (Mode B, PTY) are NOT part of that FIFO. A shell is its own
+// concurrent, long-lived session: it starts as soon as it is submitted, never
+// waits for a one-shot, and never makes a one-shot wait -- an open shell does not
+// occupy the FIFO (architecture 4.6). Each shell keeps its own session id and
+// cgroup on the agent, so concurrent sessions do not interfere.
+//
+// Multi-shell policy: several shells may be open at once on one machine (each an
+// independent session), capped at MaxShells so a runaway client cannot pile up
+// root PTYs. Submitting a shell beyond the cap fails with ErrTooManyShells.
 //
 // Wire it up as: q := NewQueue(machineID, dialer, onEvent); give q.Handle to
 // the channel Dialer as its Handler; run q.Run(ctx) in a goroutine; call
@@ -26,9 +36,11 @@ type Queue struct {
 	onEvent   func(Event)
 
 	mu       sync.Mutex
-	pending  []*entry
-	current  *entry
-	finished []Entry // most recent first, capped
+	pending  []*entry // one-shot FIFO, waiting
+	current  *entry   // the running one-shot, if any
+	busy     bool     // a one-shot is in flight (set with current, cleared when its goroutine ends)
+	shells   []*entry // open shells (queued for an instant, then running), start order
+	finished []Entry  // most recent first, capped
 	wake     chan struct{}
 }
 
@@ -74,11 +86,14 @@ type Event struct {
 // Errors returned by the queue.
 var (
 	ErrUnknownSession = errors.New("exec: unknown session")
-	ErrNotRunning     = errors.New("exec: session is not the running one")
+	ErrNotRunning     = errors.New("exec: session is not running")
+	ErrTooManyShells  = errors.New("exec: too many open shells on this machine")
 )
 
 const (
 	maxFinished = 100
+	// MaxShells is the most interactive shells open at once on one machine.
+	MaxShells = 8
 	// slack added to a command's timeout before the queue gives up waiting for
 	// the agent's exit message.
 	exitSlack = 30 * time.Second
@@ -97,8 +112,9 @@ func NewSessionID() string {
 	return "s-" + hex.EncodeToString(b[:])
 }
 
-// Submit appends a command to the machine's FIFO and returns its session id.
-// An empty req.SessionID is generated.
+// Submit queues a one-shot command on the machine's FIFO, or -- for a PTY shell
+// -- registers it to start immediately outside the FIFO, and returns its session
+// id. An empty req.SessionID is generated.
 func (q *Queue) Submit(req RunPayload) (string, error) {
 	if req.SessionID == "" {
 		req.SessionID = NewSessionID()
@@ -123,19 +139,32 @@ func (q *Queue) Submit(req RunPayload) (string, error) {
 		q.mu.Unlock()
 		return "", fmt.Errorf("exec: session id %q already in use", req.SessionID)
 	}
-	q.pending = append(q.pending, e)
+	if req.Mode == ModePTY {
+		if len(q.shells) >= MaxShells {
+			q.mu.Unlock()
+			return "", ErrTooManyShells
+		}
+		q.shells = append(q.shells, e) // started by Run right away, not queued behind one-shots
+	} else {
+		q.pending = append(q.pending, e)
+	}
 	snap := e.Entry
 	q.mu.Unlock()
 
 	q.emit(Event{Kind: EventQueued, SessionID: req.SessionID, Entry: snap})
+	q.kick()
+	return req.SessionID, nil
+}
+
+// kick wakes the Run loop.
+func (q *Queue) kick() {
 	select {
 	case q.wake <- struct{}{}:
 	default:
 	}
-	return req.SessionID, nil
 }
 
-// find returns the pending or current entry with id. q.mu must be held.
+// find returns the pending, current or shell entry with id. q.mu must be held.
 func (q *Queue) find(id string) *entry {
 	if q.current != nil && q.current.SessionID == id {
 		return q.current
@@ -145,39 +174,77 @@ func (q *Queue) find(id string) *entry {
 			return e
 		}
 	}
+	return q.shell(id)
+}
+
+// shell returns the open shell with id, or nil. q.mu must be held.
+func (q *Queue) shell(id string) *entry {
+	for _, e := range q.shells {
+		if e.SessionID == id {
+			return e
+		}
+	}
 	return nil
 }
 
-// Run dispatches queued commands one at a time until ctx is done.
-func (q *Queue) Run(ctx context.Context) {
-	for {
-		e := q.next(ctx)
-		if e == nil {
-			return
-		}
-		q.execute(ctx, e)
+// active returns the running one-shot or open shell with id (what the agent may
+// send messages for), or nil. q.mu must be held.
+func (q *Queue) active(id string) *entry {
+	if q.current != nil && q.current.SessionID == id {
+		return q.current
 	}
+	return q.shell(id)
 }
 
-// next blocks for the head of the FIFO and makes it current.
-func (q *Queue) next(ctx context.Context) *entry {
+// Run dispatches until ctx is done: open shells start immediately and
+// concurrently; one-shots go one at a time from the FIFO, whether or not a shell
+// is open. It returns once every session it started has been closed out.
+func (q *Queue) Run(ctx context.Context) {
+	var wg sync.WaitGroup
+	defer wg.Wait()
 	for {
-		q.mu.Lock()
-		if len(q.pending) > 0 {
-			e := q.pending[0]
-			q.pending = q.pending[1:]
-			e.State, e.Started = StateRunning, time.Now()
-			q.current = e
-			q.mu.Unlock()
-			return e
+		for _, e := range q.dispatch() {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				q.execute(ctx, e)
+				if e.Mode != ModePTY {
+					q.mu.Lock()
+					q.busy = false
+					q.mu.Unlock()
+					q.kick() // the FIFO may advance
+				}
+			}()
 		}
-		q.mu.Unlock()
 		select {
 		case <-q.wake:
 		case <-ctx.Done():
-			return nil
+			return
 		}
 	}
+}
+
+// dispatch marks what may start now as running and returns it: every shell not
+// yet started, plus the head of the FIFO if no one-shot is in flight.
+func (q *Queue) dispatch() []*entry {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	var out []*entry
+	now := time.Now()
+	for _, s := range q.shells {
+		if s.State == StateQueued {
+			s.State, s.Started = StateRunning, now
+			out = append(out, s)
+		}
+	}
+	if !q.busy && len(q.pending) > 0 {
+		e := q.pending[0]
+		q.pending = q.pending[1:]
+		e.State, e.Started = StateRunning, now
+		q.current, q.busy = e, true
+		out = append(out, e)
+	}
+	return out
 }
 
 func (q *Queue) execute(ctx context.Context, e *entry) {
@@ -215,14 +282,22 @@ func (q *Queue) finish(e *entry, x ExitPayload) {
 	if q.current == e {
 		q.current = nil
 	}
+	for i, s := range q.shells {
+		if s == e {
+			q.shells = append(q.shells[:i], q.shells[i+1:]...)
+			break
+		}
+	}
 	q.finished = append([]Entry{e.Entry}, q.finished...)
 	if len(q.finished) > maxFinished {
 		q.finished = q.finished[:maxFinished]
 	}
 	snap := e.Entry
 	q.mu.Unlock()
-	close(e.done)
+	// Emit before releasing execute: the next one-shot cannot be dispatched until
+	// this one's exit has been reported.
 	q.emit(Event{Kind: EventExited, SessionID: e.SessionID, Entry: snap, Exit: &x})
+	close(e.done)
 }
 
 // StateFinished is the Entry.State of a command that has ended.
@@ -239,8 +314,8 @@ func (q *Queue) Handle(_ context.Context, env channel.Envelope) {
 			return
 		}
 		q.mu.Lock()
-		e := q.current
-		if e == nil || e.SessionID != p.SessionID {
+		e := q.active(p.SessionID)
+		if e == nil {
 			q.mu.Unlock()
 			return
 		}
@@ -260,8 +335,8 @@ func (q *Queue) Handle(_ context.Context, env channel.Envelope) {
 			return
 		}
 		q.mu.Lock()
-		e := q.current
-		ok := e != nil && e.SessionID == p.SessionID
+		e := q.active(p.SessionID)
+		ok := e != nil
 		var snap Entry
 		if ok {
 			snap = e.Entry
@@ -276,8 +351,8 @@ func (q *Queue) Handle(_ context.Context, env channel.Envelope) {
 			return
 		}
 		q.mu.Lock()
-		e := q.current
-		ok := e != nil && e.SessionID == p.SessionID
+		e := q.active(p.SessionID)
+		ok := e != nil
 		q.mu.Unlock()
 		if ok {
 			q.finish(e, p)
@@ -285,18 +360,28 @@ func (q *Queue) Handle(_ context.Context, env channel.Envelope) {
 	}
 }
 
-// ConnectionLost ends the running session as lost (the agent's exit can no
-// longer arrive) so the FIFO moves on. Call it when the channel drops.
+// ConnectionLost ends every running session -- the one-shot and any open
+// shells -- as lost (the agent's exit can no longer arrive) so the FIFO moves
+// on. Call it when the channel drops.
 func (q *Queue) ConnectionLost() {
 	q.mu.Lock()
-	e := q.current
+	var lost []*entry
+	if q.current != nil {
+		lost = append(lost, q.current)
+	}
+	for _, s := range q.shells {
+		if s.State == StateRunning {
+			lost = append(lost, s)
+		}
+	}
 	q.mu.Unlock()
-	if e != nil {
+	for _, e := range lost {
 		q.finish(e, ExitPayload{SessionID: e.SessionID, ExitCode: -1, Reason: ReasonLost, Error: "channel lost"})
 	}
 }
 
-// Cancel removes a queued command, or terminates the running one.
+// Cancel removes a queued command, or terminates the running one (a running
+// one-shot or an open shell).
 func (q *Queue) Cancel(ctx context.Context, id string) error {
 	q.mu.Lock()
 	for i, e := range q.pending {
@@ -307,7 +392,12 @@ func (q *Queue) Cancel(ctx context.Context, id string) error {
 			return nil
 		}
 	}
-	running := q.current != nil && q.current.SessionID == id
+	if s := q.shell(id); s != nil && s.State == StateQueued { // not yet started
+		q.mu.Unlock()
+		q.finish(s, ExitPayload{SessionID: id, ExitCode: -1, Reason: ReasonCancelled})
+		return nil
+	}
+	running := q.active(id) != nil
 	q.mu.Unlock()
 	if !running {
 		return ErrUnknownSession
@@ -352,20 +442,24 @@ func (q *Queue) Confirm(ctx context.Context, id, token string) error {
 func (q *Queue) requireRunning(id string) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if q.current == nil || q.current.SessionID != id {
+	if q.active(id) == nil {
 		return ErrNotRunning
 	}
 	return nil
 }
 
-// Snapshot lists the running entry, then the queued ones in order, then
-// recently finished ones (most recent first).
+// Snapshot lists the running one-shot, then the open shells (in start order),
+// then the queued one-shots in order, then recently finished ones (most recent
+// first).
 func (q *Queue) Snapshot() []Entry {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	var out []Entry
 	if q.current != nil {
 		out = append(out, q.current.Entry)
+	}
+	for _, e := range q.shells {
+		out = append(out, e.Entry)
 	}
 	for _, e := range q.pending {
 		out = append(out, e.Entry)

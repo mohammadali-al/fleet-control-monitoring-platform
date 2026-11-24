@@ -718,17 +718,200 @@ func TestPTYGateConfirmEnvelopeFlow(t *testing.T) {
 	te.rec.waitExit(t, id)
 }
 
-func TestQueueSerialisesPTYAndOneShot(t *testing.T) {
+// ---- shells are concurrent sessions, outside the one-shot FIFO ----
+
+func TestOneShotRunsWhileShellOpen(t *testing.T) {
 	te := newEnv(t, nil)
-	id := startPTY(te)
-	next := te.submit(RunPayload{Command: "echo after-pty"})
-	time.Sleep(300 * time.Millisecond)
-	if te.rec.index(next, EventRunning) >= 0 {
-		t.Fatal("a command started while the PTY session held the machine")
+	shell := startPTY(te)
+	next := te.submit(RunPayload{Command: "echo during-shell-$((6*7))"})
+	te.rec.waitOutput(t, next, StreamStdout, "during-shell-42")
+	if x := te.rec.waitExit(t, next); x.Reason != ReasonExited || x.ExitCode != 0 {
+		t.Fatalf("one-shot exit = %+v", x)
 	}
-	input(t, te, id, "exit\n", "")
-	te.rec.waitExit(t, id)
-	te.rec.waitOutput(t, next, StreamStdout, "after-pty")
+	// The shell was open the whole time and is still a running session.
+	if te.rec.index(shell, EventExited) >= 0 {
+		t.Fatal("shell ended while the one-shot ran")
+	}
+	var found bool
+	for _, e := range te.q.Snapshot() {
+		if e.SessionID == shell {
+			found = true
+			if e.State != StateRunning || e.Mode != ModePTY {
+				t.Errorf("shell entry = %+v, want running pty", e)
+			}
+		}
+	}
+	if !found {
+		t.Error("open shell missing from Snapshot")
+	}
+	input(t, te, shell, "echo still-here\n", "")
+	te.rec.waitOutput(t, shell, StreamPTY, "still-here")
+	input(t, te, shell, "exit\n", "")
+	te.rec.waitExit(t, shell)
+}
+
+func TestShellStartsWhileOneShotRunning(t *testing.T) {
+	te := newEnv(t, nil)
+	slow := te.submit(RunPayload{Command: "sleep 1"})
+	te.rec.waitKind(t, slow, EventRunning)
+	shell := startPTY(te) // would hang here if the shell queued behind the one-shot
+	if te.rec.index(slow, EventExited) >= 0 {
+		t.Fatal("one-shot finished before the shell started: the shell was queued behind it")
+	}
+	input(t, te, shell, "exit\n", "")
+	te.rec.waitExit(t, shell)
+	te.rec.waitExit(t, slow)
+}
+
+func TestOneShotsStayStrictlySerialWithShellOpen(t *testing.T) {
+	te := newEnv(t, nil)
+	shell := startPTY(te)
+	log := filepath.Join(te.dir, "order.log")
+	script := func(name, sleep string) string {
+		return fmt.Sprintf("echo start-%s >> %s; sleep %s; echo end-%s >> %s", name, log, sleep, name, log)
+	}
+	a := te.submit(RunPayload{Command: script("A", "0.4")})
+	b := te.submit(RunPayload{Command: script("B", "0")})
+	te.rec.waitExit(t, a)
+	te.rec.waitExit(t, b)
+	got, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "start-A\nend-A\nstart-B\nend-B\n"; string(got) != want {
+		t.Errorf("execution order:\n%s\nwant:\n%s", got, want)
+	}
+	if te.rec.index(a, EventExited) >= te.rec.index(b, EventRunning) {
+		t.Error("second one-shot started running before the first exited")
+	}
+	input(t, te, shell, "exit\n", "")
+	te.rec.waitExit(t, shell)
+}
+
+func TestSessionControlsIndependentShellAndOneShot(t *testing.T) {
+	te := newEnv(t, nil)
+	shell := startPTY(te)
+	slow := te.submit(RunPayload{Command: "sleep 30"})
+	te.rec.waitKind(t, slow, EventRunning)
+
+	// Terminating the one-shot leaves the shell alone.
+	if err := te.q.Terminate(context.Background(), slow); err != nil {
+		t.Fatal(err)
+	}
+	if x := te.rec.waitExit(t, slow); x.Reason != ReasonTerminated {
+		t.Fatalf("one-shot exit = %+v, want terminated", x)
+	}
+	input(t, te, shell, "echo alive-$((3*3))\n", "")
+	te.rec.waitOutput(t, shell, StreamPTY, "alive-9")
+
+	// The gate still refuses a dangerous one-shot while a shell is open.
+	marker := filepath.Join(te.dir, "danger-ran")
+	bad := te.submit(RunPayload{Command: "echo DANGER > " + marker})
+	if x := te.rec.waitExit(t, bad); x.Reason != ReasonRefused {
+		t.Fatalf("dangerous one-shot exit = %+v, want refused", x)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("refused one-shot ran")
+	}
+
+	// Terminating the shell works too.
+	if err := te.q.Terminate(context.Background(), shell); err != nil {
+		t.Fatal(err)
+	}
+	if x := te.rec.waitExit(t, shell); x.Reason != ReasonTerminated {
+		t.Fatalf("shell exit = %+v, want terminated", x)
+	}
+}
+
+func TestConcurrentSessionsGetOwnCgroups(t *testing.T) {
+	root := testCgroupRoot(t)
+	te := newEnv(t, func(c *Config) { c.CgroupRoot = root })
+	shell := startPTY(te)
+	input(t, te, shell, "cat /proc/self/cgroup\n", "")
+	one := te.submit(RunPayload{Command: "cat /proc/self/cgroup"})
+	te.rec.waitExit(t, one)
+	te.rec.waitOutput(t, shell, StreamPTY, "/"+filepath.Base(root)+"/"+shell)
+	if out := te.rec.stream(one, StreamStdout); !strings.Contains(out, "/"+filepath.Base(root)+"/"+one) {
+		t.Errorf("one-shot not in its own session cgroup:\n%s", out)
+	}
+	input(t, te, shell, "exit\n", "")
+	te.rec.waitExit(t, shell)
+}
+
+func TestMultipleShellsConcurrent(t *testing.T) {
+	te := newEnv(t, nil)
+	s1, s2 := startPTY(te), startPTY(te)
+	input(t, te, s1, "echo one-$((1+0))\n", "")
+	input(t, te, s2, "echo two-$((1+1))\n", "")
+	te.rec.waitOutput(t, s1, StreamPTY, "one-1")
+	te.rec.waitOutput(t, s2, StreamPTY, "two-2")
+	if out := te.rec.stream(s1, StreamPTY); strings.Contains(out, "two-2") {
+		t.Errorf("shell output crossed sessions:\n%s", out)
+	}
+	for _, id := range []string{s1, s2} {
+		input(t, te, id, "exit\n", "")
+		te.rec.waitExit(t, id)
+	}
+}
+
+// ---- queue scheduling only (no agent, no root) ----
+
+func TestQueueShellBypassesFIFOWithoutAgent(t *testing.T) {
+	rec := &recorder{}
+	black := &link{fn: func(channel.Envelope) {}} // the agent never answers
+	q := NewQueue("m", black, rec.on)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { defer close(done); q.Run(ctx) }()
+
+	one, _ := q.Submit(RunPayload{Command: "a"})
+	two, _ := q.Submit(RunPayload{Command: "b"})
+	shell, err := q.Submit(RunPayload{Mode: ModePTY})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := func(id string) string {
+		for _, e := range q.Snapshot() {
+			if e.SessionID == id {
+				return e.State
+			}
+		}
+		return ""
+	}
+	eventually(t, "one-shot and shell running, second one-shot queued", func() bool {
+		return state(one) == StateRunning && state(shell) == StateRunning && state(two) == StateQueued
+	})
+
+	// The queued one-shot stays queued while the shell is open; it advances only
+	// when the first one-shot ends.
+	q.ConnectionLost()
+	for _, id := range []string{one, shell} {
+		if x := rec.waitExit(t, id); x.Reason != ReasonLost {
+			t.Errorf("%s exit = %+v, want lost", id, x)
+		}
+	}
+	eventually(t, "second one-shot to start once the first ended", func() bool { return state(two) == StateRunning })
+	q.ConnectionLost()
+	rec.waitExit(t, two)
+	cancel()
+	<-done
+}
+
+func TestQueueShellCap(t *testing.T) {
+	q := NewQueue("m", &link{fn: func(channel.Envelope) {}}, nil)
+	for i := 0; i < MaxShells; i++ {
+		if _, err := q.Submit(RunPayload{Mode: ModePTY}); err != nil {
+			t.Fatalf("shell %d: %v", i, err)
+		}
+	}
+	if _, err := q.Submit(RunPayload{Mode: ModePTY}); err != ErrTooManyShells {
+		t.Fatalf("shell over the cap: err = %v, want ErrTooManyShells", err)
+	}
+	// One-shots are unaffected by the shell cap.
+	if _, err := q.Submit(RunPayload{Command: "x"}); err != nil {
+		t.Fatalf("one-shot with shells at cap: %v", err)
+	}
 }
 
 // ---- over the real channel ----
