@@ -3,7 +3,7 @@ id: T-0005
 title: serve-panel
 state: ready
 touches: [cmd/fleet-server/main.go, internal/config/config.go, internal/config/config_test.go,
-          internal/panel/server.go, internal/panel/server_test.go, internal/panel/embed.go]
+          internal/panel/server.go, internal/panel/server_test.go, web/embed.go]
 tests: [server]
 after: [T-0001, T-0004]
 shares: {}
@@ -21,8 +21,10 @@ auth proxy needed locally.
 
 **Backend (Go).**
 
-1. **Embed the panel.** `internal/panel/embed.go` embeds the repo's `web/` directory with `//go:embed`
-   (the static front-end from T-0004). Do **not** modify `web/` content.
+1. **Embed the panel.** `//go:embed` cannot reach a parent directory, so embed from **within the `web`
+   package**: add a new file **`web/embed.go`** (`package web`) with `//go:embed *.html assets` exporting
+   `var FS embed.FS`. `internal/panel` imports `web` and serves `web.FS`. **Do not modify existing `web/`
+   content** — adding `web/embed.go` is the only `web/` change.
 2. **HTTP server** (`internal/panel/server.go`): `net/http` serving the embedded `web/`:
    - `/` → `web/index.html`; `/assets/...` and every `web/*.html` served with correct content types.
    - Unknown path → 404. No directory listing.
