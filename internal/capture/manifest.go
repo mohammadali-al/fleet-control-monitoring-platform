@@ -65,12 +65,65 @@ func LoadManifest(dir, machine string) (*Manifest, error) {
 	return m, nil
 }
 
-// Add appends an entry and persists the manifest atomically.
+// dirLocks holds one mutex per machine evidence directory, shared by every
+// Manifest (and therefore every SegmentWriter) bound to that directory in this
+// process. Each capture session has its own SegmentWriter and its own Manifest
+// value over the same manifest.json, so the per-Manifest mutex alone cannot
+// serialize them; this per-machine lock does.
+var dirLocks sync.Map // cleaned absolute dir -> *sync.Mutex
+
+// dirLock returns the process-wide lock for a machine evidence directory.
+func dirLock(dir string) *sync.Mutex {
+	key := filepath.Clean(dir)
+	if abs, err := filepath.Abs(key); err == nil {
+		key = abs
+	}
+	l, _ := dirLocks.LoadOrStore(key, new(sync.Mutex))
+	return l.(*sync.Mutex)
+}
+
+// Add appends an entry and persists the manifest atomically. It is safe to call
+// concurrently from any number of Manifests bound to the same directory: the
+// per-machine lock serializes a read-merge-write cycle, so the on-disk manifest
+// is re-read before the entry is appended and no other writer's entry is lost.
 func (m *Manifest) Add(e SegmentEntry) error {
+	if m.dir != "" {
+		l := dirLock(m.dir)
+		l.Lock()
+		defer l.Unlock()
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := m.refreshLocked(); err != nil {
+		return err
+	}
 	m.Segments = append(m.Segments, e)
 	return m.saveLocked()
+}
+
+// refreshLocked replaces the in-memory entries with the on-disk manifest's, so
+// entries added through other Manifests on the same directory are kept. A
+// missing manifest file leaves the in-memory state as is. The caller must hold
+// the per-machine lock and m.mu.
+func (m *Manifest) refreshLocked() error {
+	if m.dir == "" {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Join(m.dir, ManifestName))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("capture: read manifest: %w", err)
+	}
+	var disk struct {
+		Segments []SegmentEntry `json:"segments"`
+	}
+	if err := json.Unmarshal(data, &disk); err != nil {
+		return fmt.Errorf("capture: parse manifest: %w", err)
+	}
+	m.Segments = disk.Segments
+	return nil
 }
 
 // Entries returns a copy of the current segment entries.

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -71,6 +72,11 @@ func (c *SegmentConfig) withDefaults() {
 	}
 }
 
+// segCounter makes segment filenames unique across every SegmentWriter in the
+// process: concurrent sessions share one machine directory, and two writers
+// opening a segment in the same nanosecond must not pick the same name.
+var segCounter atomic.Uint64
+
 // openSegment is the currently-open segment file and its running accounting.
 type openSegment struct {
 	f       *os.File
@@ -98,7 +104,6 @@ type SegmentWriter struct {
 
 	mu             sync.Mutex
 	cur            *openSegment
-	seq            int
 	pendingDropped uint64 // drops counted before/between segments
 	paused         bool
 	warned         bool
@@ -224,9 +229,8 @@ func (w *SegmentWriter) RollIfStale() error {
 }
 
 func (w *SegmentWriter) openLocked(now time.Time) error {
-	w.seq++
-	name := fmt.Sprintf("seg-%020d-%06d.ndjson", now.UnixNano(), w.seq)
-	f, err := os.OpenFile(filepath.Join(w.dir, name), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
+	name := fmt.Sprintf("seg-%020d-%06d.ndjson", now.UnixNano(), segCounter.Add(1))
+	f, err := os.OpenFile(filepath.Join(w.dir, name), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o640)
 	if err != nil {
 		return fmt.Errorf("capture: open segment: %w", err)
 	}
