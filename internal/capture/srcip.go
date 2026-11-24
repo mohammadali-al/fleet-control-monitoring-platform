@@ -1,0 +1,301 @@
+package capture
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+)
+
+// Source-address determination (§6.4):
+//
+//   - Private target: the machine's private IP on the NIC owning the route to
+//     the target, looked up at capture time (routeSourceIP).
+//   - Public target: the agent's public IP via reflector consensus over 6 HTTP
+//     "what-is-my-IP" services (>=2 agree -> confirmed, exactly 1 alive ->
+//     adopt). The value is cached and refreshed at boot, every 15 min, on
+//     network change, and on demand; each record stores the cached value.
+
+// DefaultReflectors is the built-in reflector set (6 independent HTTP services
+// that echo the caller's public IP as plaintext). Configurable per node.
+var DefaultReflectors = []string{
+	"https://api.ipify.org",
+	"https://ifconfig.me/ip",
+	"https://icanhazip.com",
+	"https://ipinfo.io/ip",
+	"https://checkip.amazonaws.com",
+	"https://ident.me",
+}
+
+// PublicIPRefreshInterval is the periodic reflector refresh cadence (§6.4).
+const PublicIPRefreshInterval = 15 * time.Minute
+
+// isPrivateIP reports whether ip is a private/local target for which the source
+// address is the route's NIC IP rather than the public reflector result. This
+// covers RFC1918 / ULA (net.IP.IsPrivate) plus loopback, link-local and the
+// unspecified address.
+func isPrivateIP(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	return ip.IsPrivate() ||
+		ip.IsLoopback() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified()
+}
+
+// routeDialer lets tests substitute the route lookup. The production value uses
+// a connectionless UDP socket: connecting a UDP socket performs the kernel
+// route lookup and binds the local address without sending any packet, which is
+// exactly "the machine's private IP on the NIC owning the route to the target".
+type routeDialer func(target net.IP) (net.IP, error)
+
+func kernelRouteSourceIP(target net.IP) (net.IP, error) {
+	network := "udp4"
+	if target.To4() == nil {
+		network = "udp6"
+	}
+	c, err := net.Dial(network, net.JoinHostPort(target.String(), "9"))
+	if err != nil {
+		return nil, fmt.Errorf("capture: route lookup to %s: %w", target, err)
+	}
+	defer c.Close()
+	la, ok := c.LocalAddr().(*net.UDPAddr)
+	if !ok || la.IP == nil || la.IP.IsUnspecified() {
+		return nil, fmt.Errorf("capture: no route source IP for %s", target)
+	}
+	return la.IP, nil
+}
+
+// PublicIPResult is the outcome of one reflector-consensus resolution.
+type PublicIPResult struct {
+	IP        string    // the chosen public IP ("" when unresolved)
+	Confirmed bool      // true when >=2 reflectors agreed
+	Alive     int       // reflectors that answered a valid IP
+	At        time.Time // when it was resolved
+}
+
+// Reflector resolves the agent's public IP by consensus over HTTP services.
+type Reflector struct {
+	URLs   []string
+	Client *http.Client
+}
+
+// NewReflector builds a Reflector. Empty urls selects DefaultReflectors.
+func NewReflector(urls []string) *Reflector {
+	if len(urls) == 0 {
+		urls = DefaultReflectors
+	}
+	return &Reflector{
+		URLs:   urls,
+		Client: &http.Client{Timeout: 5 * time.Second},
+	}
+}
+
+// Resolve queries every reflector concurrently and applies §6.4 consensus:
+// >=2 agree -> confirmed; exactly 1 alive -> adopt (unconfirmed); none alive ->
+// error. The most-agreed IP wins; ties break deterministically by IP string.
+func (r *Reflector) Resolve(ctx context.Context) (PublicIPResult, error) {
+	type one struct {
+		ip  string
+		err error
+	}
+	results := make(chan one, len(r.URLs))
+	var wg sync.WaitGroup
+	for _, u := range r.URLs {
+		wg.Add(1)
+		go func(url string) {
+			defer wg.Done()
+			ip, err := r.fetch(ctx, url)
+			results <- one{ip, err}
+		}(u)
+	}
+	go func() { wg.Wait(); close(results) }()
+
+	counts := map[string]int{}
+	alive := 0
+	for res := range results {
+		if res.err != nil || res.ip == "" {
+			continue
+		}
+		alive++
+		counts[res.ip]++
+	}
+	if alive == 0 {
+		return PublicIPResult{At: time.Now()}, errors.New("capture: no reflector answered")
+	}
+
+	bestIP, best := "", 0
+	for ip, n := range counts {
+		if n > best || (n == best && ip < bestIP) {
+			bestIP, best = ip, n
+		}
+	}
+	return PublicIPResult{
+		IP:        bestIP,
+		Confirmed: best >= 2,
+		Alive:     alive,
+		At:        time.Now(),
+	}, nil
+}
+
+// fetch retrieves and validates a single reflector's reported IP.
+func (r *Reflector) fetch(ctx context.Context, url string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := r.Client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("capture: reflector %s: status %d", url, resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 128))
+	if err != nil {
+		return "", err
+	}
+	ip := net.ParseIP(strings.TrimSpace(string(body)))
+	if ip == nil {
+		return "", fmt.Errorf("capture: reflector %s: not an IP", url)
+	}
+	return ip.String(), nil
+}
+
+// PublicIPCache holds the last reflector result and refreshes it on a timer and
+// on demand (boot/15 min/network-change/manual). Current() is safe for the
+// per-packet hot path. Start launches the refresh loop; Stop ends it, so the
+// cache leaves no goroutine behind.
+type PublicIPCache struct {
+	ref      *Reflector
+	interval time.Duration
+
+	mu     sync.RWMutex
+	result PublicIPResult
+
+	refreshC chan struct{}
+	stopOnce sync.Once
+	stop     chan struct{}
+	done     chan struct{}
+}
+
+// NewPublicIPCache builds a cache over ref. interval <=0 selects
+// PublicIPRefreshInterval.
+func NewPublicIPCache(ref *Reflector, interval time.Duration) *PublicIPCache {
+	if interval <= 0 {
+		interval = PublicIPRefreshInterval
+	}
+	return &PublicIPCache{
+		ref:      ref,
+		interval: interval,
+		refreshC: make(chan struct{}, 1),
+		stop:     make(chan struct{}),
+		done:     make(chan struct{}),
+	}
+}
+
+// Current returns the cached public IP ("" until the first successful refresh).
+func (c *PublicIPCache) Current() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.result.IP
+}
+
+// Result returns the full cached resolution.
+func (c *PublicIPCache) Result() PublicIPResult {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.result
+}
+
+// RefreshNow resolves synchronously and updates the cache (manual button / boot
+// / network-change entry point).
+func (c *PublicIPCache) RefreshNow(ctx context.Context) (PublicIPResult, error) {
+	res, err := c.ref.Resolve(ctx)
+	if err != nil {
+		return res, err
+	}
+	c.mu.Lock()
+	c.result = res
+	c.mu.Unlock()
+	return res, nil
+}
+
+// TriggerRefresh asks the background loop to refresh (non-blocking, coalesced).
+func (c *PublicIPCache) TriggerRefresh() {
+	select {
+	case c.refreshC <- struct{}{}:
+	default:
+	}
+}
+
+// Start does an initial boot refresh, then refreshes every interval and on each
+// TriggerRefresh until Stop. It is safe to call once.
+func (c *PublicIPCache) Start(ctx context.Context) {
+	go func() {
+		defer close(c.done)
+		_, _ = c.RefreshNow(ctx)
+		t := time.NewTicker(c.interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-c.stop:
+				return
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				_, _ = c.RefreshNow(ctx)
+			case <-c.refreshC:
+				_, _ = c.RefreshNow(ctx)
+			}
+		}
+	}()
+}
+
+// Stop ends the refresh loop and waits for it to exit.
+func (c *PublicIPCache) Stop() {
+	c.stopOnce.Do(func() { close(c.stop) })
+	<-c.done
+}
+
+// SourceIPResolver picks the attribution source address for a target (§6.4):
+// private targets use the route's NIC IP (looked up per call), public targets
+// use the cached reflector IP.
+type SourceIPResolver struct {
+	cache *PublicIPCache
+	route routeDialer
+}
+
+// NewSourceIPResolver builds a resolver. A nil cache means no public IP is
+// known (public targets resolve to "").
+func NewSourceIPResolver(cache *PublicIPCache) *SourceIPResolver {
+	return &SourceIPResolver{cache: cache, route: kernelRouteSourceIP}
+}
+
+// For returns the source address to record for a packet to target. On a private
+// target it returns the route NIC IP (empty on lookup failure); on a public
+// target it returns the cached public IP (empty until first resolution).
+func (r *SourceIPResolver) For(target net.IP) string {
+	if target == nil {
+		return ""
+	}
+	if isPrivateIP(target) {
+		ip, err := r.route(target)
+		if err != nil || ip == nil {
+			return ""
+		}
+		return ip.String()
+	}
+	if r.cache == nil {
+		return ""
+	}
+	return r.cache.Current()
+}
