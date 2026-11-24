@@ -180,6 +180,11 @@ Who dials whom is a **per-machine config flag**; both directions are supported b
 - It issues a **server certificate** whose SAN contains the server's **IP address** — clients validate "cert SAN matches the IP I connected to."
 - Each machine gets a **client certificate** during provisioning → **mTLS**.
 - Agents pin the CA certificate locally. No public CA, no DNS, no domain.
+- Because the **default is `server_dial`** (the main dials the agent, so the *agent* is the TLS
+  server), each machine's certificate carries **both** `serverAuth` and `clientAuth` EKUs and its
+  **own IP in the SAN**. The same cert then works in either dial direction, and whichever side acts
+  as the TLS server has its IP-SAN verified by the dialer. (This paragraph set was first written for
+  the agent-dials-server case; both-EKU certs keep mTLS correct under the `server_dial` default.)
 - **CA private keys are included in the backup set** (7.5): losing them forces re-enrollment of every machine.
 
 ### 4.5 Onboarding workflow
@@ -546,7 +551,7 @@ Per host, scoped to the offending service where attributable; steps enable/disab
 
 ### 12.1 Single-app experience
 
-- One web panel behind Authelia/Pomerium (2FA). One **stateful, full-access** operator role; no per-user permission levels.
+- One web panel behind Authelia/Pomerium (2FA). One **stateful, full-access** operator role; no per-user permission levels. The panel is served by `fleet-server` itself (Go `net/http`) and **listens on `:6789`**, reachable only through the auth proxy (D-0004).
 - **Grafana embedded** inside the panel (SSO-shared).
 
 ### 12.2 Pages
