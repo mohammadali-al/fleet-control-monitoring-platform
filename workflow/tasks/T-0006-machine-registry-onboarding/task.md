@@ -1,7 +1,7 @@
 ---
 id: T-0006
 title: machine-registry-onboarding
-state: ready
+state: merged
 touches: [internal/registry/registry.go, internal/registry/registry_test.go,
           internal/registry/store.go, internal/onboard/ssh.go, internal/onboard/ssh_test.go,
           internal/config/config.go, go.mod, go.sum]

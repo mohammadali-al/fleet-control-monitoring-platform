@@ -10,3 +10,4 @@
 - [ ] T-0003 control-channel — Backend (no UI). Verified by review: gofmt/vet clean, server tests + channel -race pass. Confirm to close.
 - [ ] T-0005 serve-panel — Run ./bin/fleet-server, open http://localhost:6789: the panel loads and pages are navigable; unknown paths 404.
 - [ ] T-0007 command-executor — Backend (no UI). Verified by review: gofmt/vet clean, server+agent tests + exec -race pass. Confirm to close.
+- [ ] T-0006 machine-registry-onboarding — Backend (no UI). Verified by review: gofmt/vet clean, server tests + registry/onboard -race pass. Confirm to close.
