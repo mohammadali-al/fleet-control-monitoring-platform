@@ -1,12 +1,13 @@
-// Package web embeds the static operator-panel front-end (the *.html pages and
-// assets/) so fleet-server can serve it from a single binary. go:embed cannot
-// reach outside its package directory, so the embed lives next to the files.
+// Package web embeds the operator-panel front-end so fleet-server can serve it
+// from a single binary. go:embed cannot reach outside its package directory, so
+// the embed lives next to the files. The pages themselves are Go templates (see
+// templates.go); FS holds only the static files served as-is.
 package web
 
 import "embed"
 
-// FS holds the panel's pages at its root (index.html, machines.html, ...) and
-// the shared styles and scripts under assets/.
+// FS holds the static tree: the shared styles, scripts and vendored xterm.js
+// under assets/, plus the hand-written styleguide.html component reference.
 //
-//go:embed *.html assets
+//go:embed styleguide.html assets
 var FS embed.FS

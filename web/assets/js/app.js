@@ -112,7 +112,7 @@
           var r = btn.getBoundingClientRect();
           pop.style.top = Math.min(r.bottom + 4, window.innerHeight - pop.offsetHeight - 8) + 'px';
           pop.style.left = Math.max(8, r.right - pop.offsetWidth) + 'px';
-          var first = pop.querySelector('[role="menuitem"]'); if (first) first.focus();
+          var first = pop.querySelector('[role="menuitem"]'); if (first) first.focus({ preventScroll: true }); /* a plain focus() scrolls the page, and the scroll listener below would close the menu */
         }
         return;
       }
@@ -123,13 +123,13 @@
       var pop = e.target.closest && e.target.closest('.menu__pop');
       if (e.key === 'Escape') {
         var open = document.querySelector('.menu__pop:not([hidden])');
-        if (open) { var b = open.parentNode.querySelector('[data-menu-btn]'); closeMenus(null); if (b) b.focus(); }
+        if (open) { var b = open.parentNode.querySelector('[data-menu-btn]'); closeMenus(null); if (b) b.focus({ preventScroll: true }); }
       }
       if (pop && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
         e.preventDefault();
         var items = Array.prototype.slice.call(pop.querySelectorAll('[role="menuitem"]'));
         var i = items.indexOf(document.activeElement);
-        items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus();
+        items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus({ preventScroll: true });
       }
     });
     window.addEventListener('scroll', function () { closeMenus(null); }, true);
