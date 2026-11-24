@@ -1,7 +1,7 @@
 ---
 id: T-0009
 title: evidence-sync-export
-state: ready
+state: merged
 touches: [internal/evidence/manifest.go, internal/evidence/sync.go, internal/evidence/archive.go,
           internal/evidence/export.go, internal/evidence/sync_test.go, internal/evidence/export_test.go,
           internal/channel/envelope.go, go.mod, go.sum]
