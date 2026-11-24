@@ -1,7 +1,7 @@
 ---
 id: T-0019
 title: panel-cleanup
-state: ready
+state: merged
 touches: [web/embed.go, web/assets/js/app.js, scripts/stamp-web.py, web/machines.html, web/maneuver.html,
           web/commands.html, web/terminal.html, web/projects.html, web/baseline.html, web/monitor.html,
           web/watchdog.html, web/evidence.html, web/backup.html, web/styleguide.html, web/index.html,
