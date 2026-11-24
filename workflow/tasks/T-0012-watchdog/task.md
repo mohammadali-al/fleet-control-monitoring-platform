@@ -1,7 +1,7 @@
 ---
 id: T-0012
 title: watchdog
-state: ready
+state: merged
 touches: [internal/watchdog/watchdog.go, internal/watchdog/metrics.go, internal/watchdog/ladder.go,
           internal/watchdog/policy.go, internal/watchdog/guards.go, internal/watchdog/watchdog_test.go,
           internal/watchdog/policy_test.go, internal/config/config.go, internal/channel/envelope.go,
