@@ -1,7 +1,7 @@
 ---
 id: T-0007
 title: command-executor
-state: ready
+state: merged
 touches: [internal/exec/session.go, internal/exec/executor.go, internal/exec/pty.go,
           internal/exec/gate.go, internal/exec/executor_test.go, internal/exec/gate_test.go,
           internal/channel/envelope.go, go.mod, go.sum]
