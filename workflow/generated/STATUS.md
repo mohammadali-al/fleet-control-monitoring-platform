@@ -7,6 +7,7 @@ _none_
 ## Next (ready, in order)
 - **T-0012** watchdog  `after: [T-0003]`
 - **T-0013** backup  `after: [T-0009]`
+- **T-0020** onboarding-agent-privileges  `after: [T-0006, T-0018]`
 
 ## Waiting for the operator (merged → see CHECKS.md)
 - **T-0001** project-skeleton  `after: []`
