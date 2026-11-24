@@ -78,8 +78,12 @@ type ServerConfig struct {
 	ChannelPort int `json:"channel_port,omitempty"`
 	// ServerID is the main server's identity on the control channel (the CN of
 	// its client certificate). Empty means DefaultServerID.
-	ServerID string    `json:"server_id,omitempty"`
-	Log      LogConfig `json:"log"`
+	ServerID string `json:"server_id,omitempty"`
+	// AgentCapture is the evidence-capture configuration the main server
+	// pushes to every worker agent over the channel (config-push, T-0018).
+	// An all-zero section pushes nothing, leaving the agent's own defaults.
+	AgentCapture CaptureConfig `json:"agent_capture,omitempty"`
+	Log          LogConfig     `json:"log"`
 }
 
 // ChannelPortOrDefault returns ChannelPort, or DefaultChannelPort when unset.
@@ -113,10 +117,25 @@ type AgentConfig struct {
 	ConnectMode string `json:"connect_mode,omitempty"`
 	// CAFile is the pinned internal CA certificate; CertFile and KeyFile are
 	// this machine's client certificate and key.
-	CAFile   string    `json:"ca_file,omitempty"`
-	CertFile string    `json:"cert_file,omitempty"`
-	KeyFile  string    `json:"key_file,omitempty"`
-	Log      LogConfig `json:"log"`
+	CAFile   string `json:"ca_file,omitempty"`
+	CertFile string `json:"cert_file,omitempty"`
+	KeyFile  string `json:"key_file,omitempty"`
+
+	// ListenAddr is where a server_dial agent listens for the main server
+	// (default ":7443"; see ListenAddrOrDefault).
+	ListenAddr string `json:"listen_addr,omitempty"`
+	// DataDir is the agent's base data directory (D-0006): evidence segments
+	// live under <DataDir>/evidence/<machine>. Empty means FLEET_DATA_DIR,
+	// else the agent's working directory (the onboarding unit sets that to the
+	// state dir); see ResolveDataDir.
+	DataDir string `json:"data_dir,omitempty"`
+	// CgroupRoot is the cgroup v2 directory under which each command session
+	// gets its own cgroup (needed for evidence capture). Empty means
+	// /sys/fs/cgroup/fleet when running as root on a cgroup v2 host, else
+	// cgroups (and so capture) are off.
+	CgroupRoot string `json:"cgroup_root,omitempty"`
+
+	Log LogConfig `json:"log"`
 
 	// Capture tunes the worker-agent evidence-capture subsystem (chapter 6,
 	// 7.1). All fields are optional; zero values select the built-in defaults.
@@ -145,6 +164,12 @@ type CaptureConfig struct {
 	NFLOGGroup int `json:"nflog_group,omitempty"`
 }
 
+// IsZero reports whether no capture setting is set.
+func (c CaptureConfig) IsZero() bool {
+	return c.TrimThresholdBytes == 0 && c.SegmentMaxBytes == 0 && c.SegmentMaxAgeSeconds == 0 &&
+		c.DiskWarnPercent == 0 && c.DiskPausePercent == 0 && len(c.Reflectors) == 0 && c.NFLOGGroup == 0
+}
+
 // Config is the on-disk file: one section per binary.
 type Config struct {
 	Server ServerConfig `json:"server"`
@@ -158,6 +183,35 @@ func Defaults() Config {
 		Server: ServerConfig{ListenAddr: DefaultListenAddr, Log: log},
 		Agent:  AgentConfig{Log: log},
 	}
+}
+
+// ListenAddrOrDefault returns ListenAddr, or ":7443" when unset.
+func (a AgentConfig) ListenAddrOrDefault() string {
+	if a.ListenAddr != "" {
+		return a.ListenAddr
+	}
+	return fmt.Sprintf(":%d", DefaultChannelPort)
+}
+
+// ResolveDataDir returns the agent's absolute base data directory and creates
+// it (mode 0o750) if needed: DataDir, else $FLEET_DATA_DIR, else the working
+// directory.
+func (a AgentConfig) ResolveDataDir() (string, error) {
+	dir := a.DataDir
+	if dir == "" {
+		dir = os.Getenv(EnvDataDir)
+	}
+	if dir == "" {
+		dir = "."
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", fmt.Errorf("resolve agent data dir %q: %w", dir, err)
+	}
+	if err := os.MkdirAll(abs, 0o750); err != nil {
+		return "", fmt.Errorf("create agent data dir %s: %w", abs, err)
+	}
+	return abs, nil
 }
 
 // Validate reports whether the agent configuration is usable.
