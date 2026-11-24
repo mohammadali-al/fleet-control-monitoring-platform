@@ -1,7 +1,7 @@
 ---
 id: T-0005
 title: serve-panel
-state: ready
+state: merged
 touches: [cmd/fleet-server/main.go, internal/config/config.go, internal/config/config_test.go,
           internal/panel/server.go, internal/panel/server_test.go, web/embed.go]
 tests: [server]

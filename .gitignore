@@ -4,3 +4,4 @@
 coverage.*
 *.coverprofile
 .claude/worktrees/
+/data/

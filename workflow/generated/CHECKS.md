@@ -8,3 +8,4 @@
 - [ ] T-0004 panel-frontend — Open the static panel in a browser (web/index.html): nav + all pages render in light and dark; the Maneuver/Load-Controller page shows its layout (no functionality).
 - [ ] T-0002 internal-ca — Backend (no UI). Verified by review: gofmt/vet clean, server tests + pki -race pass. Confirm to close.
 - [ ] T-0003 control-channel — Backend (no UI). Verified by review: gofmt/vet clean, server tests + channel -race pass. Confirm to close.
+- [ ] T-0005 serve-panel — Run ./bin/fleet-server, open http://localhost:6789: the panel loads and pages are navigable; unknown paths 404.
