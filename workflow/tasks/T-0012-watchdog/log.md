@@ -83,4 +83,4 @@ only `systemctl --version` as root; no test throttles, restarts or reboots anyth
 **Self-check:** `gofmt -l .` empty; `go vet ./...` clean; `go test -race -count=5 ./internal/watchdog` ok;
 `scripts/test.sh agent` pass; `scripts/build.sh` ok (bin/ removed afterwards).
 
-<!-- wf: commits=PENDING left=- tests=agent:pass blocked=no -->
+<!-- wf: commits=c990d36 left=- tests=agent:pass blocked=no -->
