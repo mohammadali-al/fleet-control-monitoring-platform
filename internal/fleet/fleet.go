@@ -11,6 +11,7 @@ package fleet
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/channel"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/exec"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/onboard"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/registry"
@@ -77,6 +79,14 @@ type Config struct {
 	// ConfirmTTL is how long a minted confirmation token stays valid
 	// (default 10 minutes: a confirmed command may wait in the queue).
 	ConfirmTTL time.Duration
+	// GateSecret is the dangerous-command secret the Gate mints tokens with.
+	// When set, the manager pushes it to every worker agent over the channel
+	// (config-push) so the agent can verify the tokens; empty means nothing is
+	// pushed (tests with an in-process executor that shares the Gate).
+	GateSecret []byte
+	// Capture is the per-node evidence-capture configuration pushed with it
+	// (an all-zero value pushes no capture section).
+	Capture config.CaptureConfig
 }
 
 // MachineInfo is a registry entry plus its live state.
@@ -302,7 +312,7 @@ func (m *Manager) startNode(mc registry.Machine, ip string) (*node, error) {
 	n.q = exec.NewQueue(mc.ID, senderFunc(func(ctx context.Context, env channel.Envelope) error {
 		return n.link.Send(ctx, env)
 	}), func(ev exec.Event) { m.onExec(mc.ID, ev) })
-	link, err := m.cfg.NewLink(mc, n.q.Handle)
+	link, err := m.cfg.NewLink(mc, m.agentHandler(n, mc.Role, n.q.Handle))
 	if err != nil {
 		return nil, err
 	}
@@ -318,6 +328,57 @@ func (m *Manager) startNode(mc registry.Machine, ip string) (*node, error) {
 		wg.Wait()
 	}()
 	return n, nil
+}
+
+// agentHandler wraps the queue's handler with the config-push exchange: an
+// agent that has just connected sends config-req, the manager answers with the
+// config message, and the agent's config-ack is logged. Everything else goes to
+// next (the queue). The handler runs on the link's read loop.
+func (m *Manager) agentHandler(n *node, role string, next channel.Handler) channel.Handler {
+	return func(ctx context.Context, env channel.Envelope) {
+		switch env.Type {
+		case channel.TypeConfigReq:
+			if role == registry.RoleWorker {
+				m.pushConfig(ctx, n)
+			}
+		case channel.TypeConfigAck:
+			var ack channel.ConfigAckPayload
+			if err := json.Unmarshal(env.Payload, &ack); err != nil {
+				m.log.Warn("bad config ack", "component", "fleet", "machine", n.id, "err", err)
+			} else if !ack.OK {
+				m.log.Warn("agent rejected config", "component", "fleet", "machine", n.id, "reason", ack.Error)
+			} else {
+				m.log.Info("agent applied config", "component", "fleet", "machine", n.id)
+			}
+		default:
+			next(ctx, env)
+		}
+	}
+}
+
+// pushConfig sends a worker agent its configuration: the gate secret (so the
+// agent can verify the tokens this manager mints) and the capture settings.
+// Nothing is sent when the manager has no secret to push. The payload carries
+// a secret and is never logged.
+func (m *Manager) pushConfig(ctx context.Context, n *node) {
+	if len(m.cfg.GateSecret) == 0 {
+		m.log.Debug("no gate secret to push", "component", "fleet", "machine", n.id)
+		return
+	}
+	p := channel.ConfigPayload{GateSecret: string(m.cfg.GateSecret)}
+	if !m.cfg.Capture.IsZero() {
+		c := m.cfg.Capture
+		p.Capture = &c
+	}
+	env, err := channel.NewEnvelope(channel.TypeConfig, "config", p)
+	if err == nil {
+		err = n.link.Send(ctx, env)
+	}
+	if err != nil {
+		m.log.Warn("push config", "component", "fleet", "machine", n.id, "err", err)
+		return
+	}
+	m.log.Info("pushed config", "component", "fleet", "machine", n.id)
 }
 
 type senderFunc func(ctx context.Context, env channel.Envelope) error

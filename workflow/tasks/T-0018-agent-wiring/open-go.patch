@@ -1,0 +1,32 @@
+diff --git a/internal/fleet/open.go b/internal/fleet/open.go
+index 1482c51..d0f64ff 100644
+--- a/internal/fleet/open.go
++++ b/internal/fleet/open.go
+@@ -23,9 +23,9 @@ import (
+ )
+ 
+ // gateKeyFile holds the dangerous-command confirmation secret under
+-// <data>/config/. The agents verify tokens with the same secret; delivering it
+-// to them (config push) is a later task, so today an agent built with this
+-// key is configured by hand.
++// <data>/config/. The agents verify tokens with the same secret; the manager
++// pushes it to each worker agent over the channel when the agent connects
++// (Config.GateSecret).
+ const gateKeyFile = "gate.key"
+ 
+ // serverCertValidity is the lifetime of the main server's own channel
+@@ -75,9 +75,11 @@ func Open(o Options) (*Manager, error) {
+ 		Provisioner: &onboard.Provisioner{
+ 			CA: ca, Registry: reg, Store: store, AgentBinaryPath: o.Config.AgentBinaryPath,
+ 		},
+-		Gate:    gate,
+-		NewLink: links,
+-		Logger:  o.Logger,
++		Gate:       gate,
++		GateSecret: key,
++		Capture:    o.Config.AgentCapture,
++		NewLink:    links,
++		Logger:     o.Logger,
+ 	})
+ }
+ 

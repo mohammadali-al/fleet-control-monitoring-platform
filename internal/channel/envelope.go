@@ -9,10 +9,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
 )
 
 // Built-in envelope types.
@@ -55,6 +57,55 @@ const (
 	TypeMonConfig = "mon-config" // server -> monitor agent: probe targets, frequency, timeouts
 	TypeMonData   = "mon-data"   // monitor agent -> server: a flushed batch of probe results
 )
+
+// Config-push envelope types. The main server owns configuration and pushes it
+// to an agent over the channel: the agent asks for it when a connection is
+// established (config-req), the server answers with a config message, and the
+// agent applies it and acknowledges (config-ack). The same pattern later carries
+// watchdog policy (§11.6) and monitor configuration (§8.1); config is the
+// worker-agent flavour (gate secret, capture settings) and is extended by
+// adding optional sections to ConfigPayload.
+const (
+	TypeConfigReq = "config-req" // agent -> server: I just connected, push my config
+	TypeConfig    = "config"     // server -> agent: configuration to apply (ConfigPayload)
+	TypeConfigAck = "config-ack" // agent -> server: applied, or why not (ConfigAckPayload)
+)
+
+// ConfigPayload is the payload of a config envelope (server -> agent). Every
+// section is optional: an absent section leaves the agent's current setting
+// as it is, so a push may carry only what changed. Applying a payload is
+// idempotent; the server re-sends it on every connection.
+type ConfigPayload struct {
+	// GateSecret is the dangerous-command confirmation secret: the agent
+	// verifies the tokens the main server mints with it (exec.Gate). It is a
+	// secret: it is held in memory only and never logged.
+	GateSecret string `json:"gate_secret,omitempty"`
+	// Capture is the per-node evidence-capture configuration.
+	Capture *config.CaptureConfig `json:"capture,omitempty"`
+}
+
+// String and LogValue keep the gate secret out of logs and error messages.
+func (p ConfigPayload) String() string {
+	return fmt.Sprintf("ConfigPayload{gate_secret:%s capture:%v}", redacted(p.GateSecret), p.Capture != nil)
+}
+
+// LogValue implements slog.LogValuer.
+func (p ConfigPayload) LogValue() slog.Value {
+	return slog.GroupValue(slog.String("gate_secret", redacted(p.GateSecret)), slog.Bool("capture", p.Capture != nil))
+}
+
+func redacted(s string) string {
+	if s == "" {
+		return "unset"
+	}
+	return "[redacted]"
+}
+
+// ConfigAckPayload is the payload of a config-ack envelope (agent -> server).
+type ConfigAckPayload struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
 
 // Path is the URL path the agent serves the channel on.
 const Path = "/v1/channel"
