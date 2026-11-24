@@ -356,8 +356,18 @@ func TestProvisionRunsStepsInOrderAndInstallsEverything(t *testing.T) {
 		t.Fatalf("binary: %+v", bin)
 	}
 	unit, ok := f.fm.file(l.UnitPath)
-	if !ok || !strings.Contains(string(unit.data), "User=fleet-agent") || !strings.Contains(string(unit.data), "ExecStart=/usr/local/bin/fleet-agent --config /etc/fleet-agent/config.json") {
+	if !ok || !strings.Contains(string(unit.data), "ExecStart=/usr/local/bin/fleet-agent --config /etc/fleet-agent/config.json") {
 		t.Fatalf("unit: %q", unit.data)
+	}
+	// Privilege + data dir: the agent runs as root (capture/PTY/cgroup need it)
+	// and its data dir is set explicitly, not derived from the binary location.
+	for _, want := range []string{"User=root\n", "Group=root\n", "Environment=FLEET_DATA_DIR=/var/lib/fleet-agent\n", "Restart=always\n"} {
+		if !strings.Contains(string(unit.data), want) {
+			t.Fatalf("unit missing %q: %q", want, unit.data)
+		}
+	}
+	if strings.Contains(string(unit.data), "User=fleet-agent") {
+		t.Fatalf("unit must not run as the dedicated user: %q", unit.data)
 	}
 	if !f.fm.enabled || !f.fm.active {
 		t.Fatalf("service enabled=%v active=%v", f.fm.enabled, f.fm.active)
