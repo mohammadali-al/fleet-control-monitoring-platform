@@ -1,7 +1,7 @@
 ---
 id: T-0010
 title: monitors
-state: ready
+state: merged
 touches: [internal/probe/probe.go, internal/probe/http.go, internal/probe/tcp.go, internal/probe/icmp.go,
           internal/probe/dns.go, internal/probe/probe_test.go, internal/monitor/jobs.go,
           internal/monitor/ingest.go, internal/monitor/jobs_test.go, internal/config/config.go,

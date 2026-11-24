@@ -5,7 +5,6 @@
 ## Now (running / in review)
 _none_
 ## Next (ready, in order)
-- **T-0010** monitors  `after: [T-0003]`
 - **T-0012** watchdog  `after: [T-0003]`
 - **T-0013** backup  `after: [T-0009]`
 - **T-0014** test-report  `after: [T-0009, T-0010]`
@@ -24,6 +23,7 @@ _none_
 - **T-0007** command-executor  `after: [T-0003]`
 - **T-0008** evidence-capture  `after: [T-0007]`
 - **T-0009** evidence-sync-export  `after: [T-0008]`
+- **T-0010** monitors  `after: [T-0003]`
 - **T-0011** panel-wiring  `after: [T-0005, T-0006, T-0007]`
 - **T-0015** evidence-capture-fixes  `after: [T-0008]`
 
