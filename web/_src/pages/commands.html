@@ -1,0 +1,121 @@
+<!-- title: Command runner -->
+      <div class="page-head">
+        <div class="page-head__text">
+          <h1>Command runner</h1>
+          <p>Mode A: run a one-shot command on one or more worker agents and watch the output live. Manual commands run strictly one at a time per worker agent; extra runs queue.</p>
+        </div>
+        <div class="page-head__actions">
+          <a class="btn" href="terminal.html">{{i:terminal}}Interactive shell (Mode B)</a>
+        </div>
+      </div>
+
+      <div class="grid">
+        <!-- ============ New run ============ -->
+        <section class="card col-4" aria-labelledby="run-title">
+          <div class="card__head"><h2 id="run-title">New run</h2></div>
+          <form class="card__body stack" data-stub-form="Static preview: nothing was sent. Commands are dispatched in a later task.">
+            <fieldset class="field">
+              <legend>Target worker agents</legend>
+              <div class="row" style="margin-bottom:var(--sp-1)">
+                <button class="btn btn--sm btn--ghost" type="button" data-stub="Static preview: selection is not wired yet.">Select all online</button>
+                <button class="btn btn--sm btn--ghost" type="button" data-stub="Static preview: selection is not wired yet.">Clear</button>
+              </div>
+              <ul class="list" style="border:1px solid var(--border);border-radius:var(--radius)">
+                <li class="list__item"><label class="check"><input type="checkbox" checked aria-label="wrk-01"></label><div class="list__main"><b>wrk-01</b><small>idle</small></div>{{state:online}}</li>
+                <li class="list__item"><label class="check"><input type="checkbox" checked aria-label="wrk-02"></label><div class="list__main"><b>wrk-02</b><small>idle</small></div>{{state:online}}</li>
+                <li class="list__item"><label class="check"><input type="checkbox" checked aria-label="wrk-03"></label><div class="list__main"><b>wrk-03</b><small>1 running, 1 queued</small></div>{{state:online}}</li>
+                <li class="list__item"><label class="check"><input type="checkbox" checked aria-label="wrk-04"></label><div class="list__main"><b>wrk-04</b><small>idle</small></div>{{state:online}}</li>
+                <li class="list__item"><label class="check"><input type="checkbox" disabled aria-label="wrk-05 (reconnecting)"></label><div class="list__main"><b>wrk-05</b><small>unavailable while reconnecting</small></div>{{state:reconnecting}}</li>
+                <li class="list__item"><label class="check"><input type="checkbox" disabled aria-label="wrk-06 (offline)"></label><div class="list__main"><b>wrk-06</b><small>unavailable while offline</small></div>{{state:offline}}</li>
+              </ul>
+              <span class="field__hint">Monitor agents never appear here: they have no command role.</span>
+            </fieldset>
+            <div class="field"><label for="cmd">Command</label><textarea class="textarea input--mono" id="cmd" rows="3" spellcheck="false">uname -a &amp;&amp; uptime</textarea>
+              <span class="field__hint">Runs as root on each selected worker agent.</span></div>
+            <div class="field"><label for="to">Timeout (seconds)</label><input class="input input--mono" id="to" value="300" inputmode="numeric" aria-describedby="to-h"><span class="field__hint" id="to-h">Default 300 s. A hung command ends at the timeout and the queue advances.</span></div>
+            <div class="alert">{{i:info}}<div>Traffic produced by this command is captured as <strong>evidence</strong> under its session id.</div></div>
+            <div class="row">
+              <button class="btn btn--primary" type="submit">{{i:play}}Run on 4 worker agents</button>
+              <button class="btn btn--ghost" type="button" data-dialog-open="#dlg-gate">Preview the confirmation gate</button>
+            </div>
+          </form>
+        </section>
+
+        <!-- ============ Live view ============ -->
+        <div class="col-8 stack">
+          <section class="card" aria-labelledby="live-title">
+            <div class="card__head">
+              <div><h2 id="live-title">Live run <span class="mono">s-0143</span></h2><p class="mono">uname -a &amp;&amp; uptime</p></div>
+              <span class="chip chip--accent chip--live">Running on 1 of 4</span>
+            </div>
+            <div class="card__body stack">
+              <div class="steps" aria-label="Run lifecycle">
+                <span class="step step--done">Queued</span><span class="steps__sep"></span><span class="step step--now">Running</span><span class="steps__sep"></span><span class="step">Exited</span>
+              </div>
+              <div class="runs" aria-label="Per worker agent">
+                <article class="run" aria-labelledby="r1">
+                  <div class="run__head"><b id="r1">wrk-01</b><span class="chip chip--accent chip--live">Running</span></div>
+                  <div class="steps"><span class="step step--done">Queued</span><span class="steps__sep"></span><span class="step step--now">Running</span><span class="steps__sep"></span><span class="step">Exited</span></div>
+                  <div class="term-ph" role="log" aria-label="Output of wrk-01"><div class="term-ph__body">Linux wrk-01 6.8.0 #1 SMP x86_64
+ 14:02:11 up 12 days,  3:41,  1 user,  load average: 0.12<span class="term-ph__cursor"></span></div></div>
+                  <div class="row row--between"><span class="muted">started 14:02:09 · 2 s</span><button class="btn btn--sm btn--danger" type="button" data-stub="Static preview: the command would be terminated.">{{i:stop:sm}}Terminate</button></div>
+                </article>
+                <article class="run" aria-labelledby="r2">
+                  <div class="run__head"><b id="r2">wrk-02</b><span class="chip chip--ok">{{i:check:sm}}Exited 0</span></div>
+                  <div class="steps"><span class="step step--done">Queued</span><span class="steps__sep"></span><span class="step step--done">Running</span><span class="steps__sep"></span><span class="step step--done">Exited</span></div>
+                  <div class="term-ph" role="log" aria-label="Output of wrk-02"><div class="term-ph__body">Linux wrk-02 6.8.0 #1 SMP x86_64
+ 14:02:10 up 12 days,  3:40,  1 user,  load average: 0.09</div></div>
+                  <div class="row row--between"><span class="muted">1.1 s · 0 packets captured</span><span class="chip chip--outline">Evidence synced</span></div>
+                </article>
+                <article class="run" aria-labelledby="r3">
+                  <div class="run__head"><b id="r3">wrk-03</b><span class="chip chip--warn">{{i:clock:sm}}Queued #2</span></div>
+                  <div class="steps"><span class="step step--now">Queued</span><span class="steps__sep"></span><span class="step">Running</span><span class="steps__sep"></span><span class="step">Exited</span></div>
+                  <div class="term-ph" role="log" aria-label="Output of wrk-03"><div class="term-ph__body"><span class="term-dim">Waiting: a manual command is already running on wrk-03 (s-0141). Runs start in order, one at a time.</span></div></div>
+                  <div class="row row--between"><span class="muted">position 2 in queue</span><button class="btn btn--sm" type="button" data-stub="Static preview: the queued run would be cancelled.">Cancel</button></div>
+                </article>
+                <article class="run" aria-labelledby="r4">
+                  <div class="run__head"><b id="r4">wrk-04</b><span class="chip chip--danger">{{i:x:sm}}Exited 1</span></div>
+                  <div class="steps"><span class="step step--done">Queued</span><span class="steps__sep"></span><span class="step step--done">Running</span><span class="steps__sep"></span><span class="step step--bad">Exited</span></div>
+                  <div class="term-ph" role="log" aria-label="Output of wrk-04"><div class="term-ph__body">Linux wrk-04 6.8.0 #1 SMP x86_64
+<span class="out-err">uptime: cannot open /proc/uptime: Permission denied</span></div></div>
+                  <div class="row row--between"><span class="muted">0.8 s · 0 packets captured</span><span class="chip chip--outline">Evidence synced</span></div>
+                </article>
+              </div>
+            </div>
+            <div class="card__foot">Mock data. Evidence summary (packets, drops) appears on exit; open the run in <a href="evidence.html">Evidence</a> for the full records.</div>
+          </section>
+
+          <!-- ============ History ============ -->
+          <section class="card" aria-labelledby="hist-title">
+            <div class="card__head"><h2 id="hist-title">History</h2><div class="input-affix" style="min-width:14rem">{{i:search}}<input class="input" type="search" placeholder="Filter commands" aria-label="Filter command history"></div></div>
+            <div class="table-wrap">
+              <table class="table">
+                <caption class="sr-only">Manual command history</caption>
+                <thead><tr><th scope="col">Session</th><th scope="col">Command</th><th scope="col">Targets</th><th scope="col">Started</th><th scope="col" class="num">Duration</th><th scope="col">Result</th><th scope="col" class="num">Packets</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+                <tbody>
+                  <tr><td class="mono">s-0143</td><td class="mono truncate">uname -a &amp;&amp; uptime</td><td class="nowrap">4 agents</td><td class="nowrap">14:02:09</td><td class="num">running</td><td><span class="chip chip--accent chip--live">Running</span></td><td class="num">0</td><td class="actions"><button class="btn btn--sm" type="button" data-stub="Static preview: re-run is not wired yet.">{{i:refresh:sm}}Re-run</button></td></tr>
+                  <tr><td class="mono">s-0141</td><td class="mono truncate">curl -s https://shop.example.test/health</td><td>wrk-03</td><td class="nowrap">13:58:40</td><td class="num">0:03</td><td><span class="chip chip--ok">{{i:check:sm}}Exited 0</span></td><td class="num">42</td><td class="actions"><button class="btn btn--sm" type="button" data-stub="Static preview: re-run is not wired yet.">{{i:refresh:sm}}Re-run</button></td></tr>
+                  <tr><td class="mono">s-0138</td><td class="mono truncate">systemctl stop fleet-watchdog</td><td>wrk-02</td><td class="nowrap">13:41:12</td><td class="num">0:00</td><td><span class="chip chip--danger">{{i:x:sm}}Refused (no confirmation)</span></td><td class="num">0</td><td class="actions"><button class="btn btn--sm" type="button" data-stub="Static preview: re-run is not wired yet.">{{i:refresh:sm}}Re-run</button></td></tr>
+                  <tr><td class="mono">s-0135</td><td class="mono truncate">sleep 600</td><td>wrk-01</td><td class="nowrap">13:20:05</td><td class="num">5:00</td><td><span class="chip chip--warn">{{i:clock:sm}}Timed out</span></td><td class="num">0</td><td class="actions"><button class="btn btn--sm" type="button" data-stub="Static preview: re-run is not wired yet.">{{i:refresh:sm}}Re-run</button></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="card__foot">Refusals are logged and shown here, like every other action.</div>
+          </section>
+        </div>
+      </div>
+
+      <!-- Dangerous-command gate (architecture 4.8). Enforced in the agent; this dialog is UX only. -->
+      <dialog class="dialog" id="dlg-gate" aria-labelledby="dlg-gate-title">
+        <form method="dialog" data-stub-form="Static preview: nothing was sent.">
+          <div class="dialog__head"><h2 id="dlg-gate-title">Confirm a dangerous command</h2><p>This command matches the server-side dangerous-pattern list.</p></div>
+          <div class="dialog__body">
+            <div class="alert alert--danger">{{i:alert}}<div><strong>Matched pattern:</strong> <code>systemctl stop fleet-watchdog</code><br>Stopping the watchdog removes the machine's load safety net. The attempt is logged.</div></div>
+            <div class="field"><label for="gate-phrase">Type <code>I understand</code> to continue</label><input class="input input--mono" id="gate-phrase" autocomplete="off"><span class="field__hint">The agent refuses the command unless it carries the confirmation token, whatever the browser does.</span></div>
+          </div>
+          <div class="dialog__foot">
+            <button class="btn" type="button" data-dialog-close>Cancel</button>
+            <button class="btn btn--danger" type="button" data-stub="Static preview: nothing was sent." data-dialog-close>Run anyway</button>
+          </div>
+        </form>
+      </dialog>

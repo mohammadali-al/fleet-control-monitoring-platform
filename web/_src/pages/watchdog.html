@@ -1,0 +1,152 @@
+<!-- title: Watchdog -->
+      <div class="page-head">
+        <div class="page-head__text">
+          <h1>Watchdog</h1>
+          <p>Keeps a machine from hitting maximum resource use and becoming unreachable. It is a load safety net, not a tamper-proof supervisor: everything else is for the human watching this panel.</p>
+        </div>
+        <div class="page-head__actions">
+          <button class="btn" type="button" data-stub="Static preview: counters on all hosts would be reset.">{{i:refresh}}Reset all counters</button>
+        </div>
+      </div>
+
+      <div class="alert" style="margin-bottom:var(--sp-4)">
+        {{i:info}}
+        <div><strong>Thresholds sit above the Load Controller's operating ceiling.</strong> A Maneuver deliberately drives CPU and RAM toward its ceiling; the watchdog only acts as a backstop for load that escapes the controller, such as a runaway manual command.</div>
+      </div>
+
+      <section class="grid" aria-label="Fleet watchdog summary" style="margin-bottom:var(--sp-4)">
+        <div class="card stat col-3 col-3--md-6"><div class="stat__label">Normal</div><div class="stat__value">8 <small>hosts</small></div><div class="stat__note">Below every threshold</div></div>
+        <div class="card stat col-3 col-3--md-6"><div class="stat__label">Acting</div><div class="stat__value">1</div><div class="stat__note">wrk-07 throttled</div></div>
+        <div class="card stat col-3 col-3--md-6"><div class="stat__label">Alert-only</div><div class="stat__value">1</div><div class="stat__note">wrk-03: daily caps used up</div></div>
+        <div class="card stat col-3 col-3--md-6"><div class="stat__label">Not reporting</div><div class="stat__value">1</div><div class="stat__note">wrk-06 is offline</div></div>
+      </section>
+
+      <div class="stack">
+        <!-- ============ Per-host state ============ -->
+        <section class="card" aria-labelledby="ph-title">
+          <div class="card__head"><div><h2 id="ph-title">Hosts</h2><p>Escalation stage, guard counters and watchdog liveness per host.</p></div></div>
+          <div class="table-wrap">
+            <table class="table table--sticky-first">
+              <caption class="sr-only">Per-host watchdog state</caption>
+              <thead><tr><th scope="col">Host</th><th scope="col">Stage</th><th scope="col">Policy</th><th scope="col" class="num">Restarts today</th><th scope="col" class="num">Reboots today</th><th scope="col">Cooldown</th><th scope="col">Watchdog service</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+              <tbody>
+                <tr><th scope="row" class="cell-primary">wrk-01<div class="cell-sub">Worker agent</div></th>
+                  <td><span class="chip chip--ok">{{i:check:sm}}Normal</span> <span class="ladder" aria-hidden="true"><i></i><i></i><i></i><i></i></span></td><td class="nowrap">default v12</td><td class="num">0 / 3</td><td class="num">0 / 1</td><td class="faint">none</td>
+                  <td><span class="chip chip--ok">{{i:check:sm}}Active</span></td><td class="actions"><button class="btn btn--sm" type="button" data-stub="Static preview: counters would be reset.">Reset counters</button></td></tr>
+                <tr><th scope="row" class="cell-primary">wrk-03<div class="cell-sub">Worker agent</div></th>
+                  <td><span class="chip chip--danger">{{i:alert:sm}}Alert-only</span> <span class="ladder" aria-hidden="true"><i class="on hi"></i><i class="on hi"></i><i class="on hi"></i><i class="on hi"></i></span></td><td class="nowrap">default v12</td><td class="num">3 / 3</td><td class="num">1 / 1</td><td>reboot cooldown, 41 min left</td>
+                  <td><span class="chip chip--ok">{{i:check:sm}}Active</span></td><td class="actions"><button class="btn btn--sm btn--primary" type="button" data-stub="Static preview: counters would be reset and actions re-enabled.">Reset counters</button></td></tr>
+                <tr><th scope="row" class="cell-primary">wrk-06<div class="cell-sub">Worker agent</div></th>
+                  <td><span class="chip chip--neutral">{{i:x:sm}}Not reporting</span></td><td class="nowrap">default v12 <span class="faint">(last known)</span></td><td class="num faint">-</td><td class="num faint">-</td><td class="faint">-</td>
+                  <td><span class="chip chip--danger">{{i:x:sm}}Unknown</span></td><td class="actions"><button class="btn btn--sm" type="button" aria-disabled="true" data-stub="Static preview: the host is offline.">Reset counters</button></td></tr>
+                <tr><th scope="row" class="cell-primary">wrk-07<div class="cell-sub">Worker agent</div></th>
+                  <td><span class="chip chip--warn">{{i:alert:sm}}Throttled</span> <span class="ladder" aria-hidden="true"><i class="on"></i><i></i><i></i><i></i></span></td><td class="nowrap">override <span class="chip chip--outline">host</span> v3</td><td class="num">0 / 3</td><td class="num">0 / 1</td><td>throttle held, 1:12 left</td>
+                  <td><span class="chip chip--ok">{{i:check:sm}}Active</span></td><td class="actions"><button class="btn btn--sm" type="button" data-stub="Static preview: counters would be reset.">Reset counters</button></td></tr>
+                <tr><th scope="row" class="cell-primary">mon-01<div class="cell-sub">Monitor agent (headless watchdog)</div></th>
+                  <td><span class="chip chip--ok">{{i:check:sm}}Normal</span> <span class="ladder" aria-hidden="true"><i></i><i></i><i></i><i></i></span></td><td class="nowrap">default v12</td><td class="num">0 / 3</td><td class="num">0 / 1</td><td class="faint">none</td>
+                  <td><span class="chip chip--ok">{{i:check:sm}}Active</span></td><td class="actions"><button class="btn btn--sm" type="button" data-stub="Static preview: counters would be reset.">Reset counters</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card__foot">Mock data, 5 of 11 hosts shown. The watchdog restarts itself on exit (<code>Restart=always</code>) and an independent timer checks it every minute, so a hung watchdog is caught too.</div>
+        </section>
+
+        <!-- ============ Policy editor ============ -->
+        <section class="card" aria-labelledby="pol-title">
+          <div class="card__head">
+            <div><h2 id="pol-title">Policy profile</h2><p>Version-stamped YAML, stored on the main server, pushed over the control channel and applied live without a restart.</p></div>
+            <div class="row"><span class="chip chip--outline chip--mono">v12</span><span class="chip chip--ok">{{i:check:sm}}Pushed to 10 of 11 hosts</span></div>
+          </div>
+          <div class="tabs" role="tablist" aria-label="Policy editor view" data-tabs>
+            <button class="tab" role="tab" id="ptab-form" aria-controls="pp-form" aria-selected="true" type="button">Form</button>
+            <button class="tab" role="tab" id="ptab-yaml" aria-controls="pp-yaml" aria-selected="false" type="button" tabindex="-1">YAML</button>
+          </div>
+          <form data-stub-form="Static preview: the profile was not saved or pushed.">
+            <div class="card__body tabpanel" role="tabpanel" id="pp-form" aria-labelledby="ptab-form">
+              <div class="stack">
+                <div class="form-grid">
+                  <div class="field"><label for="pol-scope">Applies to</label><select class="select" id="pol-scope"><option>Default profile (all hosts)</option><option>Group: worker agents</option><option>Host override: wrk-07</option></select><span class="field__hint">Per-host and per-group overrides win over the default.</span></div>
+                </div>
+
+                <fieldset class="stack"><legend>Detection</legend>
+                  <div class="form-grid">
+                    <div class="field"><label for="p-sample">Sampling interval</label><input class="input input--mono" id="p-sample" value="5 s"></div>
+                    <div class="field"><label for="p-breach">Sustained breach before acting</label><input class="input input--mono" id="p-breach" value="20 s (4 samples)"></div>
+                    <div class="field"><label for="p-cpu">CPU threshold (example)</label><input class="input input--mono" id="p-cpu" value="95 %"></div>
+                    <div class="field"><label for="p-ram">RAM threshold (example)</label><input class="input input--mono" id="p-ram" value="92 %"></div>
+                    <div class="field"><label for="p-rec">Recovery level (hysteresis)</label><input class="input input--mono" id="p-rec" value="85 %"><span class="field__hint">Clears only below this level.</span></div>
+                  </div>
+                </fieldset>
+
+                <fieldset class="stack"><legend>Escalation ladder</legend>
+                  <ol class="stack" style="gap:var(--sp-2)">
+                    <li class="card"><div class="card__body row row--between"><div><b>1. Throttle</b><div class="muted">Transient CPU quota, optional egress shaping; lifted early on recovery.</div></div><div class="row"><div class="field"><label class="sr-only" for="p-quota">CPU quota</label><input class="input input--mono" id="p-quota" value="CPUQuota 60%" style="width:9rem"></div><div class="field"><label class="sr-only" for="p-td">throttle_duration</label><input class="input input--mono" id="p-td" value="120 s" style="width:6rem"></div><label class="switch"><input type="checkbox" role="switch" checked><span class="switch__track"></span><span>On</span></label></div></div></li>
+                    <li class="card"><div class="card__body row row--between"><div><b>2. Kill offending session</b><div class="muted">The session's whole process group is killed in one action. Never per-socket.</div></div><label class="switch"><input type="checkbox" role="switch" checked><span class="switch__track"></span><span>On</span></label></div></li>
+                    <li class="card"><div class="card__body row row--between"><div><b>3. Service restart</b><div class="muted">Restarts the offending unit.</div></div><label class="switch"><input type="checkbox" role="switch" checked><span class="switch__track"></span><span>On</span></label></div></li>
+                    <li class="card"><div class="card__body row row--between"><div><b>4. Machine reboot</b><div class="muted">The agent reconnects by itself after boot.</div></div><label class="switch"><input type="checkbox" role="switch"><span class="switch__track"></span><span>Off</span></label></div></li>
+                  </ol>
+                </fieldset>
+
+                <fieldset class="stack"><legend>Guards</legend>
+                  <div class="form-grid">
+                    <div class="field"><label for="g-c1">Cooldown after throttle</label><input class="input input--mono" id="g-c1" value="10 min"></div>
+                    <div class="field"><label for="g-c2">Cooldown after restart</label><input class="input input--mono" id="g-c2" value="30 min"></div>
+                    <div class="field"><label for="g-c3">Cooldown after reboot</label><input class="input input--mono" id="g-c3" value="60 min"></div>
+                    <div class="field"><label for="g-d1">Max service restarts per day</label><input class="input input--mono" id="g-d1" value="3"></div>
+                    <div class="field"><label for="g-d2">Max reboots per day</label><input class="input input--mono" id="g-d2" value="1"></div>
+                    <div class="field"><label for="g-boot">Boot stability window</label><input class="input input--mono" id="g-boot" value="5 min"><span class="field__hint">No actions right after boot.</span></div>
+                  </div>
+                  <label class="switch"><input type="checkbox" role="switch" checked><span class="switch__track"></span><span>Auto-reset counters at midnight</span></label>
+                  <p class="field__hint">When the daily caps are used up the host goes <strong>alert-only</strong>: it keeps measuring and reports here, but takes no further action until an operator resets the counters.</p>
+                </fieldset>
+              </div>
+            </div>
+            <div class="card__body tabpanel" role="tabpanel" id="pp-yaml" aria-labelledby="ptab-yaml" hidden>
+              <div class="field"><label for="yaml">Policy profile (YAML)</label>
+<textarea class="textarea input--mono" id="yaml" rows="26" spellcheck="false" style="min-height:24rem">version: 12
+scope: default
+detection:
+  sample_interval: 5s
+  sustained_breach: 20s      # 4 consecutive samples
+  cpu_percent: 95            # example value
+  ram_percent: 92            # example value
+  recovery_percent: 85       # hysteresis
+ladder:
+  throttle:
+    enabled: true
+    cpu_quota: 60%
+    throttle_duration: 120s
+    egress_shaping: false
+  kill_session: { enabled: true }
+  restart_service: { enabled: true }
+  reboot: { enabled: false }
+guards:
+  cooldown: { throttle: 10m, restart: 30m, reboot: 60m }
+  daily_caps: { restarts: 3, reboots: 1 }
+  boot_stability: 5m
+  auto_reset_midnight: true</textarea></div>
+            </div>
+            <div class="card__foot row row--between"><span>Saving pushes the new version to every host in scope; the last known profile keeps running if the main server is unreachable.</span>
+              <span class="row"><button class="btn" type="button" data-stub="Static preview: edits would be reverted.">Revert</button><button class="btn btn--primary" type="submit">Save and push</button></span></div>
+          </form>
+        </section>
+
+        <!-- ============ Events ============ -->
+        <section class="card" aria-labelledby="ev-title">
+          <div class="card__head"><div><h2 id="ev-title">Events</h2><p>Every watchdog action and every attempt to stop it is logged here.</p></div></div>
+          <div class="table-wrap">
+            <table class="table">
+              <caption class="sr-only">Watchdog events</caption>
+              <thead><tr><th scope="col">Time</th><th scope="col">Host</th><th scope="col">Event</th><th scope="col">Detail</th></tr></thead>
+              <tbody>
+                <tr><td class="nowrap">14:01:50</td><td>wrk-07</td><td><span class="chip chip--warn">Throttle</span></td><td>CPU above 95% for 20 s outside any Maneuver; CPUQuota 60% for 120 s</td></tr>
+                <tr><td class="nowrap">13:12:03</td><td>wrk-03</td><td><span class="chip chip--danger">Alert-only</span></td><td>Daily caps used up (3 restarts, 1 reboot); no further actions until reset</td></tr>
+                <tr><td class="nowrap">12:40:21</td><td>wrk-03</td><td><span class="chip chip--danger">Reboot</span></td><td>RAM above 92% after a service restart; machine rebooted, agent reconnected in 48 s</td></tr>
+                <tr><td class="nowrap">11:05:09</td><td>wrk-02</td><td><span class="chip chip--warn">Operator action</span></td><td>fleet-watchdog.service stopped by an operator command (session s-0097); restarted by the liveness timer after 41 s</td></tr>
+                <tr><td class="nowrap">09:00:00</td><td>all</td><td><span class="chip chip--info">Counter reset</span></td><td>Counters reset by the operator</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card__foot">Mock data.</div>
+        </section>
+      </div>

@@ -1,0 +1,186 @@
+<!-- title: Machines -->
+      <div class="page-head">
+        <div class="page-head__text">
+          <h1>Machines</h1>
+          <p>Registry of worker agents and monitor agents: online state, role, connection mode, addresses and disk.</p>
+        </div>
+        <div class="page-head__actions">
+          <button class="btn" type="button" data-stub="Static preview: public IPs would be re-checked via the reflector set."><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Refresh public IPs</button>
+          <button class="btn btn--primary" type="button" data-toggle-panel="#onboard" aria-expanded="false" aria-controls="onboard"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Onboard machine</button>
+        </div>
+      </div>
+
+      <!-- Onboarding form (architecture 4.5): IP + SSH user + password/key + role -->
+      <section class="card panel" id="onboard" hidden aria-labelledby="onboard-title" style="margin-bottom: var(--sp-4)">
+        <div class="card__head">
+          <div><h2 id="onboard-title">Onboard a machine</h2><p>Provisioning installs <code>fleet-agent</code>, creates its client certificate and writes the connect mode.</p></div>
+        </div>
+        <form class="card__body stack" data-stub-form="Static preview: nothing was sent. Provisioning is wired in a later task.">
+          <div class="form-grid">
+            <div class="field"><label for="f-ip">Machine IP address</label><input class="input input--mono" id="f-ip" name="ip" inputmode="decimal" placeholder="10.20.0.30" required><span class="field__hint">Reachable from the main server.</span></div>
+            <div class="field"><label for="f-user">SSH username</label><input class="input" id="f-user" name="user" autocomplete="off" placeholder="provision" required></div>
+            <div class="field"><label for="f-secret">SSH password</label><input class="input" id="f-secret" name="secret" type="password" autocomplete="new-password"><span class="field__hint">Used once for provisioning, then discarded.</span></div>
+            <fieldset class="field"><legend>Authentication</legend>
+              <div class="seg" role="radiogroup" aria-label="Authentication method">
+                <label><input type="radio" name="auth" value="password" checked><span>Password</span></label>
+                <label><input type="radio" name="auth" value="key"><span>Private key</span></label>
+              </div>
+            </fieldset>
+            <div class="field"><label for="f-role">Role</label>
+              <select class="select" id="f-role" name="role"><option>Worker agent</option><option>Monitor agent</option></select>
+              <span class="field__hint">Monitor agents never run commands or shells.</span></div>
+            <div class="field"><label for="f-mode">Connect mode</label>
+              <select class="select" id="f-mode" name="connect_mode"><option>server_dial (default)</option><option>agent_dial</option></select>
+              <span class="field__hint"><code>agent_dial</code> is for agents on another network.</span></div>
+          </div>
+          <div class="row"><button class="btn btn--primary" type="submit">Start provisioning</button><button class="btn" type="button" data-toggle-panel="#onboard">Cancel</button></div>
+        </form>
+      </section>
+
+      <!-- Summary tiles -->
+      <section class="grid" aria-label="Fleet summary" style="margin-bottom: var(--sp-4)">
+        <div class="card stat col-3 col-3--md-6"><div class="stat__label">Worker agents</div><div class="stat__value">5 <small>/ 7 online</small></div><div class="stat__note">1 reconnecting, 1 offline</div></div>
+        <div class="card stat col-3 col-3--md-6"><div class="stat__label">Monitor agents</div><div class="stat__value">4 <small>/ 4 online</small></div><div class="stat__note">Probing continuously</div></div>
+        <div class="card stat col-3 col-3--md-6"><div class="stat__label">Needs attention</div><div class="stat__value">2</div><div class="stat__note">wrk-05 reconnecting, wrk-06 offline</div></div>
+        <div class="card stat col-3 col-3--md-6"><div class="stat__label">Disk guard</div><div class="stat__value">2</div><div class="stat__note">wrk-03 at 88% (warning), wrk-07 at 96% (intake paused)</div></div>
+      </section>
+
+      <!-- Registry -->
+      <section class="card" aria-labelledby="reg-title">
+        <div class="card__head"><h2 id="reg-title">Registry</h2><span class="muted" data-filter-count aria-live="polite">Showing 11 of 11 machines</span></div>
+        <div class="table-toolbar" role="search">
+          <div class="input-affix"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><input class="input" type="search" data-filter-q placeholder="Filter by name or IP" aria-label="Filter machines by name or IP"></div>
+          <div class="seg" role="radiogroup" aria-label="Filter by role">
+            <label><input type="radio" name="role" value="all" checked><span>All</span></label>
+            <label><input type="radio" name="role" value="worker"><span>Worker agents</span></label>
+            <label><input type="radio" name="role" value="monitor"><span>Monitor agents</span></label>
+          </div>
+          <select class="select" data-filter-state aria-label="Filter by state" style="width:auto">
+            <option value="all">Any state</option><option value="online">Online</option><option value="reconnecting">Reconnecting</option><option value="offline">Offline</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table class="table table--sticky-first" data-filter-table>
+            <caption class="sr-only">Registered machines</caption>
+            <thead><tr>
+              <th scope="col">Machine</th><th scope="col">Role</th><th scope="col">State</th><th scope="col">Connect mode</th>
+              <th scope="col">Addresses</th><th scope="col">Disk</th><th scope="col">Last seen</th><th scope="col"><span class="sr-only">Actions</span></th>
+            </tr></thead>
+            <tbody>
+              <tr data-role="worker" data-state="online">
+                <th scope="row" class="cell-primary">wrk-01<div class="cell-sub mono">m-7f3a9c</div></th>
+                <td><span class="chip chip--accent">Worker agent</span></td>
+                <td><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span></td>
+                <td class="mono">server_dial</td>
+                <td><div class="mono">10.20.0.11</div><div class="cell-sub">Public <span class="mono">203.0.113.21</span> · 4 min ago</div></td>
+                <td><div class="meter"><div class="meter__bar"><div class="meter__fill" style="width:42%"></div></div><div class="meter__text"><span>212 / 500 GB</span><span>42%</span></div></div></td>
+                <td class="nowrap">2 s ago</td>
+                <td class="actions"><button class="icon-btn icon-btn--sm" type="button" aria-label="Refresh public IP of wrk-01" title="Refresh public IP" data-stub="Static preview: public IP would be refreshed."><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button><a class="icon-btn icon-btn--sm" href="terminal.html" aria-label="Open terminal on wrk-01" title="Open terminal"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg></a><div class="menu"><button class="icon-btn icon-btn--sm" type="button" aria-label="More actions for wrk-01" title="More" aria-haspopup="menu" aria-expanded="false" data-menu-btn>{{i:more}}</button><div class="menu__pop" role="menu" hidden><button class="menu__item" role="menuitem" type="button" data-stub="Static preview: the machine details view comes later.">Details</button><button class="menu__item" role="menuitem" type="button" data-stub="Static preview: re-provisioning is idempotent (same machine ID, same identity).">Re-provision</button><button class="menu__item menu__item--danger" role="menuitem" type="button" data-stub="Static preview: removal decommissions the machine and revokes its client certificate.">Remove</button></div></div></td>
+              </tr>
+              <tr data-role="worker" data-state="online">
+                <th scope="row" class="cell-primary">wrk-02<div class="cell-sub mono">m-2c81de</div></th>
+                <td><span class="chip chip--accent">Worker agent</span></td>
+                <td><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span></td>
+                <td class="mono">server_dial</td>
+                <td><div class="mono">10.20.0.12</div><div class="cell-sub">Public <span class="mono">203.0.113.21</span> · 4 min ago</div></td>
+                <td><div class="meter"><div class="meter__bar"><div class="meter__fill" style="width:35%"></div></div><div class="meter__text"><span>176 / 500 GB</span><span>35%</span></div></div></td>
+                <td class="nowrap">1 s ago</td>
+                <td class="actions"><button class="icon-btn icon-btn--sm" type="button" aria-label="Refresh public IP of wrk-02" title="Refresh public IP" data-stub="Static preview: public IP would be refreshed."><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button><a class="icon-btn icon-btn--sm" href="terminal.html" aria-label="Open terminal on wrk-02" title="Open terminal"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg></a><div class="menu"><button class="icon-btn icon-btn--sm" type="button" aria-label="More actions for wrk-02" title="More" aria-haspopup="menu" aria-expanded="false" data-menu-btn>{{i:more}}</button><div class="menu__pop" role="menu" hidden><button class="menu__item" role="menuitem" type="button" data-stub="Static preview: the machine details view comes later.">Details</button><button class="menu__item" role="menuitem" type="button" data-stub="Static preview: re-provisioning is idempotent (same machine ID, same identity).">Re-provision</button><button class="menu__item menu__item--danger" role="menuitem" type="button" data-stub="Static preview: removal decommissions the machine and revokes its client certificate.">Remove</button></div></div></td>
+              </tr>
+              <tr data-role="worker" data-state="online">
+                <th scope="row" class="cell-primary">wrk-03<div class="cell-sub mono">m-90b4f1</div></th>
+                <td><span class="chip chip--accent">Worker agent</span></td>
+                <td><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span></td>
+                <td class="mono">server_dial</td>
+                <td><div class="mono">10.20.0.13</div><div class="cell-sub">Public <span class="mono">203.0.113.21</span> · 4 min ago</div></td>
+                <td><div class="meter meter--warn"><div class="meter__bar"><div class="meter__fill" style="width:88%"></div></div><div class="meter__text"><span>440 / 500 GB</span><span>88% · warning</span></div></div></td>
+                <td class="nowrap">3 s ago</td>
+                <td class="actions"><button class="icon-btn icon-btn--sm" type="button" aria-label="Refresh public IP of wrk-03" title="Refresh public IP" data-stub="Static preview: public IP would be refreshed."><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button><a class="icon-btn icon-btn--sm" href="terminal.html" aria-label="Open terminal on wrk-03" title="Open terminal"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg></a><div class="menu"><button class="icon-btn icon-btn--sm" type="button" aria-label="More actions for wrk-03" title="More" aria-haspopup="menu" aria-expanded="false" data-menu-btn>{{i:more}}</button><div class="menu__pop" role="menu" hidden><button class="menu__item" role="menuitem" type="button" data-stub="Static preview: the machine details view comes later.">Details</button><button class="menu__item" role="menuitem" type="button" data-stub="Static preview: re-provisioning is idempotent (same machine ID, same identity).">Re-provision</button><button class="menu__item menu__item--danger" role="menuitem" type="button" data-stub="Static preview: removal decommissions the machine and revokes its client certificate.">Remove</button></div></div></td>
+              </tr>
+              <tr data-role="worker" data-state="online">
+                <th scope="row" class="cell-primary">wrk-04<div class="cell-sub mono">m-5de0a7</div></th>
+                <td><span class="chip chip--accent">Worker agent</span></td>
+                <td><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span></td>
+                <td class="mono">server_dial</td>
+                <td><div class="mono">10.20.0.14</div><div class="cell-sub">Public <span class="mono">203.0.113.21</span> · 4 min ago</div></td>
+                <td><div class="meter"><div class="meter__bar"><div class="meter__fill" style="width:27%"></div></div><div class="meter__text"><span>135 / 500 GB</span><span>27%</span></div></div></td>
+                <td class="nowrap">2 s ago</td>
+                <td class="actions"><button class="icon-btn icon-btn--sm" type="button" aria-label="Refresh public IP of wrk-04" title="Refresh public IP" data-stub="Static preview: public IP would be refreshed."><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button><a class="icon-btn icon-btn--sm" href="terminal.html" aria-label="Open terminal on wrk-04" title="Open terminal"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg></a><div class="menu"><button class="icon-btn icon-btn--sm" type="button" aria-label="More actions for wrk-04" title="More" aria-haspopup="menu" aria-expanded="false" data-menu-btn>{{i:more}}</button><div class="menu__pop" role="menu" hidden><button class="menu__item" role="menuitem" type="button" data-stub="Static preview: the machine details view comes later.">Details</button><button class="menu__item" role="menuitem" type="button" data-stub="Static preview: re-provisioning is idempotent (same machine ID, same identity).">Re-provision</button><button class="menu__item menu__item--danger" role="menuitem" type="button" data-stub="Static preview: removal decommissions the machine and revokes its client certificate.">Remove</button></div></div></td>
+              </tr>
+              <tr data-role="worker" data-state="reconnecting">
+                <th scope="row" class="cell-primary">wrk-05<div class="cell-sub mono">m-c3a612</div></th>
+                <td><span class="chip chip--accent">Worker agent</span></td>
+                <td><span class="chip chip--warn"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Reconnecting</span></td>
+                <td class="mono">agent_dial</td>
+                <td><div class="mono">192.168.50.7</div><div class="cell-sub">Public <span class="mono">198.51.100.40</span> · 12 min ago</div></td>
+                <td><div class="meter"><div class="meter__bar"><div class="meter__fill" style="width:61%"></div></div><div class="meter__text"><span>305 / 500 GB</span><span>61%</span></div></div></td>
+                <td class="nowrap">48 s ago</td>
+                <td class="actions"><button class="icon-btn icon-btn--sm" type="button" aria-label="Refresh public IP of wrk-05" title="Refresh public IP" data-stub="Static preview: public IP would be refreshed."><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button><a class="icon-btn icon-btn--sm" href="terminal.html" aria-label="Open terminal on wrk-05" title="Open terminal"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg></a><div class="menu"><button class="icon-btn icon-btn--sm" type="button" aria-label="More actions for wrk-05" title="More" aria-haspopup="menu" aria-expanded="false" data-menu-btn>{{i:more}}</button><div class="menu__pop" role="menu" hidden><button class="menu__item" role="menuitem" type="button" data-stub="Static preview: the machine details view comes later.">Details</button><button class="menu__item" role="menuitem" type="button" data-stub="Static preview: re-provisioning is idempotent (same machine ID, same identity).">Re-provision</button><button class="menu__item menu__item--danger" role="menuitem" type="button" data-stub="Static preview: removal decommissions the machine and revokes its client certificate.">Remove</button></div></div></td>
+              </tr>
+              <tr data-role="worker" data-state="offline">
+                <th scope="row" class="cell-primary">wrk-06<div class="cell-sub mono">m-18f7b2</div></th>
+                <td><span class="chip chip--accent">Worker agent</span></td>
+                <td><span class="chip chip--danger"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>Offline</span></td>
+                <td class="mono">server_dial</td>
+                <td><div class="mono">10.20.0.16</div><div class="cell-sub">Public <span class="mono">203.0.113.21</span> · 3 h ago</div></td>
+                <td><span class="faint">Unknown</span></td>
+                <td class="nowrap">3 h ago</td>
+                <td class="actions"><button class="icon-btn icon-btn--sm" type="button" aria-label="Refresh public IP of wrk-06" title="Refresh public IP" data-stub="Static preview: public IP would be refreshed."><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button><span class="icon-btn icon-btn--sm" role="link" aria-disabled="true" aria-label="Terminal unavailable: wrk-06 is offline" title="Terminal unavailable: machine is offline"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg></span><div class="menu"><button class="icon-btn icon-btn--sm" type="button" aria-label="More actions for wrk-06" title="More" aria-haspopup="menu" aria-expanded="false" data-menu-btn>{{i:more}}</button><div class="menu__pop" role="menu" hidden><button class="menu__item" role="menuitem" type="button" data-stub="Static preview: the machine details view comes later.">Details</button><button class="menu__item" role="menuitem" type="button" data-stub="Static preview: re-provisioning is idempotent (same machine ID, same identity).">Re-provision</button><button class="menu__item menu__item--danger" role="menuitem" type="button" data-stub="Static preview: removal decommissions the machine and revokes its client certificate.">Remove</button></div></div></td>
+              </tr>
+              <tr data-role="worker" data-state="online">
+                <th scope="row" class="cell-primary">wrk-07<div class="cell-sub mono">m-e4409d</div></th>
+                <td><span class="chip chip--accent">Worker agent</span></td>
+                <td><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span></td>
+                <td class="mono">server_dial</td>
+                <td><div class="mono">10.20.0.17</div><div class="cell-sub">Public <span class="mono">203.0.113.21</span> · 4 min ago</div></td>
+                <td><div class="meter meter--danger"><div class="meter__bar"><div class="meter__fill" style="width:96%"></div></div><div class="meter__text"><span>480 / 500 GB</span><span>96% · intake paused</span></div></div></td>
+                <td class="nowrap">2 s ago</td>
+                <td class="actions"><button class="icon-btn icon-btn--sm" type="button" aria-label="Refresh public IP of wrk-07" title="Refresh public IP" data-stub="Static preview: public IP would be refreshed."><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button><a class="icon-btn icon-btn--sm" href="terminal.html" aria-label="Open terminal on wrk-07" title="Open terminal"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg></a><div class="menu"><button class="icon-btn icon-btn--sm" type="button" aria-label="More actions for wrk-07" title="More" aria-haspopup="menu" aria-expanded="false" data-menu-btn>{{i:more}}</button><div class="menu__pop" role="menu" hidden><button class="menu__item" role="menuitem" type="button" data-stub="Static preview: the machine details view comes later.">Details</button><button class="menu__item" role="menuitem" type="button" data-stub="Static preview: re-provisioning is idempotent (same machine ID, same identity).">Re-provision</button><button class="menu__item menu__item--danger" role="menuitem" type="button" data-stub="Static preview: removal decommissions the machine and revokes its client certificate.">Remove</button></div></div></td>
+              </tr>
+              <tr data-role="monitor" data-state="online">
+                <th scope="row" class="cell-primary">mon-01<div class="cell-sub mono">m-a05c33</div></th>
+                <td><span class="chip chip--info">Monitor agent</span></td>
+                <td><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span></td>
+                <td class="mono">server_dial</td>
+                <td><div class="mono">10.20.0.21</div><div class="cell-sub">Public <span class="mono">203.0.113.22</span> · 4 min ago</div></td>
+                <td><div class="meter"><div class="meter__bar"><div class="meter__fill" style="width:18%"></div></div><div class="meter__text"><span>9 / 50 GB</span><span>18%</span></div></div></td>
+                <td class="nowrap">1 s ago</td>
+                <td class="actions"><button class="icon-btn icon-btn--sm" type="button" aria-label="Refresh public IP of mon-01" title="Refresh public IP" data-stub="Static preview: public IP would be refreshed."><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button><span class="icon-btn icon-btn--sm" role="link" aria-disabled="true" aria-label="Terminal unavailable: monitor agents have no shell" title="Monitor agents have no shell"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg></span><div class="menu"><button class="icon-btn icon-btn--sm" type="button" aria-label="More actions for mon-01" title="More" aria-haspopup="menu" aria-expanded="false" data-menu-btn>{{i:more}}</button><div class="menu__pop" role="menu" hidden><button class="menu__item" role="menuitem" type="button" data-stub="Static preview: the machine details view comes later.">Details</button><button class="menu__item" role="menuitem" type="button" data-stub="Static preview: re-provisioning is idempotent (same machine ID, same identity).">Re-provision</button><button class="menu__item menu__item--danger" role="menuitem" type="button" data-stub="Static preview: removal decommissions the machine and revokes its client certificate.">Remove</button></div></div></td>
+              </tr>
+              <tr data-role="monitor" data-state="online">
+                <th scope="row" class="cell-primary">mon-02<div class="cell-sub mono">m-7b19e8</div></th>
+                <td><span class="chip chip--info">Monitor agent</span></td>
+                <td><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span></td>
+                <td class="mono">server_dial</td>
+                <td><div class="mono">10.20.0.22</div><div class="cell-sub">Public <span class="mono">203.0.113.22</span> · 4 min ago</div></td>
+                <td><div class="meter"><div class="meter__bar"><div class="meter__fill" style="width:20%"></div></div><div class="meter__text"><span>10 / 50 GB</span><span>20%</span></div></div></td>
+                <td class="nowrap">2 s ago</td>
+                <td class="actions"><button class="icon-btn icon-btn--sm" type="button" aria-label="Refresh public IP of mon-02" title="Refresh public IP" data-stub="Static preview: public IP would be refreshed."><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button><span class="icon-btn icon-btn--sm" role="link" aria-disabled="true" aria-label="Terminal unavailable: monitor agents have no shell" title="Monitor agents have no shell"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg></span><div class="menu"><button class="icon-btn icon-btn--sm" type="button" aria-label="More actions for mon-02" title="More" aria-haspopup="menu" aria-expanded="false" data-menu-btn>{{i:more}}</button><div class="menu__pop" role="menu" hidden><button class="menu__item" role="menuitem" type="button" data-stub="Static preview: the machine details view comes later.">Details</button><button class="menu__item" role="menuitem" type="button" data-stub="Static preview: re-provisioning is idempotent (same machine ID, same identity).">Re-provision</button><button class="menu__item menu__item--danger" role="menuitem" type="button" data-stub="Static preview: removal decommissions the machine and revokes its client certificate.">Remove</button></div></div></td>
+              </tr>
+              <tr data-role="monitor" data-state="online">
+                <th scope="row" class="cell-primary">mon-03<div class="cell-sub mono">m-d6624a</div></th>
+                <td><span class="chip chip--info">Monitor agent</span></td>
+                <td><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span></td>
+                <td class="mono">agent_dial</td>
+                <td><div class="mono">172.16.8.4</div><div class="cell-sub">Public <span class="mono">198.51.100.77</span> · 9 min ago</div></td>
+                <td><div class="meter"><div class="meter__bar"><div class="meter__fill" style="width:14%"></div></div><div class="meter__text"><span>7 / 50 GB</span><span>14%</span></div></div></td>
+                <td class="nowrap">2 s ago</td>
+                <td class="actions"><button class="icon-btn icon-btn--sm" type="button" aria-label="Refresh public IP of mon-03" title="Refresh public IP" data-stub="Static preview: public IP would be refreshed."><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button><span class="icon-btn icon-btn--sm" role="link" aria-disabled="true" aria-label="Terminal unavailable: monitor agents have no shell" title="Monitor agents have no shell"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg></span><div class="menu"><button class="icon-btn icon-btn--sm" type="button" aria-label="More actions for mon-03" title="More" aria-haspopup="menu" aria-expanded="false" data-menu-btn>{{i:more}}</button><div class="menu__pop" role="menu" hidden><button class="menu__item" role="menuitem" type="button" data-stub="Static preview: the machine details view comes later.">Details</button><button class="menu__item" role="menuitem" type="button" data-stub="Static preview: re-provisioning is idempotent (same machine ID, same identity).">Re-provision</button><button class="menu__item menu__item--danger" role="menuitem" type="button" data-stub="Static preview: removal decommissions the machine and revokes its client certificate.">Remove</button></div></div></td>
+              </tr>
+              <tr data-role="monitor" data-state="online">
+                <th scope="row" class="cell-primary">mon-04<div class="cell-sub mono">m-3f90c5</div></th>
+                <td><span class="chip chip--info">Monitor agent</span></td>
+                <td><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span></td>
+                <td class="mono">server_dial</td>
+                <td><div class="mono">10.20.0.24</div><div class="cell-sub">Public <span class="mono">203.0.113.22</span> · 4 min ago</div></td>
+                <td><div class="meter"><div class="meter__bar"><div class="meter__fill" style="width:22%"></div></div><div class="meter__text"><span>11 / 50 GB</span><span>22%</span></div></div></td>
+                <td class="nowrap">1 s ago</td>
+                <td class="actions"><button class="icon-btn icon-btn--sm" type="button" aria-label="Refresh public IP of mon-04" title="Refresh public IP" data-stub="Static preview: public IP would be refreshed."><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button><span class="icon-btn icon-btn--sm" role="link" aria-disabled="true" aria-label="Terminal unavailable: monitor agents have no shell" title="Monitor agents have no shell"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg></span><div class="menu"><button class="icon-btn icon-btn--sm" type="button" aria-label="More actions for mon-04" title="More" aria-haspopup="menu" aria-expanded="false" data-menu-btn>{{i:more}}</button><div class="menu__pop" role="menu" hidden><button class="menu__item" role="menuitem" type="button" data-stub="Static preview: the machine details view comes later.">Details</button><button class="menu__item" role="menuitem" type="button" data-stub="Static preview: re-provisioning is idempotent (same machine ID, same identity).">Re-provision</button><button class="menu__item menu__item--danger" role="menuitem" type="button" data-stub="Static preview: removal decommissions the machine and revokes its client certificate.">Remove</button></div></div></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="empty" data-filter-empty hidden>No machines match the current filter.</p>
+        <div class="card__foot">Mock data. Public IP is cached from the last reflector check; use the refresh button to re-check one machine. Disk guard: 80% raises a warning, 90% pauses capture intake (nothing is deleted).</div>
+      </section>
+    

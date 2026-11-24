@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Style guide · Fleet panel</title>
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="assets/css/tokens.css">
+  <link rel="stylesheet" href="assets/css/base.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <script src="assets/js/app.js"></script>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4 6.5 6.5 0 0 0 20 14.5z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.5-4M4 4v4h4M4 13a8 8 0 0 0 14.5 4M20 20v-4h-4"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></symbol>
+</defs></svg>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar">
+  <strong>Fleet panel &middot; Style guide</strong>
+  <span class="topbar__spacer"></span>
+  <a href="machines.html">Machines</a>&nbsp;&nbsp;<a href="maneuver.html">Maneuver</a>
+  <button class="icon-btn icon-btn--bordered theme-toggle" type="button" aria-label="Switch to dark theme" title="Switch to dark theme">
+    <svg class="icon icon-moon" aria-hidden="true"><use href="#i-moon"/></svg><svg class="icon icon-sun" aria-hidden="true"><use href="#i-sun"/></svg>
+  </button>
+</header>
+<main class="content stack" id="main" style="gap:var(--sp-5)">
+  <div class="page-head"><div class="page-head__text"><h1>Style guide</h1><p>Reference for the shared components. Reviewer aid only; not a panel page.</p></div></div>
+
+  <section class="card" aria-labelledby="g-btn"><div class="card__head"><h2 id="g-btn">Buttons</h2></div><div class="card__body row">
+    <button class="btn btn--primary" type="button">Primary</button><button class="btn" type="button">Secondary</button><button class="btn btn--ghost" type="button">Ghost</button><button class="btn btn--danger" type="button">Danger</button>
+    <button class="btn" type="button" aria-disabled="true">Unavailable</button><button class="btn btn--sm" type="button">Small</button>
+    <button class="icon-btn icon-btn--bordered" type="button" aria-label="Add"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button>
+  </div></section>
+
+  <section class="card" aria-labelledby="g-chip"><div class="card__head"><h2 id="g-chip">Status chips (icon + text)</h2></div><div class="card__body row">
+    <span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span>
+    <span class="chip chip--warn"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Reconnecting</span>
+    <span class="chip chip--danger"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>Offline</span>
+    <span class="chip chip--info"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>Monitor agent</span>
+    <span class="chip chip--accent">Worker agent</span><span class="chip chip--outline">Stub</span><span class="chip chip--mono">server_dial</span>
+  </div></section>
+
+  <section class="card" aria-labelledby="g-form"><div class="card__head"><h2 id="g-form">Forms</h2></div><div class="card__body form-grid">
+    <div class="field"><label for="s1">Text field</label><input class="input" id="s1" placeholder="Placeholder is not a label"><span class="field__hint">Helper text sits below the field.</span></div>
+    <div class="field"><label for="s2">Invalid field</label><input class="input" id="s2" value="10.20.0" aria-invalid="true" aria-describedby="s2e"><span class="field__error" id="s2e">Enter a full IPv4 address.</span></div>
+    <div class="field"><label for="s3">Select</label><select class="select" id="s3"><option>Worker agent</option><option>Monitor agent</option></select></div>
+    <div class="field"><span class="label">Segmented</span><div class="seg" role="radiogroup" aria-label="Example"><label><input type="radio" name="g" checked><span>One</span></label><label><input type="radio" name="g"><span>Two</span></label></div></div>
+    <label class="check"><input type="checkbox" checked> Checkbox</label>
+  </div></section>
+
+  <section class="grid">
+    <div class="card col-6"><div class="card__head"><h2>Alerts</h2></div><div class="card__body stack">
+      <div class="alert"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><div><strong>Info.</strong> Neutral guidance.</div></div>
+      <div class="alert alert--warn"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><div><strong>Warning.</strong> Needs attention.</div></div>
+      <div class="alert alert--danger"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg><div><strong>Error.</strong> Something failed; here is why.</div></div>
+      <div class="alert alert--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><div><strong>Done.</strong> Completed.</div></div>
+    </div></div>
+    <div class="card col-6"><div class="card__head"><h2>Disk meters</h2></div><div class="card__body stack">
+      <div class="meter"><div class="meter__bar"><div class="meter__fill" style="width:40%"></div></div><div class="meter__text"><span>200 / 500 GB</span><span>40%</span></div></div>
+      <div class="meter meter--warn"><div class="meter__bar"><div class="meter__fill" style="width:88%"></div></div><div class="meter__text"><span>440 / 500 GB</span><span>88% &middot; warning</span></div></div>
+      <div class="meter meter--danger"><div class="meter__bar"><div class="meter__fill" style="width:96%"></div></div><div class="meter__text"><span>480 / 500 GB</span><span>96% &middot; intake paused</span></div></div>
+    </div></div>
+  </section>
+
+  <section class="grid">
+    <div class="card col-6"><div class="card__head"><h2>Chart placeholder</h2><span class="chip chip--outline">Grafana later</span></div><div class="card__body">
+      <div class="chart-ph"><div class="chart-ph__plot">
+        <svg viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true"><polyline class="series-1" fill="none" stroke-width="1.6" vector-effect="non-scaling-stroke" points="0,40 30,30 60,36 90,18 120,26 150,12 200,20"/><polyline class="series-3" fill="none" stroke-width="1.6" stroke-dasharray="2 3" vector-effect="non-scaling-stroke" points="0,48 40,46 90,44 140,40 200,42"/></svg>
+        <div class="chart-ph__label"><span>Chart placeholder</span></div></div>
+        <div class="legend"><span class="legend__item"><span class="legend__swatch"></span>Availability</span><span class="legend__item"><span class="legend__swatch legend__swatch--dot" style="border-top-color:var(--series-3)"></span>Response time</span></div></div>
+    </div></div>
+    <div class="card col-6"><div class="card__head"><h2>Terminal placeholder</h2><span class="chip chip--outline">xterm.js later</span></div><div class="card__body">
+      <div class="term-ph" role="img" aria-label="Terminal placeholder"><div class="term-ph__bar"><span>wrk-01 &middot; session s-0042</span></div><div class="term-ph__body"><span class="term-ph__prompt">operator@wrk-01:~$</span> uptime
+ 14:02:11 up 12 days,  3:41,  1 user,  load average: 0.12, 0.09, 0.05
+<span class="term-ph__prompt">operator@wrk-01:~$</span> <span class="term-ph__cursor"></span></div></div>
+    </div></div>
+  </section>
+
+  <h2 style="font-size:var(--fs-lg)">Phase 2 components</h2>
+
+  <section class="card" aria-labelledby="g-tabs"><div class="card__head"><h2 id="g-tabs">Tabs (arrow keys, Home, End)</h2></div>
+    <div class="tabs" role="tablist" aria-label="Example tabs" data-tabs>
+      <button class="tab" role="tab" id="gt1" aria-controls="gp1" aria-selected="true" type="button">First</button>
+      <button class="tab" role="tab" id="gt2" aria-controls="gp2" aria-selected="false" type="button" tabindex="-1">Second</button>
+      <button class="tab" role="tab" id="gt3" aria-controls="gp3" aria-selected="false" type="button" tabindex="-1">Third</button>
+    </div>
+    <div class="card__body"><div class="tabpanel" role="tabpanel" id="gp1" aria-labelledby="gt1" style="padding-top:0">Panel one.</div><div class="tabpanel" role="tabpanel" id="gp2" aria-labelledby="gt2" hidden style="padding-top:0">Panel two.</div><div class="tabpanel" role="tabpanel" id="gp3" aria-labelledby="gt3" hidden style="padding-top:0">Panel three.</div></div>
+  </section>
+
+  <section class="card" aria-labelledby="g-over"><div class="card__head"><h2 id="g-over">Menu, dialog, tooltip, switch</h2></div><div class="card__body row">
+    <div class="menu"><button class="btn" type="button" aria-haspopup="menu" aria-expanded="false" data-menu-btn>Row menu <svg class="icon icon--sm" aria-hidden="true"><use href="#i-chevron"/></svg></button>
+      <div class="menu__pop" role="menu" hidden><button class="menu__item" role="menuitem" type="button" data-stub="Menu item chosen.">Details</button><button class="menu__item" role="menuitem" type="button" data-stub="Menu item chosen.">Re-provision</button><button class="menu__item menu__item--danger" role="menuitem" type="button" data-stub="Menu item chosen.">Remove</button></div></div>
+    <button class="btn" type="button" data-dialog-open="#g-dlg">Open dialog</button>
+    <button class="btn" type="button" data-tip="Command overlay|HTTP GET flood · 5 worker agents|about 7,000 packets sent">Hover or focus for tooltip</button>
+    <label class="switch"><input type="checkbox" role="switch" checked><span class="switch__track"></span><span>On</span></label>
+  </div></section>
+
+  <section class="card" aria-labelledby="g-steps"><div class="card__head"><h2 id="g-steps">Run steps, escalation ladder, live chip</h2></div><div class="card__body stack">
+    <div class="steps"><span class="step step--done">Queued</span><span class="steps__sep"></span><span class="step step--now">Running</span><span class="steps__sep"></span><span class="step">Exited</span></div>
+    <div class="steps"><span class="step step--done">Queued</span><span class="steps__sep"></span><span class="step step--done">Running</span><span class="steps__sep"></span><span class="step step--bad">Exited</span></div>
+    <div class="row"><span class="ladder" aria-label="Stage 0 of 4"><i></i><i></i><i></i><i></i></span><span class="ladder" aria-label="Stage 1 of 4"><i class="on"></i><i></i><i></i><i></i></span><span class="ladder" aria-label="Stage 4 of 4"><i class="on hi"></i><i class="on hi"></i><i class="on hi"></i><i class="on hi"></i></span>
+      <span class="chip chip--accent chip--live">Active test: Web tier spike probe #4</span></div>
+  </div></section>
+
+  <section class="grid">
+    <div class="card col-6"><div class="card__head"><h2>Code / YAML block</h2></div><div class="card__body"><pre class="codeblock"><span class="c"># policy profile</span>
+<span class="k">version</span>: 12
+<span class="k">detection</span>:
+  sample_interval: 5s</pre></div></div>
+    <div class="card col-6"><div class="card__head"><h2>Grafana frame placeholder</h2></div><div class="card__body"><div class="frame-ph" role="img" aria-label="Frame placeholder"><div><b>Embedded Grafana dashboard mounts here</b>Shared sign-in with the panel.</div></div></div></div>
+  </section>
+
+  <dialog class="dialog" id="g-dlg" aria-labelledby="g-dlg-t">
+    <form method="dialog"><div class="dialog__head"><h2 id="g-dlg-t">Dialog title</h2><p>One clear question, then the actions.</p></div>
+      <div class="dialog__body"><div class="alert alert--warn"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><div>Say what will happen.</div></div></div>
+      <div class="dialog__foot"><button class="btn" type="button" data-dialog-close>Cancel</button><button class="btn btn--primary" type="button" data-dialog-close>Confirm</button></div></form>
+  </dialog>
+</main>
+<div class="toast-region" role="status" aria-live="polite"></div>
+</body>
+</html>
