@@ -1,7 +1,7 @@
 ---
 id: T-0020
 title: onboarding-agent-privileges
-state: ready
+state: merged
 touches: [internal/onboard/ssh.go, internal/onboard/ssh_test.go]
 tests: [server]
 after: [T-0006, T-0018]
