@@ -5,7 +5,10 @@
 ## Now (running / in review)
 _none_
 ## Next (ready, in order)
-_none_
+- **T-0030** onboarding-install-watchdog  `after: [T-0012, T-0020, T-0022, T-0026, T-0027]`
+- **T-0031** agent-service-control  `after: [T-0021, T-0026]`
+- **T-0032** agent-binaries-multiplatform  `after: [T-0006, T-0026]`
+
 ## Waiting for the operator (merged → see CHECKS.md)
 - **T-0001** project-skeleton  `after: []`
 - **T-0002** internal-ca  `after: [T-0001]`
