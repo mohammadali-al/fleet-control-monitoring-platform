@@ -1,7 +1,7 @@
 ---
 id: T-0035
 title: server-state-versioning-migrate
-state: ready
+state: merged
 touches: [internal/config/config.go, internal/migrate/migrate.go, internal/migrate/migrate_test.go,
           internal/registry/registry.go, cmd/fleet-server/main.go]
 tests: [server]

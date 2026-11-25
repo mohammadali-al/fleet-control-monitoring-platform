@@ -6,7 +6,6 @@
 _none_
 ## Next (ready, in order)
 - **T-0034** panel-hacker-restyle-samples  `after: []`
-- **T-0035** server-state-versioning-migrate  `after: [T-0006, T-0024]`
 - **T-0036** github-release-and-installer  `after: [T-0024, T-0032, T-0035]`
 
 ## Waiting for the operator (merged → see CHECKS.md)
@@ -43,6 +42,7 @@ _none_
 - **T-0031** agent-service-control  `after: [T-0021, T-0026]`
 - **T-0032** agent-binaries-multiplatform  `after: [T-0006, T-0026]`
 - **T-0033** consolidate-service-control-endpoint  `after: [T-0031]`
+- **T-0035** server-state-versioning-migrate  `after: [T-0006, T-0024]`
 
 ## Blocked
 _none_
