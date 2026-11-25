@@ -34,3 +34,4 @@
 - [ ] T-0030 onboarding-install-watchdog — onboarding (SSH + token) now installs/enables the watchdog service + liveness timers (full on workers, headless on monitors; none on macOS). Verified by review. Confirm on a real onboard. Confirm to close.
 - [ ] T-0031 agent-service-control — remote Stop/Start now works on MONITOR agents too (service-control channel message, no 501); workers unchanged. Verified by review. Confirm on a real monitor. Confirm to close.
 - [ ] T-0033 consolidate-service-control-endpoint — removed the duplicate /api/machines stop/start routes; one enrollment path remains behind the UI buttons. Verified by review. Confirm to close.
+- [ ] T-0032 agent-binaries-multiplatform — scripts/build-agents.sh builds fleet-agent for linux amd64/arm64 + macOS amd64/arm64; onboarding serves the matching binary and errors clearly if missing. Verified by review (all 4 build). Confirm to close.

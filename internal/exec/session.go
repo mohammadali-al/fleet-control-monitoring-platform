@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -106,12 +105,6 @@ func newCgroup(root, id string) (*Cgroup, error) {
 		return nil, fmt.Errorf("exec: open cgroup: %w", err)
 	}
 	return &Cgroup{Path: path, dir: dir}, nil
-}
-
-// attach makes attrs place the child in this cgroup.
-func (c *Cgroup) attach(attrs *syscall.SysProcAttr) {
-	attrs.UseCgroupFD = true
-	attrs.CgroupFD = int(c.dir.Fd())
 }
 
 // Kill SIGKILLs every process in the cgroup (cgroup.kill, kernel 5.14+).

@@ -73,7 +73,9 @@ func Open(o Options) (*Manager, error) {
 	return New(Config{
 		Registry: reg,
 		Provisioner: &onboard.Provisioner{
-			CA: ca, Registry: reg, Store: store, AgentBinaryPath: o.Config.AgentBinaryPath,
+			CA: ca, Registry: reg, Store: store,
+			AgentBinaryDir:  o.Config.AgentBinaryDir,
+			AgentBinaryPath: o.Config.AgentBinaryPath,
 		},
 		Gate:       gate,
 		GateSecret: key,

@@ -1,7 +1,7 @@
 ---
 id: T-0032
 title: agent-binaries-multiplatform
-state: ready
+state: merged
 touches: [scripts/build.sh, scripts/build-agents.sh, internal/enroll/install.go,
           internal/enroll/install_test.go, internal/onboard/ssh.go, internal/onboard/ssh_test.go,
           internal/config/config.go, deploy/README.md]
