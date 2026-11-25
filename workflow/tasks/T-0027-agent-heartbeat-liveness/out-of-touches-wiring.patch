@@ -1,0 +1,65 @@
+diff --git a/cmd/fleet-agent/main.go b/cmd/fleet-agent/main.go
+index 1922cee..5cb05bd 100644
+--- a/cmd/fleet-agent/main.go
++++ b/cmd/fleet-agent/main.go
+@@ -111,6 +111,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+ 
+ 	log.Info("starting", "component", "fleet-agent", "version", version.Version, "role", ac.Role,
+ 		"machine", ac.MachineID, "config", *cfgPath, "data_dir", dataDir, "listen", a.Addr().String())
++	// The heartbeat fleet-agent-liveness.timer checks (T-0027), for every role.
++	agent.StartHeartbeat(ctx, a, ac, dataDir, log)
+ 	if err := a.Run(ctx); err != nil {
+ 		log.Error("agent stopped", "component", "fleet-agent", "err", err)
+ 		return 1
+diff --git a/deploy/systemd/fleet-watchdog-liveness.timer b/deploy/systemd/fleet-watchdog-liveness.timer
+index 9760f19..d44045c 100644
+--- a/deploy/systemd/fleet-watchdog-liveness.timer
++++ b/deploy/systemd/fleet-watchdog-liveness.timer
+@@ -1,13 +1,15 @@
+-# Independent 1-minute liveness check for fleet-watchdog.service (architecture
+-# 11.7, layer 2): runs fleet-watchdog-liveness.service, a one-shot that starts
+-# the watchdog if its unit is not active. Zero steady-state cost. Enable both the
+-# timer and fleet-watchdog.service at boot so the watchdog returns after a reboot.
++# Independent 45-second liveness check for fleet-watchdog.service (architecture
++# 11.7, layer 2; cadence fixed since T-0027, it is not a policy setting): runs
++# fleet-watchdog-liveness.service, a one-shot that starts the watchdog if its unit
++# is not active and restarts it if its heartbeat is stale (hung). Zero
++# steady-state cost. Enable both the timer and fleet-watchdog.service at boot so
++# the watchdog returns after a reboot.
+ [Unit]
+-Description=Fleet watchdog liveness check (every minute)
++Description=Fleet watchdog liveness check (every 45 s)
+ 
+ [Timer]
+ OnBootSec=1min
+-OnUnitActiveSec=1min
++OnUnitActiveSec=45s
+ AccuracySec=5s
+ Unit=fleet-watchdog-liveness.service
+ 
+diff --git a/internal/agent/watchdog_wire.go b/internal/agent/watchdog_wire.go
+index 6e20b68..f9798a3 100644
+--- a/internal/agent/watchdog_wire.go
++++ b/internal/agent/watchdog_wire.go
+@@ -105,7 +105,8 @@ func RunWatchdog(ctx context.Context, ac config.AgentConfig, dataDir string, log
+ 	if err != nil {
+ 		return err
+ 	}
+-	if err := w.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
++	// RunWithHeartbeat is Run plus the heartbeat file the liveness timer checks (T-0027).
++	if err := w.RunWithHeartbeat(ctx); err != nil && !errors.Is(err, context.Canceled) {
+ 		return err
+ 	}
+ 	return nil
+diff --git a/web/assets/js/live.js b/web/assets/js/live.js
+index 5f7ee29..8d1a2c7 100644
+--- a/web/assets/js/live.js
++++ b/web/assets/js/live.js
+@@ -1717,6 +1717,7 @@
+         row(dl, 'Daily caps', e.caps.restarts_per_day + ' restarts, ' + e.caps.reboots_per_day + ' reboots');
+         row(dl, 'Boot stability / stage reset', e.boot_window + ' / ' + e.stage_reset);
+         row(dl, 'Auto-reset counters at midnight', e.auto_reset_midnight ? 'yes' : 'no');
++        row(dl, 'Heartbeat write / hang threshold', e.heartbeat_write + ' / ' + e.heartbeat_threshold + ' (liveness check every 45 s, fixed)');
+         row(dl, 'Overrides', (d.hosts.length ? 'hosts: ' + d.hosts.join(', ') : 'no host overrides') + '; ' + (d.groups.length ? 'groups: ' + d.groups.join(', ') : 'no group overrides'));
+       });
+     }

@@ -650,7 +650,9 @@ func TestRemove(t *testing.T) {
 	if f.fm.active || f.fm.enabled {
 		t.Fatalf("service still active=%v enabled=%v", f.fm.active, f.fm.enabled)
 	}
-	if got := f.fm.cmds; len(got) != 2 || !strings.HasPrefix(got[0], "systemctl stop") || !strings.HasPrefix(got[1], "systemctl disable") {
+	// The liveness timer goes first (T-0027), or it would restart the stopped agent.
+	if got := f.fm.cmds; len(got) != 3 || !strings.HasPrefix(got[0], "systemctl disable --now fleet-agent-liveness.timer") ||
+		!strings.HasPrefix(got[1], "systemctl stop") || !strings.HasPrefix(got[2], "systemctl disable") {
 		t.Fatalf("cmds = %v", got)
 	}
 	m, _ := f.reg.Get(id)

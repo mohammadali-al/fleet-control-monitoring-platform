@@ -151,6 +151,13 @@ type Policy struct {
 	AttributionShare float64 `json:"attribution_share"`
 	// DiskPath is the filesystem the disk threshold watches.
 	DiskPath string `json:"disk_path"`
+	// HeartbeatWrite is how often the watchdog and the main agent write their
+	// heartbeat file from their main loop; HeartbeatThreshold is how old the
+	// file may get before the liveness timer calls the service hung and
+	// restarts it (T-0027). Bounds: see ValidateHeartbeat. The liveness
+	// timer's own 45 s cadence is fixed and not a policy field.
+	HeartbeatWrite     Duration `json:"heartbeat_write"`
+	HeartbeatThreshold Duration `json:"heartbeat_threshold"`
 }
 
 // DefaultPolicy is the minimal baked-in profile used on first boot, before the
@@ -185,6 +192,9 @@ func DefaultPolicy() Policy {
 		AgentUnit:         "fleet-agent.service",
 		AttributionShare:  0.5,
 		DiskPath:          "/",
+
+		HeartbeatWrite:     Duration(DefaultHeartbeatWrite),
+		HeartbeatThreshold: Duration(DefaultHeartbeatThreshold),
 	}
 }
 
@@ -321,7 +331,7 @@ func (p Policy) Validate() error {
 	if !filepath.IsAbs(p.DiskPath) {
 		return fmt.Errorf("disk_path %q must be absolute", p.DiskPath)
 	}
-	return nil
+	return ValidateHeartbeat(p.HeartbeatWrite.D(), p.HeartbeatThreshold.D())
 }
 
 // Profile is a parsed, validated, version-stamped policy profile: the base

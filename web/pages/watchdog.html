@@ -82,7 +82,7 @@
               <tbody id="wd-hosts"><tr><td colspan="7" class="faint">{{if .Backend}}Loading...{{else}}No backend is configured on this server.{{end}}</td></tr></tbody>
             </table>
           </div>
-          <div class="card__foot">The stage and the day's counters are rebuilt from the events each agent forwards (restarts and reboots taken today, the last step of the ladder, alert-only when the caps were hit); they are not read from the host, so they start empty after a server restart. The watchdog runs as its own service on each host (<code>Restart=always</code>, with an independent timer checking it every minute). Monitor agents run a headless watchdog and are not shown.</div>
+          <div class="card__foot">The stage and the day's counters are rebuilt from the events each agent forwards (restarts and reboots taken today, the last step of the ladder, alert-only when the caps were hit); they are not read from the host, so they start empty after a server restart. The watchdog runs as its own service on each host (<code>Restart=always</code>, with an independent timer checking it every 45 seconds: it restarts a stopped service and one whose heartbeat has gone stale, meaning hung). Monitor agents run a headless watchdog and are not shown.</div>
         </section>
 
         <!-- ============ Policy editor ============ -->
@@ -100,6 +100,7 @@
               <div class="field"><label for="wd-yaml">Policy profile (YAML)</label>
                 <textarea class="textarea input--mono" id="wd-yaml" rows="26" spellcheck="false" style="min-height:24rem" aria-describedby="wd-yaml-h"></textarea>
                 <span class="field__hint" id="wd-yaml-h">Every key is optional; an absent key keeps the baked-in default. Raise <code>version</code> on every save. Per-host and per-group overrides go under <code>overrides:</code>. A profile that fails validation is refused here and nothing is pushed.</span></div>
+              <div class="field__hint" id="wd-hb-h" style="margin-top:var(--sp-3)"><strong>Hang detection.</strong> <code>heartbeat_write</code> is how often the watchdog and the main agent write a heartbeat (2 to 15 s). <code>heartbeat_threshold</code> is how old the heartbeat may get before the liveness timer restarts the service (45 to 300 s, and at least 3 times <code>heartbeat_write</code>). The timer itself checks every 45 s; that cadence is fixed and cannot be changed here. A value outside these limits is refused on save.</div>
             </div>
             <div class="card__body tabpanel" role="tabpanel" id="pp-form" aria-labelledby="ptab-form" hidden>
               <p class="field__hint" style="margin-bottom:var(--sp-3)">What the stored default profile resolves to (read-only). Change it in the YAML tab.</p>
