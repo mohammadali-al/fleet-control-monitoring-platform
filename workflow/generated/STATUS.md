@@ -6,7 +6,6 @@
 _none_
 ## Next (ready, in order)
 - **T-0032** agent-binaries-multiplatform  `after: [T-0006, T-0026]`
-- **T-0033** consolidate-service-control-endpoint  `after: [T-0031]`
 
 ## Waiting for the operator (merged → see CHECKS.md)
 - **T-0001** project-skeleton  `after: []`
@@ -40,6 +39,7 @@ _none_
 - **T-0029** evidence-pull-agent  `after: [T-0009, T-0018]`
 - **T-0030** onboarding-install-watchdog  `after: [T-0012, T-0020, T-0022, T-0026, T-0027]`
 - **T-0031** agent-service-control  `after: [T-0021, T-0026]`
+- **T-0033** consolidate-service-control-endpoint  `after: [T-0031]`
 
 ## Blocked
 _none_

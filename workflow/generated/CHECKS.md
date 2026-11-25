@@ -33,3 +33,4 @@
 - [ ] T-0027 agent-heartbeat-liveness — Heartbeat hang-detection for watchdog + main agent; heartbeat/threshold tunable in the Watchdog policy editor with bounds. Verified by review: freshness + bounds + -race pass; real restart-on-hang to confirm on a machine. Confirm to close.
 - [ ] T-0030 onboarding-install-watchdog — onboarding (SSH + token) now installs/enables the watchdog service + liveness timers (full on workers, headless on monitors; none on macOS). Verified by review. Confirm on a real onboard. Confirm to close.
 - [ ] T-0031 agent-service-control — remote Stop/Start now works on MONITOR agents too (service-control channel message, no 501); workers unchanged. Verified by review. Confirm on a real monitor. Confirm to close.
+- [ ] T-0033 consolidate-service-control-endpoint — removed the duplicate /api/machines stop/start routes; one enrollment path remains behind the UI buttons. Verified by review. Confirm to close.

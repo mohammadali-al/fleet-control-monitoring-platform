@@ -1,7 +1,7 @@
 ---
 id: T-0033
 title: consolidate-service-control-endpoint
-state: ready
+state: merged
 touches: [internal/panel/machines.go, internal/panel/machines_servicecontrol_test.go, internal/panel/api.go]
 tests: [server]
 after: [T-0031]
