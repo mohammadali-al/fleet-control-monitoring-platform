@@ -37,6 +37,24 @@ type DiskState struct {
 	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
 }
 
+// Specs is what a machine reported about itself when it enrolled (token
+// enrollment, T-0026). All fields are informational and optional.
+type Specs struct {
+	Hostname  string `json:"hostname,omitempty"`
+	OS        string `json:"os,omitempty"`         // linux|darwin
+	OSVersion string `json:"os_version,omitempty"` // e.g. "Ubuntu 24.04.1 LTS"
+	Kernel    string `json:"kernel,omitempty"`
+	Arch      string `json:"arch,omitempty"` // amd64|arm64
+	CPUs      int    `json:"cpus,omitempty"`
+	MemBytes  uint64 `json:"mem_bytes,omitempty"`
+}
+
+// Enrollment channels recorded in Machine.EnrolledVia.
+const (
+	EnrolledSSH   = "ssh"
+	EnrolledToken = "token"
+)
+
 // Machine is one registry entry.
 type Machine struct {
 	ID   string `json:"id"`
@@ -58,6 +76,14 @@ type Machine struct {
 	SSHHostKey string `json:"ssh_host_key,omitempty"`
 
 	Disk DiskState `json:"disk"`
+
+	// Specs is what the machine reported at token enrollment (nil for an
+	// SSH-onboarded machine). EnrolledVia is "token" or empty/"ssh".
+	Specs       *Specs `json:"specs,omitempty"`
+	EnrolledVia string `json:"enrolled_via,omitempty"`
+	// Stopped is set when the operator stopped the agent from the panel (its
+	// service was disabled); a local start of the agent brings it back.
+	Stopped bool `json:"stopped,omitempty"`
 
 	// Provisioned is true once onboarding completed on the machine.
 	Provisioned bool `json:"provisioned"`
@@ -155,6 +181,10 @@ func New() *Registry {
 
 func (m Machine) clone() Machine {
 	m.PrivateIPs = append([]string(nil), m.PrivateIPs...)
+	if m.Specs != nil {
+		sp := *m.Specs
+		m.Specs = &sp
+	}
 	return m
 }
 

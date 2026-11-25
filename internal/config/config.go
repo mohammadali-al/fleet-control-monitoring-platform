@@ -100,6 +100,21 @@ type ServerConfig struct {
 	// listener is off and agent_dial machines stay offline; server_dial is
 	// unaffected either way.
 	AgentDialAddr string `json:"agent_dial_addr,omitempty"`
+	// EnrollAddr is where the token-enrollment HTTPS endpoint listens, e.g.
+	// ":7445" (T-0026). It is a separate listener from the panel on purpose:
+	// the panel sits behind the auth proxy, enrollment is authenticated by its
+	// one-time token and must be reachable without the proxy. Empty means
+	// token enrollment is off.
+	EnrollAddr string `json:"enroll_addr,omitempty"`
+	// EnrollHost is the host name or IP address machines use to reach this
+	// server (for the enrollment URL and for agent_dial's server_addr). It is
+	// required when EnrollAddr is set.
+	EnrollHost string `json:"enroll_host,omitempty"`
+	// AgentBinaryDir holds the agent binaries served to enrolling machines,
+	// named fleet-agent-<os>-<arch> (e.g. fleet-agent-linux-amd64,
+	// fleet-agent-darwin-arm64). AgentBinaryPath is the fallback for this
+	// server's own OS and architecture.
+	AgentBinaryDir string `json:"agent_binary_dir,omitempty"`
 	// AgentCapture is the evidence-capture configuration the main server
 	// pushes to every worker agent over the channel (config-push, T-0018).
 	// An all-zero section pushes nothing, leaving the agent's own defaults.
