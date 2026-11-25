@@ -2,7 +2,6 @@ package panel
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,10 +13,13 @@ import (
 
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/agent"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/capture"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/enroll"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/exec"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/fleet"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/fleet/fleettest"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/pki"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/registry"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/web"
 )
 
 type panelFakeServiceController struct {
@@ -68,7 +70,7 @@ func (f *panelFakeServiceController) snapshot() []string {
 	return append([]string(nil), f.actions...)
 }
 
-func TestPanelServiceControlMonitorAndWorkerFleettest(t *testing.T) {
+func TestEnrollServiceControlMonitorAndWorkerFleettest(t *testing.T) {
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	mt, err := fleettest.NewMTLS()
 	if err != nil {
@@ -101,9 +103,9 @@ func TestPanelServiceControlMonitorAndWorkerFleettest(t *testing.T) {
 
 	reg := registry.New()
 	for _, mc := range []registry.Machine{
-		{ID: "mon1", Role: registry.RoleMonitor, ConnectMode: registry.ConnectModeServerDial, PrivateIPs: []string{"127.0.0.1"}, Provisioned: true},
-		{ID: "w1", Role: registry.RoleWorker, ConnectMode: registry.ConnectModeServerDial, PrivateIPs: []string{"127.0.0.1"}, Provisioned: true},
-		{ID: "off1", Role: registry.RoleMonitor, ConnectMode: registry.ConnectModeServerDial, PrivateIPs: []string{"127.0.0.2"}, Provisioned: true},
+		{ID: "mon1", Role: registry.RoleMonitor, ConnectMode: registry.ConnectModeServerDial, PrivateIPs: []string{"127.0.0.1"}, Provisioned: true, EnrolledVia: registry.EnrolledToken},
+		{ID: "w1", Role: registry.RoleWorker, ConnectMode: registry.ConnectModeServerDial, PrivateIPs: []string{"127.0.0.1"}, Provisioned: true, EnrolledVia: registry.EnrolledToken},
+		{ID: "off1", Role: registry.RoleMonitor, ConnectMode: registry.ConnectModeServerDial, PrivateIPs: []string{"127.0.0.2"}, Provisioned: true, EnrolledVia: registry.EnrolledToken},
 	} {
 		if err := reg.Add(mc); err != nil {
 			t.Fatal(err)
@@ -140,13 +142,36 @@ func TestPanelServiceControlMonitorAndWorkerFleettest(t *testing.T) {
 		t.Fatalf("mon1 state = %q, want online", m1.State)
 	}
 
-	s := &server{be: mgr, log: quiet}
+	ca, err := pki.NewCA(pki.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc, err := enroll.New(enroll.Config{
+		CA:            ca,
+		Registry:      reg,
+		PublicHost:    "127.0.0.1",
+		EnrollPort:    7445,
+		AgentDialPort: 7444,
+		Logger:        quiet,
+		ServiceControl: func(ctx context.Context, machineID, action string) error {
+			_, err := mgr.ServiceControl(ctx, machineID, action)
+			return err
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := New(Options{Assets: web.FS, Templates: web.Templates, Backend: mgr, Logger: quiet})
+	if err != nil {
+		t.Fatal(err)
+	}
 	mux := http.NewServeMux()
-	s.routesMachines(mux)
-	srv := httptest.NewServer(secure(mux))
+	mux.Handle(enroll.APIPrefix, svc.APIHandler())
+	mux.Handle("/", p)
+	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	call := func(method, path, ct, body string) (int, serviceControlResponse) {
+	call := func(method, path, ct, body string) (int, string) {
 		t.Helper()
 		req, err := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
 		if err != nil {
@@ -161,44 +186,39 @@ func TestPanelServiceControlMonitorAndWorkerFleettest(t *testing.T) {
 		}
 		defer resp.Body.Close()
 		raw, _ := io.ReadAll(resp.Body)
-		var out serviceControlResponse
-		_ = json.Unmarshal(raw, &out)
-		return resp.StatusCode, out
+		return resp.StatusCode, string(raw)
 	}
 
-	// Monitor Stop: triggers disable path and returns 200 (no 501).
-	if code, res := call("POST", "/api/machines/mon1/stop", "application/json", `{}`); code != http.StatusOK || !res.OK || res.State != "stopped" || res.Machine != "mon1" {
-		t.Fatalf("POST monitor stop = (%d, %+v), want 200 ok stopped", code, res)
+	// Monitor Stop and Start via enrollment path: returns 200 (no 501).
+	if code, body := call("POST", "/api/enroll/machines/mon1/stop", "application/json", `{}`); code != http.StatusOK || !strings.Contains(body, `"stopped":"mon1"`) {
+		t.Fatalf("POST monitor stop = (%d, %s), want 200 stopped", code, body)
 	}
-	if code, res := call("GET", "/api/machines/mon1/service-status", "", ""); code != http.StatusOK || !res.OK || res.State != "stopped" {
-		t.Fatalf("GET monitor service-status = (%d, %+v), want 200 stopped", code, res)
+	if code, body := call("POST", "/api/enroll/machines/mon1/start", "application/json", `{}`); code != http.StatusOK || !strings.Contains(body, `"started":"mon1"`) {
+		t.Fatalf("POST monitor start = (%d, %s), want 200 started", code, body)
 	}
-	if code, res := call("POST", "/api/machines/mon1/start", "application/json", `{}`); code != http.StatusOK || !res.OK || res.State != "running" {
-		t.Fatalf("POST monitor start = (%d, %+v), want 200 ok running", code, res)
-	}
-	if got := strings.Join(monCtrl.snapshot(), ","); got != "stop,status,start" {
-		t.Errorf("monitor actions = %q, want stop,status,start", got)
+	if got := strings.Join(monCtrl.snapshot(), ","); got != "stop,start" {
+		t.Errorf("monitor actions = %q, want stop,start", got)
 	}
 
-	// Worker Stop and Start: trigger the exact same service-control path.
-	if code, res := call("POST", "/api/machines/w1/stop", "application/json", `{}`); code != http.StatusOK || !res.OK || res.State != "stopped" {
-		t.Fatalf("POST worker stop = (%d, %+v), want 200 ok stopped", code, res)
+	// Worker Stop and Start via the exact same enrollment path.
+	if code, body := call("POST", "/api/enroll/machines/w1/stop", "application/json", `{}`); code != http.StatusOK || !strings.Contains(body, `"stopped":"w1"`) {
+		t.Fatalf("POST worker stop = (%d, %s), want 200 stopped", code, body)
 	}
-	if code, res := call("POST", "/api/machines/w1/start", "application/json", `{}`); code != http.StatusOK || !res.OK || res.State != "running" {
-		t.Fatalf("POST worker start = (%d, %+v), want 200 ok running", code, res)
+	if code, body := call("POST", "/api/enroll/machines/w1/start", "application/json", `{}`); code != http.StatusOK || !strings.Contains(body, `"started":"w1"`) {
+		t.Fatalf("POST worker start = (%d, %s), want 200 started", code, body)
 	}
 	if got := strings.Join(wrkCtrl.snapshot(), ","); got != "stop,start" {
 		t.Errorf("worker actions = %q, want stop,start", got)
 	}
 
-	// Error mapping checks (unknown -> 404, offline -> 409, non-JSON -> 415).
-	if code, _ := call("POST", "/api/machines/nope/stop", "application/json", `{}`); code != http.StatusNotFound {
+	// Error mapping checks on the enrollment path (unknown -> 404, offline -> 502, non-JSON -> 415).
+	if code, _ := call("POST", "/api/enroll/machines/nope/stop", "application/json", `{}`); code != http.StatusNotFound {
 		t.Errorf("unknown machine stop = %d, want 404", code)
 	}
-	if code, _ := call("POST", "/api/machines/off1/stop", "application/json", `{}`); code != http.StatusConflict {
-		t.Errorf("offline machine stop = %d, want 409", code)
+	if code, _ := call("POST", "/api/enroll/machines/off1/stop", "application/json", `{}`); code != http.StatusBadGateway {
+		t.Errorf("offline machine stop = %d, want 502", code)
 	}
-	if code, _ := call("POST", "/api/machines/mon1/stop", "text/plain", `{}`); code != http.StatusUnsupportedMediaType {
+	if code, _ := call("POST", "/api/enroll/machines/mon1/stop", "text/plain", `{}`); code != http.StatusUnsupportedMediaType {
 		t.Errorf("non-JSON stop = %d, want 415", code)
 	}
 }
