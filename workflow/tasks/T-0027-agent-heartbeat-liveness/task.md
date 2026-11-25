@@ -1,7 +1,7 @@
 ---
 id: T-0027
 title: agent-heartbeat-liveness
-state: ready
+state: merged
 touches: [internal/watchdog/heartbeat.go, internal/watchdog/heartbeat_test.go,
           internal/watchdog/policy.go, internal/agent/heartbeat.go,
           internal/onboard/ssh.go, deploy/systemd/fleet-watchdog-liveness.service,

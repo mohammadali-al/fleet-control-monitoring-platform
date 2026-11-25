@@ -1866,6 +1866,7 @@
         row(dl, 'Daily caps', e.caps.restarts_per_day + ' restarts, ' + e.caps.reboots_per_day + ' reboots');
         row(dl, 'Boot stability / stage reset', e.boot_window + ' / ' + e.stage_reset);
         row(dl, 'Auto-reset counters at midnight', e.auto_reset_midnight ? 'yes' : 'no');
+        row(dl, 'Heartbeat write / hang threshold', e.heartbeat_write + ' / ' + e.heartbeat_threshold + ' (liveness check every 45 s, fixed)');
         row(dl, 'Overrides', (d.hosts.length ? 'hosts: ' + d.hosts.join(', ') : 'no host overrides') + '; ' + (d.groups.length ? 'groups: ' + d.groups.join(', ') : 'no group overrides'));
       });
     }

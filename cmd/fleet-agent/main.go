@@ -111,6 +111,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 
 	log.Info("starting", "component", "fleet-agent", "version", version.Version, "role", ac.Role,
 		"machine", ac.MachineID, "config", *cfgPath, "data_dir", dataDir, "listen", a.Addr().String())
+	// The heartbeat fleet-agent-liveness.timer checks (T-0027), for every role.
+	agent.StartHeartbeat(ctx, a, ac, dataDir, log)
 	if err := a.Run(ctx); err != nil {
 		log.Error("agent stopped", "component", "fleet-agent", "err", err)
 		return 1

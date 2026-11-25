@@ -105,7 +105,8 @@ func RunWatchdog(ctx context.Context, ac config.AgentConfig, dataDir string, log
 	if err != nil {
 		return err
 	}
-	if err := w.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+	// RunWithHeartbeat is Run plus the heartbeat file the liveness timer checks (T-0027).
+	if err := w.RunWithHeartbeat(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
 	return nil
