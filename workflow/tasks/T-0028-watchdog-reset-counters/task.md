@@ -1,7 +1,7 @@
 ---
 id: T-0028
 title: watchdog-reset-counters
-state: ready
+state: merged
 touches: [internal/channel/envelope.go, internal/fleet/watchdog.go, internal/agent/watchdog_wire.go,
           internal/watchdog/guards.go, internal/panel/watchdog.go, internal/panel/watchdog_reset_test.go,
           web/pages/watchdog.html]

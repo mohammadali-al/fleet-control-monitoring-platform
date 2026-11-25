@@ -28,3 +28,4 @@
 - [ ] T-0022 watchdog-agent-wiring — Backend (`fleet-agent watchdog` subcommand + policy push/apply + event forward; server PolicyFor wiring lands in T-0023). Verified by review: policy/event end-to-end + -race pass. Confirm to close.
 - [ ] T-0029 evidence-pull-agent — Backend. Evidence pull/idle-push now served by the real worker runtime. Verified by review: fleettest pull+push + -race pass. Confirm to close.
 - [ ] T-0025 agent-dial-channel — Backend. Agent-dials-out direction (opt-in server listener via server.agent_dial_addr). Verified by review: both directions equivalent + -race pass. Confirm to close.
+- [ ] T-0028 watchdog-reset-counters — Watchdog page 'Reset counters' now clears a host's caps/alert-only (takes effect at the watchdog's next sample). Verified by review: reset + endpoint + -race pass. Confirm to close.
