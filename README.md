@@ -1,12 +1,64 @@
 # Fleet Control & Monitoring Platform
 
-Design-phase repository for a fleet orchestration, monitoring and load-generation platform:
-a **main server** controlling **worker agents** (command execution + evidence capture + the
-Load Controller) and **monitor agents** (headless probers), over an mTLS WebSocket control plane.
+Fleet orchestration, monitoring, and load-generation platform: a **main server** (`fleet-server`) controlling **worker** and **monitor** agents (`fleet-agent`) over an mTLS WebSocket control plane, fronted by a TLS + 2FA auth proxy (Caddy + Authelia).
 
-- **Master design:** [`Fleet_Control_Monitoring_Platform_Architecture.md`](Fleet_Control_Monitoring_Platform_Architecture.md)
-- **How work happens here:** [`AGENTS.md`](AGENTS.md) (supervisor–doer workflow)
-- **Board:** [`workflow/generated/STATUS.md`](workflow/generated/STATUS.md)
-- **Load Controller simulator:** [`launchkill-sim/`](launchkill-sim/)
+## Quickstart (Main Server Install)
 
-Status: design approved, scaffolding in place, first implementation task (T-0001) ready.
+> **Private / rate-limited repository auth:** If the repository is private (or you hit GitHub API rate limits), create a scoped GitHub token (`repo` read access) and export it before running the installer or upgrader:
+>
+> ```bash
+> export GH_TOKEN="<your-github-token>"
+> ```
+>
+> Never commit or embed tokens in scripts or `install-answers.env`. For public repos, omit the `Authorization` header and `GH_TOKEN`.
+
+```bash
+# 1. Optional: run preflight checks first
+curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+  https://raw.githubusercontent.com/mohammadali-al/fleet-control-monitoring-platform/main/deploy/install-server.sh \
+  | sudo -E bash -s -- --check
+
+# 2. Interactive install (Docker Compose proxy by default; add --proxy=native for no-Docker hosts)
+curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+  https://raw.githubusercontent.com/mohammadali-al/fleet-control-monitoring-platform/main/deploy/install-server.sh \
+  | sudo -E bash
+```
+
+Non-interactive installs accept `--answers answers.env --non-interactive` (or CLI flags like `--panel-domain`, `--tls-mode`, `--admin-user`, `--admin-password-file`). Non-secret answers are saved to `/etc/fleet-server/install-answers.env`.
+
+## First Deploy Flow
+
+1. **Preflight:** Verifies root, Linux `5.4+`, `systemd`, unified `cgroup v2`, `nftables`, `openssl`, Docker + Compose (unless `--proxy=native`), free ports, and disk space. Offers to install missing OS packages (consent `y/N`, `--yes`, or `--no-install`).
+2. **Prompts & Generation:** Prompts for panel/auth domains, TLS mode (`internal` self-signed SAN cert or `acme` Let's Encrypt), and initial admin user/password; auto-generates proxy secrets (`jwt`, `session`, `storage`), Argon2id user hash, and `fleet-server`'s internal mTLS CA.
+3. **Services Up:** Installs `fleet-server` + `fleet-proxy` systemd units and verifies loopback health (`127.0.0.1:6789`) + proxy readiness.
+4. **DNS & Login:** Point your panel and auth DNS names (or `/etc/hosts`) to the server IP, open `https://<panel-domain>/`, read the first-time TOTP verification code via `sudo cat /var/lib/fleet-proxy/authelia/notification.txt`, and enroll 2FA.
+
+## Updating
+
+```bash
+sudo /usr/local/lib/fleet/upgrade-server.sh
+# or:
+sudo deploy/install-server.sh --upgrade
+```
+
+Upgrades query the GitHub Releases API, verify `SHA256SUMS`, stop `fleet-server`, **back up `/var/lib/fleet-server`**, swap binaries, run `fleet-server migrate`, restart, and health-check — **automatically rolling back** on failure. The internal CA (`/var/lib/fleet-server/ca/`), proxy state (`/var/lib/fleet-proxy/`), secrets, and operator-edited configs are **preserved** (templates ship as `*.example`).
+
+## Requirements & Ports
+
+| Requirement / Port | Value | Purpose |
+|---|---|---|
+| Host OS / Kernel | Linux `5.4+` (`5.15+` recommended), `amd64`/`arm64` | `systemd`, unified `cgroup v2`, `nftables`, `openssl`, `>= 2 GiB` disk |
+| Proxy runtime | Docker + Compose v2 (`--proxy=docker`) or native binaries (`--proxy=native`) | Pinned Caddy `2.10.0` + Authelia `4.39.27` |
+| `443/tcp` | Public / LAN | Caddy HTTPS panel + Authelia login portal |
+| `6789/tcp` | `127.0.0.1` loopback | `fleet-server` panel HTTP (proxied only) |
+| `9091/tcp` | `127.0.0.1` loopback | Authelia forward-auth endpoint |
+| `7443/tcp` | Server -> Agents (`server_dial`) | mTLS agent control channel (bypasses proxy) |
+| `22/tcp` | Server -> New agents | SSH onboarding (existing host `sshd` is allowed) |
+
+File layout & operational details: see [`deploy/README.md`](deploy/README.md) (and [`deploy/REQUIREMENTS.md`](deploy/REQUIREMENTS.md); follows the D-0008 layout: `/opt/fleet/proxy/`, `/var/lib/fleet-proxy/`, `/etc/fleet-server/`, `/var/lib/fleet-server/`).
+
+## Reference Docs
+
+- Architecture: [`Fleet_Control_Monitoring_Platform_Architecture.md`](Fleet_Control_Monitoring_Platform_Architecture.md)
+- Workflow: [`AGENTS.md`](AGENTS.md) · Board: [`workflow/generated/STATUS.md`](workflow/generated/STATUS.md)
+- Local build: `./scripts/build.sh` (server + 4 multi-platform `fleet-agent-<os>-<arch>` binaries)

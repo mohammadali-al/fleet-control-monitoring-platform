@@ -1,29 +1,28 @@
-# Auth proxy for the Fleet panel (T-0024): Caddy (HTTPS) + Authelia (local users, TOTP).
+# Auth proxy for the Fleet panel (T-0024 / T-0036): Caddy (HTTPS) + Authelia (local users, TOTP).
 #
-# Run from this directory after preparing ./state (see deploy/README.md):
-#   docker compose up -d
+# Installed to /opt/fleet/proxy/compose.yml and managed by fleet-proxy.service.
+# Mutable state lives in /var/lib/fleet-proxy/ (overridable via FLEET_PROXY_STATE_DIR):
+#   certs/tls.crt, tls.key              TLS certificate for panel + auth domains
+#   secrets/{jwt,session,storage}       auto-generated random secrets (mode 0600)
+#   authelia/users.yml                  local users + argon2id password hashes
+#   authelia/{db.sqlite3,notification.txt}
+#   caddy/                              Caddy runtime/ACME state
 #
-# state/ layout (all operator-provided, git-ignored):
-#   state/certs/tls.crt, tls.key        TLS certificate for fleet.internal + auth.fleet.internal
-#   state/secrets/{jwt,session,storage} one random string per file
-#   state/authelia/users.yml            local users (from ../authelia/users.yml.example)
-#   state/authelia/                     also receives db.sqlite3 and notification.txt
-#
-# Caddy uses the host network so it can reach fleet-server on 127.0.0.1:6789, which is
-# deliberately NOT exposed beyond loopback. Authelia is published on loopback only.
+# Caddy uses host networking so it can reach fleet-server on 127.0.0.1:6789 (which stays
+# bound to loopback). Authelia is published on loopback only.
 
 name: fleet-proxy
 
 services:
   authelia:
-    image: authelia/authelia:4.39
+    image: authelia/authelia:4.39.27
     restart: unless-stopped
     ports:
-      - "127.0.0.1:9091:9091"
+      - "127.0.0.1:${FLEET_AUTH_PORT:-9091}:9091"
     volumes:
-      - ../authelia/configuration.yml:/config/configuration.yml:ro
-      - ./state/authelia:/data
-      - ./state/secrets:/secrets:ro
+      - ${FLEET_AUTHELIA_CONFIG:-./authelia/configuration.yml}:/config/configuration.yml:ro
+      - ${FLEET_PROXY_STATE_DIR:-/var/lib/fleet-proxy}/authelia:/data
+      - ${FLEET_PROXY_STATE_DIR:-/var/lib/fleet-proxy}/secrets:/secrets:ro
     environment:
       TZ: "${TZ:-UTC}"
       AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET_FILE: /secrets/jwt
@@ -31,12 +30,12 @@ services:
       AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE: /secrets/storage
 
   caddy:
-    image: caddy:2
+    image: caddy:2.10.0
     restart: unless-stopped
     network_mode: host
     depends_on:
       - authelia
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./state/certs:/certs:ro
-      - ./state/caddy:/data
+      - ${FLEET_CADDYFILE:-./Caddyfile}:/etc/caddy/Caddyfile:ro
+      - ${FLEET_PROXY_STATE_DIR:-/var/lib/fleet-proxy}/certs:/certs:ro
+      - ${FLEET_PROXY_STATE_DIR:-/var/lib/fleet-proxy}/caddy:/data

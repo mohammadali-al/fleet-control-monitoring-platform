@@ -1,0 +1,22 @@
+# Fleet auth proxy (Caddy + Authelia via Docker Compose from /opt/fleet/proxy).
+# Installed by deploy/install-server.sh to /etc/systemd/system/fleet-proxy.service.
+# Mutable state is bind-mounted from /var/lib/fleet-proxy/.
+
+[Unit]
+Description=Fleet Auth Proxy (Caddy + Authelia)
+After=network-online.target docker.service fleet-server.service
+Wants=network-online.target fleet-server.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/fleet/proxy
+TimeoutStartSec=180
+ExecStartPre=/usr/bin/env docker compose -f /opt/fleet/proxy/compose.yml config -q
+ExecStart=/usr/bin/env docker compose -f /opt/fleet/proxy/compose.yml up -d --remove-orphans
+ExecReload=/usr/bin/env docker compose -f /opt/fleet/proxy/compose.yml up -d --remove-orphans
+ExecStop=/usr/bin/env docker compose -f /opt/fleet/proxy/compose.yml down
+
+[Install]
+WantedBy=multi-user.target
