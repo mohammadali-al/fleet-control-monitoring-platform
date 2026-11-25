@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -35,6 +36,7 @@ import (
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/pki"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/registry"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/watchdog"
 )
 
 // Step names, in the order Provision runs them (Result.Steps).
@@ -548,6 +550,14 @@ func stepInstallUnit(ctx context.Context, j *job) error {
 	if err := j.writeFile(ctx, j.l.UnitPath, "0644", "root", []byte(renderUnit(j.l))); err != nil {
 		return err
 	}
+	// The independent liveness check of the agent (T-0027): a 45 s timer and its
+	// one-shot, which restart a hung (not just a stopped) agent.
+	if err := j.writeFile(ctx, j.l.livenessServicePath(), "0644", "root", []byte(renderLivenessService(j.l))); err != nil {
+		return err
+	}
+	if err := j.writeFile(ctx, j.l.livenessTimerPath(), "0644", "root", []byte(renderLivenessTimer(j.l))); err != nil {
+		return err
+	}
 	_, err := j.priv(ctx, nil, "systemctl", "daemon-reload")
 	return err
 }
@@ -557,7 +567,12 @@ func stepEnableStart(ctx context.Context, j *job) error {
 		return err
 	}
 	// restart (not start) so a re-provision picks up new config or binary.
-	_, err := j.priv(ctx, nil, "systemctl", "restart", j.l.UnitName)
+	if _, err := j.priv(ctx, nil, "systemctl", "restart", j.l.UnitName); err != nil {
+		return err
+	}
+	// The timer last: the agent is up (and writing its heartbeat) before the
+	// first check. enable --now also (re)starts the timer on a re-provision.
+	_, err := j.priv(ctx, nil, "systemctl", "enable", "--now", j.l.livenessTimerName())
 	return err
 }
 
@@ -610,6 +625,50 @@ RestartSec=3
 [Install]
 WantedBy=multi-user.target
 `, l.Binary, l.configFile(), l.StateDir)
+}
+
+// livenessBase is the unit name without ".service" ("fleet-agent"); the liveness
+// units are "<base>-liveness.service" and ".timer", next to the agent unit.
+func (l Layout) livenessBase() string {
+	return strings.TrimSuffix(l.UnitName, ".service") + "-liveness"
+}
+func (l Layout) livenessTimerName() string { return l.livenessBase() + ".timer" }
+func (l Layout) livenessServicePath() string {
+	return path.Join(path.Dir(l.UnitPath), l.livenessBase()+".service")
+}
+func (l Layout) livenessTimerPath() string {
+	return path.Join(path.Dir(l.UnitPath), l.livenessTimerName())
+}
+
+// renderLivenessService is the one-shot the timer runs. The check itself is
+// watchdog.LivenessExecStart (the same text as deploy/systemd/fleet-agent-
+// liveness.service); it reads the heartbeat the agent writes under the state dir.
+func renderLivenessService(l Layout) string {
+	return fmt.Sprintf(`[Unit]
+Description=Fleet agent liveness check
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=%s
+`, watchdog.LivenessExecStart(l.UnitName, watchdog.HeartbeatPath(l.StateDir, watchdog.HeartbeatAgent)))
+}
+
+// renderLivenessTimer fires the one-shot every 45 s (the fixed check cadence;
+// heartbeat_threshold is never below it).
+func renderLivenessTimer(l Layout) string {
+	return fmt.Sprintf(`[Unit]
+Description=Fleet agent liveness check (every 45 s)
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=%[2]ds
+AccuracySec=5s
+Unit=%[1]s.service
+
+[Install]
+WantedBy=timers.target
+`, l.livenessBase(), int(watchdog.HeartbeatCheckEvery/time.Second))
 }
 
 // CertFingerprint is the lowercase hex SHA-256 of the first certificate in a
@@ -689,6 +748,14 @@ func (p *Provisioner) Remove(ctx context.Context, id string, auth Auth, opts Rem
 		}
 		defer rem.Close()
 		j := &job{p: p, t: t, l: p.layout(), rem: rem, m: m}
+		// The liveness timer first, or it would restart the stopped agent. Best
+		// effort: a machine onboarded before the timer existed does not have it.
+		if _, err := j.priv(ctx, nil, "systemctl", "disable", "--now", j.l.livenessTimerName()); err != nil {
+			var re *RemoteError
+			if !errors.As(err, &re) {
+				return fmt.Errorf("onboard: machine %s: disable liveness timer: %w", id, err)
+			}
+		}
 		for _, verb := range []string{"stop", "disable"} {
 			if _, err := j.priv(ctx, nil, "systemctl", verb, j.l.UnitName); err != nil {
 				return fmt.Errorf("onboard: machine %s: systemctl %s: %w", id, verb, err)

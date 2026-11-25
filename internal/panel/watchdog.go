@@ -369,6 +369,13 @@ func policyTemplate(version int, p watchdog.Policy) string {
 		p.Cooldowns.Throttle.D(), p.Cooldowns.KillSession.D(), p.Cooldowns.Restart.D(), p.Cooldowns.Reboot.D())
 	fmt.Fprintf(&b, "caps:\n  restarts_per_day: %d\n  reboots_per_day: %d\n", p.Caps.RestartsPerDay, p.Caps.RebootsPerDay)
 	fmt.Fprintf(&b, "boot_window: %s\nstage_reset: %s\nauto_reset_midnight: %t\n", p.BootWindow.D(), p.StageReset.D(), p.AutoResetMidnight)
+	// Hang detection (T-0027). The bounds come from watchdog.ValidateHeartbeat,
+	// the one place that enforces them (this save runs it through ParseProfile).
+	fmt.Fprintf(&b, "# Hang detection: the watchdog and the main agent write a heartbeat every heartbeat_write;\n")
+	fmt.Fprintf(&b, "# a liveness timer (checks every %s, fixed) restarts a service whose heartbeat is older than\n", watchdog.HeartbeatCheckEvery)
+	fmt.Fprintf(&b, "# heartbeat_threshold. heartbeat_write: %s to %s. heartbeat_threshold: %s to %s, and at least %d x heartbeat_write.\n",
+		watchdog.MinHeartbeatWrite, watchdog.MaxHeartbeatWrite, watchdog.MinHeartbeatThreshold, watchdog.MaxHeartbeatThreshold, watchdog.HeartbeatThresholdFactor)
+	fmt.Fprintf(&b, "heartbeat_write: %s\nheartbeat_threshold: %s\n", p.HeartbeatWrite.D(), p.HeartbeatThreshold.D())
 	fmt.Fprintf(&b, "# Per-host and per-group overrides, for example:\n# overrides:\n#   hosts:\n#     wrk-07:\n#       throttle:\n#         cpu_percent: 40\n")
 	return b.String()
 }
