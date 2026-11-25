@@ -1,0 +1,9 @@
+# Fleet Panel — Hacker Restyle Samples (T-0034)
+
+Three standalone visual skins of the same representative slice of the Fleet panel (sidebar navigation, top bar, `Machines` view with 4 summary tiles and a 6-row registry table, plus an interactive `Terminal` session panel), built with identical layout, controls, and mock data so they can be compared fairly.
+
+- **[sample-1.html](sample-1.html) — Green-on-Black Phosphor CRT**: Classic mainframe CRT aesthetic with sharp 1–3 px corners, subtle horizontal scanlines, and phosphor text/border glow. Uses **VT323** for the page title and summary stat counters paired with **IBM Plex Mono** for body copy, controls, tables, and terminal output. Accent `#39ff7a` (phosphor green) over `#040805` background and `#08110a` / `#0c1a10` card surfaces, with `#193b23`–`#2b6e3f` borders.
+
+- **[sample-2.html](sample-2.html) — Amber Retro-Terminal**: Warm 1980s P3 amber hardware-console aesthetic with a subtle micro-dot grid canvas, dashed table dividers, and amber left-bordered stat cards. Uses **Share Tech Mono** for headings, nav group labels, table headers, and stat values paired with **Fira Code** for dense table rows, inputs, and terminal text. Accent `#ffb000` (amber phosphor) over `#0c0804` background and `#140e07` / `#1d150b` surfaces, with `#3a2914`–`#6e4e24` borders.
+
+- **[sample-3.html](sample-3.html) — Cyber-Dark Neon Ops**: Modern tactical security-ops dark skin with a faint 32 px cyber blueprint grid, frosted top bar, subtle top-edge neon card highlights, and gradient disk meters. Uses **JetBrains Mono** uniformly across UI, tables, and terminal output. Primary accent `#00f0ff` (electric cyan) paired with `#8a7aff` (cyber violet) and `#ff3b6b` (neon crimson) danger states over `#07090f` background and `#0d121d` / `#131a2b` surfaces.
