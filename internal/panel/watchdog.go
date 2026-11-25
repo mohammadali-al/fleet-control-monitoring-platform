@@ -23,15 +23,72 @@ import (
 //	GET  /api/watchdog/events?machine= event history, newest first
 //	GET  /api/watchdog/policy          the stored profile (or a starting template) and its effective values
 //	POST /api/watchdog/policy {yaml}   validate, store and push to every connected worker
-//
-// Counter reset is not here: nothing in the control channel tells an agent's
-// watchdog to reset its counters yet, so the page keeps those buttons as
-// stubs (see the task log).
+//	POST /api/watchdog/reset {machine} reset one worker's daily counters and alert-only latch
+//	                                   (no machine: every connected worker)
 func (s *server) routesWatchdog(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/watchdog", s.observed(s.wdHosts))
 	mux.HandleFunc("GET /api/watchdog/events", s.observed(s.wdEvents))
 	mux.HandleFunc("GET /api/watchdog/policy", s.observed(s.wdPolicy))
 	mux.HandleFunc("POST /api/watchdog/policy", s.observed(s.wdSavePolicy))
+	mux.HandleFunc("POST /api/watchdog/reset", s.observed(s.wdReset))
+}
+
+// counterResetter is the part of the backend that pushes a watchdog counter
+// reset to an agent (*fleet.Manager implements it).
+type counterResetter interface {
+	ResetCounters(ctx context.Context, machine string) error
+}
+
+type resetBody struct {
+	// Machine is the worker to reset; empty means every connected worker.
+	Machine string `json:"machine"`
+}
+
+// wdReset is the operator's counter reset: it tells the watchdog on one worker
+// (or on every connected one) to clear its daily restart/reboot counters, the
+// alert-only latch and the ladder stage. The watchdog applies it at its next
+// sample and the page sees it as a counters-reset event.
+func (s *server) wdReset(w http.ResponseWriter, r *http.Request, _ observer, _ *fleet.Observe) {
+	rs, ok := s.be.(counterResetter)
+	if !ok {
+		notConfigured(w, "the watchdog counter reset")
+		return
+	}
+	var b resetBody
+	if r.ContentLength != 0 && !decode(w, r, &b) {
+		return
+	}
+	ctx := context.WithoutCancel(r.Context())
+	if b.Machine != "" {
+		if err := rs.ResetCounters(ctx, b.Machine); err != nil {
+			code, msg := http.StatusBadGateway, err.Error()
+			switch {
+			case errors.Is(err, fleet.ErrUnknown):
+				code, msg = http.StatusNotFound, "no such worker agent: "+b.Machine
+			case errors.Is(err, fleet.ErrOffline):
+				code, msg = http.StatusConflict, b.Machine+" is not connected; its counters were not reset"
+			}
+			writeJSON(w, code, errBody(msg))
+			return
+		}
+		s.log.Info("watchdog counters reset", "component", "panel", "operator", operatorFrom(r), "machine", b.Machine)
+		writeJSON(w, http.StatusOK, map[string]any{"reset": []string{b.Machine}, "failed": []string{}})
+		return
+	}
+	reset, failed := []string{}, []string{}
+	for _, m := range s.be.Machines() {
+		if m.Role != registry.RoleWorker || m.Removed || m.State != fleet.StateOnline {
+			continue
+		}
+		if err := rs.ResetCounters(ctx, m.ID); err != nil {
+			s.log.Warn("watchdog counter reset failed", "component", "panel", "machine", m.ID, "err", err)
+			failed = append(failed, m.ID)
+			continue
+		}
+		reset = append(reset, m.ID)
+	}
+	s.log.Info("watchdog counters reset", "component", "panel", "operator", operatorFrom(r), "machines", reset, "failed", failed)
+	writeJSON(w, http.StatusOK, map[string]any{"reset": reset, "failed": failed})
 }
 
 // hostState is what the page shows for one worker, derived from the policy

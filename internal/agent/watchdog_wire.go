@@ -76,7 +76,7 @@ func NewWatchdog(ac config.AgentConfig, dataDir string, log *slog.Logger, opts W
 		actuator = &watchdog.SystemActuator{SessionRoot: cg, Iface: ac.Watchdog.EgressInterface}
 	}
 	ew := NewEventWriter(dataDir, log)
-	return watchdog.New(watchdog.Config{
+	w, err := watchdog.New(watchdog.Config{
 		DataDir:   dataDir,
 		MachineID: ac.MachineID,
 		Groups:    ac.Watchdog.Groups,
@@ -86,6 +86,16 @@ func NewWatchdog(ac config.AgentConfig, dataDir string, log *slog.Logger, opts W
 		Notify:    ew.Write,
 		Log:       log,
 	})
+	if err != nil {
+		return nil, err
+	}
+	// A counter reset requested through the main agent (watchdog-reset) is
+	// applied by the guards at the next sample; report it like any event.
+	w.Guards().OnReset = func(now time.Time) {
+		log.Info("watchdog counters reset on request", "component", "fleet-watchdog")
+		ew.Write(watchdog.Event{Time: now, Kind: watchdog.EventCounters, Detail: "counters and alert-only mode reset by operator"})
+	}
+	return w, nil
 }
 
 // RunWatchdog runs the watchdog loop until ctx is cancelled (the
@@ -209,6 +219,19 @@ func (w *watchdogWire) handlePolicy(ctx context.Context, env channel.Envelope, s
 	if err := send.Send(ctx, ack); err != nil {
 		w.log.Warn("send policy ack", "component", "fleet-agent", "err", err)
 	}
+}
+
+// handleReset is the operator's counter reset (watchdog-reset). The watchdog
+// is another process that keeps its counters in memory and owns state.json, so
+// the main agent only leaves it a request in the shared data dir; the watchdog
+// clears the daily counters, the alert-only latch and the ladder stage at its
+// next sample and reports a counters-reset event.
+func (w *watchdogWire) handleReset() {
+	if err := watchdog.RequestReset(w.dataDir, time.Now()); err != nil {
+		w.log.Warn("request watchdog counter reset", "component", "fleet-agent", "err", err)
+		return
+	}
+	w.log.Info("watchdog counter reset requested", "component", "fleet-agent")
 }
 
 func (w *watchdogWire) store(raw []byte, version int) error {
@@ -446,8 +469,12 @@ func NewWithWatchdog(cfg Config, opts WatchdogOptions) (*WatchdogAgent, error) {
 		TLS:       cfg.TLS,
 		MachineID: cfg.MachineID,
 		Handler: func(ctx context.Context, env channel.Envelope) {
-			if env.Type == channel.TypePolicy {
+			switch env.Type {
+			case channel.TypePolicy:
 				ww.handlePolicy(ctx, env, w.sender)
+				return
+			case channel.TypeWatchdogReset:
+				ww.handleReset()
 				return
 			}
 			w.handle(ctx, env)

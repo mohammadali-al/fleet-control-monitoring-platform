@@ -115,6 +115,11 @@ const (
 	TypePolicy     = "policy"      // server -> agent: a policy profile (PolicyPayload)
 	TypePolicyAck  = "policy-ack"  // agent -> server: applied, or why not (PolicyAckPayload)
 	TypeWatchdogEv = "watchdog-ev" // agent -> server: a watchdog event to notify the panel (WatchdogEventPayload)
+	// TypeWatchdogReset is the operator's counter reset (panel button): the
+	// agent clears the daily restart/reboot counters, the alert-only latch and
+	// the ladder stage of its watchdog. Cooldowns are kept. The payload is
+	// empty; the watchdog answers with a counters-reset watchdog-ev.
+	TypeWatchdogReset = "watchdog-reset" // server -> agent
 )
 
 // PolicyPayload is the payload of a policy envelope (server -> agent).

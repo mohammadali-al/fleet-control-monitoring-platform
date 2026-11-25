@@ -364,9 +364,9 @@ func TestWatchdogLive(t *testing.T) {
 		t.Errorf("w2 events = %+v", evs.Events)
 	}
 
-	// The page is live, and the unbacked counter reset stays a visible stub with the reason.
+	// The page is live, and the counter reset is wired (T-0028: no longer a stub).
 	_, _, html := e.raw("/watchdog.html")
-	for _, want := range []string{`id="wd-hosts"`, `id="wd-yaml"`, `id="wd-policy-form"`, `id="wd-events"`, "assets/js/live.js", "control-channel message"} {
+	for _, want := range []string{`id="wd-hosts"`, `id="wd-yaml"`, `id="wd-policy-form"`, `id="wd-events"`, "assets/js/live.js", `id="wd-reset-all"`} {
 		if !strings.Contains(string(html), want) {
 			t.Errorf("watchdog page missing %q", want)
 		}

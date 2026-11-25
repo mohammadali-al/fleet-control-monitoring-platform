@@ -227,3 +227,33 @@ func (m *Manager) WatchdogStatus(machine string) (WatchdogStatus, bool) {
 	}
 	return WatchdogStatus{}, false
 }
+
+// ResetCounters tells one connected worker agent's watchdog to do the
+// operator's counter reset: the daily restart/reboot counters, the alert-only
+// latch and the ladder stage are cleared (cooldowns are kept). The watchdog
+// applies it at its next sample and reports it as a counters-reset event. It
+// returns ErrUnknown for a machine that is not a worker with a link and
+// ErrOffline when it is not connected: a reset is an operator's immediate
+// intent and is not queued for a later connection.
+func (m *Manager) ResetCounters(ctx context.Context, machine string) error {
+	m.mu.Lock()
+	n := m.nodes[machine]
+	m.mu.Unlock()
+	mc, known := m.cfg.Registry.Get(machine)
+	if !known || n == nil || mc.Role != registry.RoleWorker {
+		return ErrUnknown
+	}
+	if n.link == nil || !n.link.Online() {
+		return ErrOffline
+	}
+	env, err := channel.NewEnvelope(channel.TypeWatchdogReset, "", nil)
+	if err == nil {
+		err = n.link.Send(ctx, env)
+	}
+	if err != nil {
+		m.log.Warn("push watchdog counter reset", "component", "fleet", "machine", machine, "err", err)
+		return err
+	}
+	m.log.Info("pushed watchdog counter reset", "component", "fleet", "machine", machine)
+	return nil
+}
