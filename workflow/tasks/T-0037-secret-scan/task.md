@@ -1,7 +1,7 @@
 ---
 id: T-0037
 title: secret-scan-history
-state: ready
+state: merged
 touches: [security/secret-scan-report.md, security/gitleaks.toml]
 tests: []
 after: []

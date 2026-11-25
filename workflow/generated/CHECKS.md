@@ -39,3 +39,4 @@
 - [ ] T-0035 server-state-versioning-migrate — schema_version + `fleet-server migrate` + auto-migrate startup guard (backup first, CA preserved, newer refuses). Verified by review. Confirm to close.
 - [ ] T-0036 github-release-and-installer — release pipeline + curl|bash installer (interactive, installs deps, docker|native proxy) + --upgrade (backup/migrate/rollback) + README. Verified by review; shellcheck + a real end-to-end install still to run. Confirm to close.
 - [ ] T-0034 round-2 — 5 new samples in workflow/design/panel-hacker-samples/round-2/ (open the .html). Pick a direction (or none). Confirm to close.
+- [ ] T-0037 secret-scan-history — full-history scan (gitleaks+trufflehog+greps): NO secrets found; gitignored-sensitive paths never committed. Report at security/secret-scan-report.md. Info-only: author email in commit metadata, internal lab IP in CHECKS. Confirm to close.
