@@ -1,16 +1,20 @@
-/* Fleet panel - live wiring for the Operate pages (Machines, Command runner, Terminal).
+/* Fleet panel - live wiring for the Operate pages (Machines, Command runner, Terminal) and the Observe/Admin
+   pages (Evidence, Backup, Monitor data, Watchdog).
    Loaded after app.js. app.js keeps the shared behaviour (theme, drawer, menus, dialogs, tabs, stub toasts);
    this file adds fetch + WebSocket where a page is backed by the main server:
      GET/POST /api/...        JSON API (see internal/panel/api.go)
      GET      /fragments/...  server-rendered HTML pieces, swapped in when data changes
      WS       /ws/events      machine state and command lifecycle/output
      WS       /ws/shell       one interactive shell (xterm.js <-> agent PTY)
+     WS       /ws/monitor     live probe results (Monitor data)
+     WS       /ws/watchdog    watchdog events (Watchdog)
    Anything not backed yet keeps its data-stub marker. Plain ES5 + fetch, no framework, no build. */
 (function () {
   'use strict';
 
   var page = document.body.getAttribute('data-page');
-  if (['machines', 'commands', 'terminal'].indexOf(page) === -1) return;
+  var OPERATE = ['machines', 'commands', 'terminal'];
+  if (OPERATE.concat(['evidence', 'backup', 'monitor', 'watchdog']).indexOf(page) === -1) return;
 
   /* ---------- helpers ---------- */
   function $(sel, root) { return (root || document).querySelector(sel); }
@@ -121,7 +125,7 @@
   }
   function onEvent(f) { listeners.push(f); }
   function onReconnect(f) { reconnectListeners.push(f); }
-  connectEvents();
+  if (OPERATE.indexOf(page) !== -1) connectEvents(); // the Observe/Admin pages open their own streams
 
   /* ======================================================================
      Machines
@@ -749,7 +753,507 @@
     }
   }
 
+  /* ======================================================================
+     Shared helpers for the Observe/Admin pages
+     ====================================================================== */
+  function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+  function fmtBytes(n) {
+    if (n == null) return '';
+    if (n < 1000) return n + ' B';
+    var u = ['kB', 'MB', 'GB', 'TB', 'PB'], i = -1;
+    do { n /= 1000; i++; } while (n >= 1000 && i < u.length - 1);
+    return (n >= 100 ? n.toFixed(0) : n.toFixed(1)) + ' ' + u[i];
+  }
+  function fmtDateTime(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    return isNaN(d) || d.getFullYear() < 2000 ? '' : d.toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+  function fmtAgo(iso) {
+    if (!iso) return 'never';
+    var d = new Date(iso);
+    if (isNaN(d) || d.getFullYear() < 2000) return 'never';
+    var s = Math.max(0, (Date.now() - d.getTime()) / 1000);
+    if (s < 2) return 'just now';
+    if (s < 60) return Math.floor(s) + ' s ago';
+    if (s < 3600) return Math.floor(s / 60) + ' min ago';
+    if (s < 172800) return Math.floor(s / 3600) + ' h ago';
+    return Math.floor(s / 86400) + ' d ago';
+  }
+  function td(content, cls) {
+    var c = el('td', cls || null);
+    if (content != null && content.nodeType) c.appendChild(content);
+    else if (content != null) c.textContent = content;
+    return c;
+  }
+  function th(text, cls) { var c = el('th', cls || null, text); c.setAttribute('scope', 'row'); return c; }
+  function emptyRow(tbody, cols, text) {
+    clear(tbody);
+    var tr = el('tr'), c = el('td', 'faint', text);
+    c.colSpan = cols;
+    tr.appendChild(c);
+    tbody.appendChild(tr);
+  }
+  function spinnerPoll(fn, ms) {
+    var t = null;
+    return {
+      start: function () { if (!t) t = setInterval(fn, ms); },
+      stop: function () { if (t) { clearInterval(t); t = null; } }
+    };
+  }
+
+  /* ======================================================================
+     Evidence (internal/evidence): sessions, pull + sync, export
+     ====================================================================== */
+  function initEvidence() {
+    var status = $('#ev-status');
+    var tbody = $('#ev-sessions');
+    var q = $('#e-q'), selM = $('#e-m'), selK = $('#e-k');
+    var selected = null; // "machine/session"
+    var sessions = [];
+    var KIND = { oneshot: 'One-shot', pty: 'Shell' };
+
+    function say(kind, msg) { setStatus(status.parentNode, kind, msg); }
+
+    function loadSessions() {
+      var qs = new URLSearchParams();
+      if (q.value.trim()) qs.set('q', q.value.trim());
+      if (selM.value) qs.set('machine', selM.value);
+      if (selK.value) qs.set('kind', selK.value);
+      return api('GET', '/api/evidence/sessions?' + qs.toString()).then(function (r) {
+        if (!r.ok) { emptyRow(tbody, 8, r.data.error || 'The archive could not be read.'); return; }
+        sessions = r.data.sessions || [];
+        renderSessions();
+        fillExportSessions();
+      });
+    }
+
+    function renderSessions() {
+      $('#ev-count').textContent = sessions.length + (sessions.length === 1 ? ' session' : ' sessions');
+      if (!sessions.length) { emptyRow(tbody, 8, 'No evidence in the archive yet. Pull from a worker agent on the Sync tab.'); return; }
+      clear(tbody);
+      sessions.forEach(function (s) {
+        var key = s.machine + '/' + s.session;
+        var tr = el('tr');
+        tr.tabIndex = 0;
+        tr.style.cursor = 'pointer';
+        if (key === selected) tr.setAttribute('aria-selected', 'true');
+        tr.appendChild(th(s.session, 'mono'));
+        tr.appendChild(td(s.machine));
+        tr.appendChild(td(KIND[s.kind] || (s.kind ? s.kind : 'Unknown'), 'nowrap'));
+        tr.appendChild(td(s.command || '', 'mono truncate'));
+        tr.appendChild(td(fmtDateTime(s.started), 'nowrap'));
+        tr.appendChild(td((s.shared ? '≤ ' : '') + s.packets.toLocaleString(), 'num'));
+        tr.appendChild(td(String(s.dropped), 'num'));
+        var st = s.online ? chip('ok', s.segments + (s.segments === 1 ? ' segment' : ' segments'), 'check') : chip('danger', 'Agent offline', 'x');
+        tr.appendChild(td(st));
+        function open() { selected = key; renderSessions(); showSession(s); }
+        tr.addEventListener('click', open);
+        tr.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+        tbody.appendChild(tr);
+      });
+    }
+
+    function showSession(s) {
+      var box = $('#ev-detail');
+      box.hidden = false;
+      $('#ev-detail-id').textContent = s.session;
+      $('#ev-detail-sub').textContent = 'On ' + s.machine + '. Each row is one outbound packet.';
+      $('#ev-detail-cmd').textContent = s.command || '(not in the command history)';
+      $('#ev-detail-src').textContent = '';
+      $('#ev-detail-dropped').textContent = s.dropped + ' dropped';
+      var rows = $('#ev-records');
+      emptyRow(rows, 8, 'Loading records...');
+      api('GET', '/api/evidence/sessions/' + encodeURIComponent(s.machine) + '/' + encodeURIComponent(s.session) + '/records').then(function (r) {
+        if (!r.ok) { emptyRow(rows, 8, r.data.error || 'Records could not be read.'); return; }
+        var recs = r.data.records || [];
+        if (!recs.length) { emptyRow(rows, 8, 'This session has no packet records.'); return; }
+        clear(rows);
+        var srcs = {};
+        recs.forEach(function (p) {
+          var tr = el('tr');
+          tr.appendChild(td(fmtTime(p.time) + '.' + ('000' + new Date(p.time).getMilliseconds()).slice(-3), 'mono nowrap'));
+          tr.appendChild(td(p.protocol));
+          tr.appendChild(td(p.src, 'mono'));
+          tr.appendChild(td(p.dst, 'mono'));
+          tr.appendChild(td(p.flags || '', 'mono'));
+          tr.appendChild(td(p.protocol === 'TCP' ? p.seq + ' / ' + p.ack : '-', 'num mono'));
+          tr.appendChild(td(chip(p.payload_status === 'trimmed' ? 'warn' : 'outline', p.payload_status + ' · ' + p.payload_bytes + ' B')));
+          var h = p.payload_sha256 || '';
+          tr.appendChild(td(h ? h.slice(0, 8) + '...' + h.slice(-4) : '', 'hash'));
+          rows.appendChild(tr);
+          if (p.src_ip_used) srcs[p.src_ip_used] = true;
+        });
+        $('#ev-detail-src').textContent = Object.keys(srcs).join(', ') || 'not recorded';
+        $('#ev-detail-more').textContent = r.data.more ? 'Showing the first ' + recs.length + ' records; export the session for all of them. ' : '';
+      });
+    }
+
+    [q, selM, selK].forEach(function (c) { c.addEventListener(c === q ? 'input' : 'change', debounce(loadSessions, 250)); });
+
+    /* ---- sync tab ---- */
+    var syncRows = $('#ev-sync-rows');
+    var poll = spinnerPoll(loadSync, 2000);
+
+    function syncChip(row) {
+      var s = row.sync;
+      if (s.state === 'pulling') return chip('accent', 'Pulling', null, true);
+      if (s.state === 'failed') { var c = chip('danger', 'Failed', 'x'); c.title = s.error || ''; return c; }
+      if (s.state === 'done') {
+        if (s.rejected) return chip('danger', s.rejected + ' rejected (bad SHA-256)', 'x');
+        return chip('ok', s.fetched ? 'Synced, ' + s.fetched + ' fetched' : 'Up to date', 'check');
+      }
+      if (row.state !== 'online') return chip('danger', 'Agent offline', 'x');
+      return chip('outline', 'Not pulled yet');
+    }
+
+    function loadSync() {
+      return api('GET', '/api/evidence/sync').then(function (r) {
+        if (!r.ok) { emptyRow(syncRows, 6, r.data.error || 'Sync status is unavailable.'); poll.stop(); return; }
+        var workers = r.data.workers || [];
+        var busy = false;
+        if (!workers.length) emptyRow(syncRows, 6, 'No worker agents are registered.');
+        else {
+          clear(syncRows);
+          workers.forEach(function (w) {
+            var s = w.sync;
+            if (s.state === 'pulling') busy = true;
+            var tr = el('tr');
+            tr.appendChild(th(w.machine, 'cell-primary'));
+            tr.appendChild(td(w.archived_segments + ' segments, ' + fmtBytes(w.archived_bytes), 'mono'));
+            tr.appendChild(td(s.state === 'done' || s.state === 'failed'
+              ? s.segments + ' on agent, ' + s.fetched + ' fetched' + (s.resumed ? ' (' + s.resumed + ' resumed)' : '') + ', ' + s.skipped + ' already archived, ' + fmtBytes(s.bytes)
+              : (s.state === 'pulling' ? 'in progress' : '-'), s.state === 'idle' ? 'faint' : ''));
+            var cell = td(syncChip(w));
+            if (s.error && s.state === 'failed') cell.appendChild(el('div', 'cell-sub', s.error));
+            tr.appendChild(cell);
+            tr.appendChild(td(s.finished ? fmtAgo(s.finished) + (s.trigger === 'push' ? ' (agent push)' : '') : '-', 'nowrap'));
+            var btn = el('button', 'btn btn--sm' + (w.state === 'online' ? ' btn--primary' : ''));
+            btn.type = 'button';
+            btn.appendChild(icon('download', true));
+            btn.appendChild(document.createTextNode('Pull'));
+            if (w.state !== 'online' || s.state === 'pulling') { btn.setAttribute('aria-disabled', 'true'); btn.disabled = true; }
+            btn.addEventListener('click', function () { pull(w.machine); });
+            tr.appendChild(td(btn, 'actions'));
+            syncRows.appendChild(tr);
+          });
+        }
+        var d = r.data.disk || {};
+        var disk = $('#ev-disk');
+        var meter = $('.meter', disk);
+        $('.meter__fill', meter).style.width = Math.min(100, d.used_percent || 0) + '%';
+        meter.className = 'meter' + (d.state === 'paused' ? ' meter--danger' : d.state === 'warn' ? ' meter--warn' : '');
+        var spans = $$('.meter__text span', meter);
+        spans[0].textContent = 'Archive disk ' + (d.used_percent || 0).toFixed(0) + '% used' + (d.state === 'paused' ? ' - intake paused' : d.state === 'warn' ? ' - warning' : '');
+        spans[1].textContent = (d.used_percent || 0).toFixed(0) + '%';
+        if (busy) poll.start(); else poll.stop();
+        if (busy) loadSessions();
+      });
+    }
+
+    function pull(machine) {
+      var body = machine ? { machine: machine } : {};
+      api('POST', '/api/evidence/pull', body).then(function (r) {
+        var res = (r.data.results || []);
+        if (!r.ok) {
+          say('danger', (r.data.error || (res[0] && res[0].error)) || ('Pull failed (' + r.status + ')'));
+        } else {
+          var failed = res.filter(function (x) { return !x.started; });
+          say(failed.length ? 'info' : 'ok', res.length ? 'Pull started on ' + (res.length - failed.length) + ' worker agent(s).' + (failed.length ? ' Not started: ' + failed.map(function (x) { return x.machine + ' (' + x.error + ')'; }).join('; ') : '') : 'No worker agent is online to pull from.');
+        }
+        loadSync();
+        poll.start();
+      });
+    }
+    $('#ev-pull-all').addEventListener('click', function () { pull(''); });
+
+    /* manifest */
+    var manSel = $('#ev-man-m');
+    function loadManifest() {
+      var body = $('#ev-manifest');
+      if (!manSel.value) { emptyRow(body, 6, 'Choose a worker agent.'); return; }
+      api('GET', '/api/evidence/manifest/' + encodeURIComponent(manSel.value)).then(function (r) {
+        var segs = r.data.segments || [];
+        if (!r.ok || !segs.length) { emptyRow(body, 6, r.ok ? 'No segments archived for this machine yet.' : (r.data.error || 'Unavailable.')); return; }
+        clear(body);
+        segs.slice(-30).reverse().forEach(function (g) {
+          var tr = el('tr');
+          tr.appendChild(td(g.file, 'mono'));
+          tr.appendChild(td(fmtTime(g.start) + '-' + fmtTime(g.end), 'nowrap'));
+          tr.appendChild(td(fmtBytes(g.bytes), 'num'));
+          tr.appendChild(td(g.records.toLocaleString(), 'num'));
+          tr.appendChild(td(g.sha256 ? g.sha256.slice(0, 6) + '...' + g.sha256.slice(-4) : '', 'hash'));
+          tr.appendChild(td(chip('ok', 'Verified', 'check')));
+          body.appendChild(tr);
+        });
+      });
+    }
+    manSel.addEventListener('change', loadManifest);
+    $('#etab-y').addEventListener('click', function () { loadSync(); loadManifest(); });
+
+    /* ---- export ---- */
+    var form = $('#ev-export-form');
+    function scopeSync() {
+      var scope = form.elements.scope.value;
+      $$('[data-scope]', form).forEach(function (n) { n.hidden = n.getAttribute('data-scope') !== scope && !(scope === 'range' && n.getAttribute('data-scope') === 'machine'); });
+    }
+    $$('input[name="scope"]', form).forEach(function (r) { r.addEventListener('change', scopeSync); });
+    scopeSync();
+    function fillExportSessions() {
+      var sel = $('#x-sess');
+      var cur = sel.value;
+      clear(sel);
+      if (!sessions.length) { var o = el('option', null, 'No sessions in the archive yet'); o.value = ''; sel.appendChild(o); return; }
+      sessions.forEach(function (s) {
+        var o = el('option', null, s.session + ' · ' + s.machine + (s.command ? ' · ' + s.command : ''));
+        o.value = s.machine + '/' + s.session;
+        sel.appendChild(o);
+      });
+      if (cur) sel.value = cur;
+    }
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var scope = form.elements.scope.value, fmt = form.elements.fmt.value;
+      var qs = new URLSearchParams();
+      qs.set('format', fmt);
+      var label = 'archive';
+      if (scope === 'session') {
+        var v = $('#x-sess').value;
+        if (!v) { say('danger', 'There is no session to export yet.'); return; }
+        var i = v.indexOf('/');
+        qs.set('machine', v.slice(0, i)); qs.set('session', v.slice(i + 1));
+        label = v.slice(i + 1);
+      } else {
+        var m = $('#x-mach').value;
+        if (m) { qs.set('machine', m); label = m; }
+        if (scope === 'range') {
+          var f = $('#x-from').value, t = $('#x-to').value;
+          if (!f && !t) { say('danger', 'Pick a start or an end time for a time-range export.'); return; }
+          if (f) qs.set('from', new Date(f).toISOString());
+          if (t) qs.set('to', new Date(t).toISOString());
+          label += ' ' + (f || '') + ' to ' + (t || 'now');
+        }
+      }
+      var url = '/api/evidence/export?' + qs.toString();
+      var list = $('#ev-exports');
+      if (!list.getAttribute('data-has')) { clear(list); list.setAttribute('data-has', '1'); }
+      var li = el('li', 'list__item'), main = el('div', 'list__main');
+      main.appendChild(el('b', 'mono', label + '.' + fmt));
+      main.appendChild(el('small', null, 'requested ' + fmtDateTime(new Date().toISOString())));
+      li.appendChild(main);
+      var a = el('a', 'btn btn--sm');
+      a.href = url; a.setAttribute('download', '');
+      a.appendChild(icon('download', true)); a.appendChild(document.createTextNode('Download again'));
+      li.appendChild(a);
+      list.insertBefore(li, list.firstChild);
+      say('ok', 'Export started: your browser will download the ' + fmt + ' file.');
+      window.location.href = url;
+    });
+
+    loadSessions();
+    loadSync();
+  }
+
+  /* ======================================================================
+     Backup (internal/backup): server, diff, back up now, import, schedule, reminder
+     ====================================================================== */
+  function initBackup() {
+    var statusBox = $('#bk-status');
+    function say(kind, msg) { setStatus(statusBox.parentNode, kind, msg); }
+    var poll = spinnerPoll(load, 2000);
+    var lastJobState = null;
+    var haveServer = false;
+
+    function renderServer(d) {
+      haveServer = !!d.configured;
+      var dl = $('#bk-server');
+      $('#bk-noserver').hidden = haveServer;
+      dl.hidden = !haveServer;
+      $('#bk-noserver').textContent = 'No backup server is configured yet. Add one on the right: the archive exists in one place only until you do.';
+      $('#bk-run').disabled = !haveServer;
+      $('#bk-diff-btn').disabled = !haveServer;
+      if (!haveServer) return;
+      var s = d.server;
+      $('[data-f="address"]', dl).textContent = s.host + (s.port && s.port !== 22 ? ':' + s.port : '');
+      $('[data-f="user"]', dl).textContent = s.user;
+      $('[data-f="path"]', dl).textContent = s.remote_path + '  (relative to the SSH login directory)';
+      $('[data-f="auth"]', dl).textContent = s.auth === 'key' ? 'SSH key (the password was discarded)' : 'Password kept in a 0600 file (a key could not be installed)';
+      $('[data-f="fp"]', dl).textContent = s.host_key_fp || 'not recorded';
+      var last = d.last_backup;
+      $('[data-f="last"]', dl).textContent = last ? fmtDateTime(last.finished) + (last.ok ? ', completed' : ', with ' + last.failed + ' failed file(s)') : 'never';
+    }
+
+    function renderRuns(d) {
+      var tb = $('#bk-runs');
+      var rows = [];
+      if (d.job) {
+        var j = d.job;
+        rows.push({ started: j.started, what: j.kind === 'import' ? 'Import (panel)' : 'Back up now (panel)', files: j.uploaded, bytes: j.bytes,
+          state: j.state, note: j.error || j.summary, conflicts: j.conflicts });
+      }
+      if (d.last_backup) {
+        var l = d.last_backup;
+        rows.push({ started: l.started, what: 'Last backup run', files: l.uploaded, bytes: l.bytes, state: l.ok ? 'done' : 'failed', note: l.ok ? '' : l.failed + ' file(s) failed' });
+      }
+      if (!rows.length) { emptyRow(tb, 5, 'No backup has run yet.'); return; }
+      clear(tb);
+      rows.forEach(function (r) {
+        var tr = el('tr');
+        tr.appendChild(td(fmtDateTime(r.started), 'nowrap'));
+        tr.appendChild(td(r.what));
+        tr.appendChild(td(String(r.files), 'num'));
+        tr.appendChild(td(fmtBytes(r.bytes), 'num'));
+        var c = r.state === 'running' ? chip('accent', 'Running', null, true) : r.state === 'done' ? chip('ok', 'Completed', 'check') : chip('danger', 'Failed', 'x');
+        var cell = td(c);
+        if (r.note) cell.appendChild(el('div', 'cell-sub', r.note));
+        if (r.conflicts && r.conflicts.length) cell.appendChild(el('div', 'cell-sub', 'Kept (differ locally): ' + r.conflicts.slice(0, 5).join(', ') + (r.conflicts.length > 5 ? ' and ' + (r.conflicts.length - 5) + ' more' : '')));
+        tr.appendChild(cell);
+        tb.appendChild(tr);
+      });
+    }
+
+    function renderSchedule(d) {
+      var sc = d.schedule, form = $('#bk-sched-form');
+      var sw = $('input[name="enabled"]', form);
+      sw.checked = !!sc.enabled;
+      sw.parentNode.lastElementChild.textContent = sc.enabled ? 'On' : 'Off';
+      if (!form.getAttribute('data-touched')) form.elements.time.value = ('0' + sc.hour).slice(-2) + ':' + ('0' + sc.minute).slice(-2);
+      $('#bk-sched-next').textContent = sc.enabled && sc.next ? 'Next run: ' + fmtDateTime(sc.next) : (sc.enabled ? '' : 'The schedule is off: nothing runs unless you use Back up now.');
+      var sg = d.suggested;
+      var box = $('#bk-suggest');
+      clear(box);
+      box.appendChild(el('strong', null, 'Suggested: ' + sg.text.replace('daily at', 'every night at') + '. '));
+      box.appendChild(document.createTextNode(sg.reason || ''));
+    }
+
+    function renderReminder(d) {
+      var box = $('#bk-reminder');
+      box.hidden = !d.reminder;
+      if (d.reminder) $('#bk-reminder-text').textContent = d.reminder.message;
+    }
+
+    function load() {
+      return api('GET', '/api/backup').then(function (r) {
+        if (!r.ok) { $('#bk-noserver').hidden = false; $('#bk-noserver').textContent = r.data.error || 'The backup service is unavailable.'; $('#bk-run').disabled = true; poll.stop(); return; }
+        var d = r.data;
+        renderServer(d); renderRuns(d); renderSchedule(d); renderReminder(d);
+        var running = d.job && d.job.state === 'running';
+        $('#bk-run').disabled = running || !haveServer;
+        if (running) poll.start(); else poll.stop();
+        if (lastJobState === 'running' && d.job && d.job.state !== 'running') {
+          say(d.job.state === 'done' ? 'ok' : 'danger', (d.job.kind === 'import' ? 'Import ' : 'Backup ') + (d.job.state === 'done' ? 'finished. ' + (d.job.summary || '') : 'failed: ' + (d.job.error || '')));
+          loadDiff();
+        }
+        lastJobState = d.job ? d.job.state : null;
+      });
+    }
+
+    function renderDiff(d) {
+      var tb = $('#bk-diff-rows');
+      clear(tb);
+      (d.groups || []).forEach(function (g) {
+        var pend = g.missing + g.changed;
+        var tr = el('tr');
+        tr.appendChild(th(g.label, 'cell-primary'));
+        tr.appendChild(td(g.missing ? String(g.missing) : 'none', 'num' + (g.missing ? '' : ' faint')));
+        tr.appendChild(td(g.changed ? String(g.changed) : 'none', 'num' + (g.changed ? '' : ' faint')));
+        tr.appendChild(td(pend ? fmtBytes(g.bytes) : 'none', 'num' + (pend ? '' : ' faint')));
+        tr.appendChild(td(g.backup_only ? String(g.backup_only) : 'none', 'num' + (g.backup_only ? '' : ' faint')));
+        tr.appendChild(td(pend ? chip('warn', 'Behind', 'clock') : chip('ok', 'In sync', 'check')));
+        tb.appendChild(tr);
+      });
+      var foot = $('#bk-diff-foot');
+      foot.textContent = 'Computed ' + fmtDateTime(d.computed) + ': ' + d.present + ' file(s) identical on both, ' + fmtBytes(d.pending_bytes) + ' to send.' +
+        (d.scan_errors ? ' ' + d.scan_errors + ' file(s) on this server could not be read.' : '') +
+        ' CA keys are part of the backup set: without them a restore would force every machine to be re-enrolled. Key material is never shown in this panel.';
+      var reach = $('#bk-reach');
+      clear(reach);
+      reach.appendChild(chip('ok', 'Reachable', 'check'));
+    }
+
+    function loadDiff() {
+      if (!haveServer) return Promise.resolve();
+      var tb = $('#bk-diff-rows');
+      emptyRow(tb, 6, 'Comparing with the backup server...');
+      return api('GET', '/api/backup/diff').then(function (r) {
+        if (!r.ok) {
+          emptyRow(tb, 6, r.data.error || 'The backup server could not be reached.');
+          var reach = $('#bk-reach');
+          clear(reach); reach.appendChild(chip('danger', 'Not reachable', 'x'));
+          return;
+        }
+        renderDiff(r.data);
+      });
+    }
+    $('#bk-diff-btn').addEventListener('click', loadDiff);
+
+    $('#bk-run').addEventListener('click', function () {
+      $('#bk-run').disabled = true;
+      api('POST', '/api/backup/run', {}).then(function (r) {
+        if (!r.ok) { say('danger', r.data.error || 'The backup could not be started.'); $('#bk-run').disabled = !haveServer; return; }
+        say('info', 'Backup started. Files are copied additively and each one is verified on the backup server.');
+        lastJobState = 'running';
+        load();
+        poll.start();
+      });
+    });
+
+    $('#bk-reminder-dismiss').addEventListener('click', function () {
+      api('POST', '/api/backup/reminder/dismiss', {}).then(function () { $('#bk-reminder').hidden = true; });
+    });
+
+    var sched = $('#bk-sched-form');
+    sched.addEventListener('input', function () { sched.setAttribute('data-touched', '1'); });
+    sched.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var parts = (sched.elements.time.value || '02:30').split(':');
+      api('POST', '/api/backup/schedule', { enabled: sched.elements.enabled.checked, hour: parseInt(parts[0], 10), minute: parseInt(parts[1], 10) }).then(function (r) {
+        if (!r.ok) { say('danger', r.data.error || 'The schedule was not saved.'); return; }
+        sched.removeAttribute('data-touched');
+        say('ok', r.data.schedule.enabled ? 'Schedule saved: ' + r.data.schedule.text + '.' : 'Schedule saved (off).');
+        load();
+      });
+    });
+
+    var add = $('#bk-add-form');
+    add.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var f = add.elements;
+      var btn = $('button[type="submit"]', add);
+      btn.disabled = true;
+      say('info', 'Connecting to ' + f.host.value.trim() + ' and installing a key. This can take a moment.');
+      api('POST', '/api/backup/server', { host: f.host.value.trim(), port: parseInt(f.port.value, 10) || 0, user: f.user.value.trim(), password: f.password.value }).then(function (r) {
+        btn.disabled = false;
+        f.password.value = '';
+        if (!r.ok) { say('danger', r.data.error || ('The server could not be added (' + r.status + ')')); return; }
+        say('ok', 'Backup server added. ' + (r.data.diff ? (r.data.diff.in_sync ? 'It is in sync.' : fmtBytes(r.data.diff.pending_bytes) + ' is not on it yet.') : 'The diff could not be computed: ' + (r.data.diff_error || '')));
+        add.reset();
+        load().then(function () { if (r.data.diff) renderDiff(r.data.diff); });
+      });
+    });
+
+    var imp = $('#bk-import-form');
+    imp.addEventListener('submit', function (e) {
+      e.preventDefault();
+      if (!imp.elements.confirm.checked) { toast('Tick the box to confirm the import first.'); return; }
+      api('POST', '/api/backup/import', { confirm: true, overwrite: imp.elements.overwrite.checked }).then(function (r) {
+        if (!r.ok) { say('danger', r.data.error || 'The import could not be started.'); return; }
+        $('#dlg-import').close();
+        imp.reset();
+        say('info', 'Import started.');
+        lastJobState = 'running';
+        load();
+        poll.start();
+      });
+    });
+
+    load().then(loadDiff);
+    setInterval(function () { if (!document.hidden) load(); }, 30000);
+  }
+
   // live.js is loaded with defer: the DOM is parsed, so start right away.
+  if (page === 'evidence') initEvidence();
+  if (page === 'backup') initBackup();
   if (page === 'machines') initMachines();
   if (page === 'commands') initCommands();
   if (page === 'terminal') initTerminal();

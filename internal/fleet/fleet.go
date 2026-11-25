@@ -201,6 +201,8 @@ type Manager struct {
 	wmu sync.Mutex // guards wd
 	wd  map[string]*wdState
 
+	observeState // the Observe/Admin backends (observe.go)
+
 	omu      sync.Mutex
 	outputs  map[string]*outBuf
 	sessions map[string]string // session id -> machine id
@@ -227,10 +229,11 @@ func New(cfg Config) (*Manager, error) {
 	}
 	return &Manager{
 		cfg: cfg, log: cfg.Logger, bus: newBus(), mon: cfg.Monitor, wsrc: cfg.Watchdog,
-		wd:       map[string]*wdState{},
-		nodes:    map[string]*node{},
-		outputs:  map[string]*outBuf{},
-		sessions: map[string]string{},
+		wd:           map[string]*wdState{},
+		observeState: newObserveState(),
+		nodes:        map[string]*node{},
+		outputs:      map[string]*outBuf{},
+		sessions:     map[string]string{},
 	}, nil
 }
 
@@ -245,6 +248,7 @@ func (m *Manager) Start(ctx context.Context) {
 	m.ctx, m.stop = ctx, stop
 	m.mu.Unlock()
 	m.reconcile()
+	m.startObserveLoops()
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
@@ -386,6 +390,10 @@ func (m *Manager) agentHandler(n *node, role string, next channel.Handler) chann
 		case channel.TypeWatchdogEv:
 			if role == registry.RoleWorker {
 				m.recordWatchdogEvent(n, env)
+			}
+		case channel.TypeEvManifest, channel.TypeEvChunk:
+			if role == registry.RoleWorker {
+				m.evidenceHandle(ctx, n, env)
 			}
 		case channel.TypeConfigAck:
 			var ack channel.ConfigAckPayload
