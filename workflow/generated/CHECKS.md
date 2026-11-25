@@ -27,3 +27,4 @@
 - [ ] T-0024 deployment — Follow deploy/README.md to stand up fleet-server behind Caddy+Authelia: HTTPS reaches the panel, forward-auth header passes through, agent channel still works. (Configs validated in review; manual TOTP 2FA login not exercised.)
 - [ ] T-0022 watchdog-agent-wiring — Backend (`fleet-agent watchdog` subcommand + policy push/apply + event forward; server PolicyFor wiring lands in T-0023). Verified by review: policy/event end-to-end + -race pass. Confirm to close.
 - [ ] T-0029 evidence-pull-agent — Backend. Evidence pull/idle-push now served by the real worker runtime. Verified by review: fleettest pull+push + -race pass. Confirm to close.
+- [ ] T-0025 agent-dial-channel — Backend. Agent-dials-out direction (opt-in server listener via server.agent_dial_addr). Verified by review: both directions equivalent + -race pass. Confirm to close.

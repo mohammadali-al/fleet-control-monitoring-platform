@@ -77,8 +77,19 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		a       runner
 		dataDir string
 	)
-	switch ac.Role {
-	case config.RoleMonitor:
+	switch {
+	case ac.Dials():
+		// agent_dial: dial out to the main server instead of listening for it.
+		// The same worker / monitor logic, on an outbound connection.
+		if ac.Role != config.RoleMonitor {
+			dataDir, err = ac.ResolveDataDir()
+			if err != nil {
+				fmt.Fprintf(stderr, "fleet-agent: %v\n", err)
+				return 1
+			}
+		}
+		a, err = agent.DialFromConfig(ac, dataDir, log)
+	case ac.Role == config.RoleMonitor:
 		// A monitor agent needs no data directory and no root: probes are
 		// unprivileged (raw ICMP is the one exception and fails per probe).
 		a, err = agent.MonitorFromConfig(ac, log)

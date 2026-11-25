@@ -1,7 +1,7 @@
 ---
 id: T-0025
 title: agent-dial-channel
-state: ready
+state: merged
 touches: [internal/channel/agentdial.go, internal/channel/agentdial_test.go,
           internal/fleet/fleet.go, internal/fleet/agentdial.go, internal/config/config.go,
           cmd/fleet-server/main.go]
