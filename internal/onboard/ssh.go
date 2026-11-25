@@ -455,7 +455,7 @@ func stepEnsureUser(ctx context.Context, j *job) error {
 
 func stepCreateDirs(ctx context.Context, j *job) error {
 	u := j.l.ServiceUser
-	for _, d := range []string{j.l.ConfigDir, j.l.StateDir} {
+	for _, d := range []string{j.l.ConfigDir, j.l.StateDir, j.l.watchdogDir()} {
 		if _, err := j.priv(ctx, nil, "install", "-d", "-m", "0750", "-o", u, "-g", u, d); err != nil {
 			return err
 		}
@@ -543,37 +543,57 @@ func stepWriteConfig(ctx context.Context, j *job) error {
 	if err != nil {
 		return err
 	}
-	return j.writeFile(ctx, j.l.configFile(), "0640", j.l.ServiceUser, data)
+	if err := j.writeFile(ctx, j.l.configFile(), "0640", j.l.ServiceUser, data); err != nil {
+		return err
+	}
+	// Monitor agents receive no pushed policy from the server (architecture 5,
+	// 11.1); seed a stripped headless policy so worker-only ladder steps stay off.
+	if j.m.Role == registry.RoleMonitor {
+		return j.writeFile(ctx, j.l.watchdogPolicyPath(), "0640", j.l.ServiceUser, []byte(monitorWatchdogPolicyYAML))
+	}
+	return nil
 }
 
 func stepInstallUnit(ctx context.Context, j *job) error {
-	if err := j.writeFile(ctx, j.l.UnitPath, "0644", "root", []byte(renderUnit(j.l))); err != nil {
-		return err
-	}
-	// The independent liveness check of the agent (T-0027): a 45 s timer and its
-	// one-shot, which restart a hung (not just a stopped) agent.
-	if err := j.writeFile(ctx, j.l.livenessServicePath(), "0644", "root", []byte(renderLivenessService(j.l))); err != nil {
-		return err
-	}
-	if err := j.writeFile(ctx, j.l.livenessTimerPath(), "0644", "root", []byte(renderLivenessTimer(j.l))); err != nil {
-		return err
+	for _, u := range []struct {
+		path    string
+		content string
+	}{
+		{j.l.UnitPath, renderUnit(j.l)},
+		{j.l.watchdogUnitPath(), renderWatchdogUnit(j.l, j.m.Role)},
+		// The independent liveness checks (T-0027): 45 s timers and their
+		// one-shots, restarting a stopped or hung agent / watchdog.
+		{j.l.livenessServicePath(), renderLivenessService(j.l)},
+		{j.l.livenessTimerPath(), renderLivenessTimer(j.l)},
+		{j.l.watchdogLivenessServicePath(), renderWatchdogLivenessService(j.l)},
+		{j.l.watchdogLivenessTimerPath(), renderWatchdogLivenessTimer(j.l)},
+	} {
+		if err := j.writeFile(ctx, u.path, "0644", "root", []byte(u.content)); err != nil {
+			return err
+		}
 	}
 	_, err := j.priv(ctx, nil, "systemctl", "daemon-reload")
 	return err
 }
 
 func stepEnableStart(ctx context.Context, j *job) error {
-	if _, err := j.priv(ctx, nil, "systemctl", "enable", j.l.UnitName); err != nil {
-		return err
+	for _, unit := range []string{j.l.UnitName, j.l.watchdogUnitName()} {
+		if _, err := j.priv(ctx, nil, "systemctl", "enable", unit); err != nil {
+			return err
+		}
+		// restart (not start) so a re-provision picks up new config, policy or binary.
+		if _, err := j.priv(ctx, nil, "systemctl", "restart", unit); err != nil {
+			return err
+		}
 	}
-	// restart (not start) so a re-provision picks up new config or binary.
-	if _, err := j.priv(ctx, nil, "systemctl", "restart", j.l.UnitName); err != nil {
-		return err
+	// Timers last: both services are up (and writing their heartbeats) before
+	// the first check. enable --now also (re)starts them on a re-provision.
+	for _, timer := range []string{j.l.livenessTimerName(), j.l.watchdogLivenessTimerName()} {
+		if _, err := j.priv(ctx, nil, "systemctl", "enable", "--now", timer); err != nil {
+			return err
+		}
 	}
-	// The timer last: the agent is up (and writing its heartbeat) before the
-	// first check. enable --now also (re)starts the timer on a re-provision.
-	_, err := j.priv(ctx, nil, "systemctl", "enable", "--now", j.l.livenessTimerName())
-	return err
+	return nil
 }
 
 // --- rendering ---------------------------------------------------------------
@@ -640,35 +660,120 @@ func (l Layout) livenessTimerPath() string {
 	return path.Join(path.Dir(l.UnitPath), l.livenessTimerName())
 }
 
+func (l Layout) watchdogUnitName() string { return "fleet-watchdog.service" }
+func (l Layout) watchdogUnitPath() string {
+	return path.Join(path.Dir(l.UnitPath), l.watchdogUnitName())
+}
+func (l Layout) watchdogLivenessBase() string {
+	return strings.TrimSuffix(l.watchdogUnitName(), ".service") + "-liveness"
+}
+func (l Layout) watchdogLivenessTimerName() string { return l.watchdogLivenessBase() + ".timer" }
+func (l Layout) watchdogLivenessServicePath() string {
+	return path.Join(path.Dir(l.UnitPath), l.watchdogLivenessBase()+".service")
+}
+func (l Layout) watchdogLivenessTimerPath() string {
+	return path.Join(path.Dir(l.UnitPath), l.watchdogLivenessTimerName())
+}
+func (l Layout) watchdogDir() string {
+	return path.Join(l.StateDir, watchdog.WatchdogSubdir)
+}
+func (l Layout) watchdogPolicyPath() string {
+	return path.Join(l.watchdogDir(), "policy.yaml")
+}
+
+// monitorWatchdogPolicyYAML is the stripped headless policy seeded on monitor
+// agents (architecture 5, 11.1): worker-only rungs (throttle, kill_session)
+// and the Load Controller ceiling are disabled while host/agent recovery stays on.
+const monitorWatchdogPolicyYAML = `# Stripped headless policy for monitor agents (installed at onboarding).
+version: 1
+load_controller_ceiling:
+  cpu_percent: 0
+  memory_percent: 0
+steps:
+  throttle: false
+  kill_session: false
+  restart: true
+  reboot: true
+`
+
+// renderWatchdogUnit builds fleet-watchdog.service (architecture 11.1). Workers
+// run the full watchdog; monitors get the headless/stripped configuration.
+func renderWatchdogUnit(l Layout, role string) string {
+	desc := "Fleet watchdog (load-safety net)"
+	extraEnv := ""
+	if role == registry.RoleMonitor {
+		desc = "Fleet watchdog (headless)"
+		extraEnv = "Environment=FLEET_WATCHDOG_MODE=headless\n"
+	}
+	return fmt.Sprintf(`[Unit]
+Description=%[1]s
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+Environment=FLEET_DATA_DIR=%[4]s
+%[2]sExecStart=%[3]s watchdog --config %[5]s
+WorkingDirectory=%[4]s
+Restart=always
+RestartSec=2
+OOMScoreAdjust=-900
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target
+`, desc, extraEnv, l.Binary, l.StateDir, l.configFile())
+}
+
 // renderLivenessService is the one-shot the timer runs. The check itself is
 // watchdog.LivenessExecStart (the same text as deploy/systemd/fleet-agent-
 // liveness.service); it reads the heartbeat the agent writes under the state dir.
 func renderLivenessService(l Layout) string {
+	return renderLivenessUnit("Fleet agent liveness check", l.UnitName,
+		watchdog.HeartbeatPath(l.StateDir, watchdog.HeartbeatAgent))
+}
+
+func renderWatchdogLivenessService(l Layout) string {
+	return renderLivenessUnit("Fleet watchdog liveness check", l.watchdogUnitName(),
+		watchdog.HeartbeatPath(l.StateDir, watchdog.HeartbeatWatchdog))
+}
+
+func renderLivenessUnit(desc, unitName, hbPath string) string {
 	return fmt.Sprintf(`[Unit]
-Description=Fleet agent liveness check
+Description=%s
 
 [Service]
 Type=oneshot
 User=root
 ExecStart=%s
-`, watchdog.LivenessExecStart(l.UnitName, watchdog.HeartbeatPath(l.StateDir, watchdog.HeartbeatAgent)))
+`, desc, watchdog.LivenessExecStart(unitName, hbPath))
 }
 
 // renderLivenessTimer fires the one-shot every 45 s (the fixed check cadence;
 // heartbeat_threshold is never below it).
 func renderLivenessTimer(l Layout) string {
+	return renderLivenessTimerUnit("Fleet agent liveness check (every 45 s)", l.livenessBase())
+}
+
+func renderWatchdogLivenessTimer(l Layout) string {
+	return renderLivenessTimerUnit("Fleet watchdog liveness check (every 45 s)", l.watchdogLivenessBase())
+}
+
+func renderLivenessTimerUnit(desc, base string) string {
 	return fmt.Sprintf(`[Unit]
-Description=Fleet agent liveness check (every 45 s)
+Description=%s
 
 [Timer]
 OnBootSec=1min
-OnUnitActiveSec=%[2]ds
+OnUnitActiveSec=%ds
 AccuracySec=5s
-Unit=%[1]s.service
+Unit=%s.service
 
 [Install]
 WantedBy=timers.target
-`, l.livenessBase(), int(watchdog.HeartbeatCheckEvery/time.Second))
+`, desc, int(watchdog.HeartbeatCheckEvery/time.Second), base)
 }
 
 // CertFingerprint is the lowercase hex SHA-256 of the first certificate in a
@@ -748,12 +853,22 @@ func (p *Provisioner) Remove(ctx context.Context, id string, auth Auth, opts Rem
 		}
 		defer rem.Close()
 		j := &job{p: p, t: t, l: p.layout(), rem: rem, m: m}
-		// The liveness timer first, or it would restart the stopped agent. Best
-		// effort: a machine onboarded before the timer existed does not have it.
-		if _, err := j.priv(ctx, nil, "systemctl", "disable", "--now", j.l.livenessTimerName()); err != nil {
-			var re *RemoteError
-			if !errors.As(err, &re) {
-				return fmt.Errorf("onboard: machine %s: disable liveness timer: %w", id, err)
+		// The liveness timers first, or they would restart the stopped services.
+		// Best effort: machines onboarded before T-0027/T-0030 lack them.
+		for _, timer := range []string{j.l.livenessTimerName(), j.l.watchdogLivenessTimerName()} {
+			if _, err := j.priv(ctx, nil, "systemctl", "disable", "--now", timer); err != nil {
+				var re *RemoteError
+				if !errors.As(err, &re) {
+					return fmt.Errorf("onboard: machine %s: disable liveness timer %s: %w", id, timer, err)
+				}
+			}
+		}
+		for _, verb := range []string{"stop", "disable"} {
+			if _, err := j.priv(ctx, nil, "systemctl", verb, j.l.watchdogUnitName()); err != nil {
+				var re *RemoteError
+				if !errors.As(err, &re) {
+					return fmt.Errorf("onboard: machine %s: systemctl %s %s: %w", id, verb, j.l.watchdogUnitName(), err)
+				}
 			}
 		}
 		for _, verb := range []string{"stop", "disable"} {

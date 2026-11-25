@@ -21,6 +21,7 @@ import (
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/pki"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/registry"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/watchdog"
 )
 
 // --- a fake machine behind a real in-process SSH server -----------------------
@@ -36,20 +37,28 @@ type fakeFile struct {
 }
 
 type fakeMachine struct {
-	mu       sync.Mutex
-	cmds     []string // every command, sudo prefix stripped
-	rawCmds  []string
-	files    map[string]fakeFile
-	dirs     map[string]bool
-	users    map[string]bool
-	enabled  bool
-	active   bool
-	failCmd  string // if non-empty, commands containing this exit 1
-	sudoSeen bool
+	mu          sync.Mutex
+	cmds        []string // every command, sudo prefix stripped
+	rawCmds     []string
+	files       map[string]fakeFile
+	dirs        map[string]bool
+	users       map[string]bool
+	enabled     bool
+	active      bool
+	unitEnabled map[string]bool
+	unitActive  map[string]bool
+	failCmd     string // if non-empty, commands containing this exit 1
+	sudoSeen    bool
 }
 
 func newFakeMachine() *fakeMachine {
-	return &fakeMachine{files: map[string]fakeFile{}, dirs: map[string]bool{}, users: map[string]bool{}}
+	return &fakeMachine{
+		files:       map[string]fakeFile{},
+		dirs:        map[string]bool{},
+		users:       map[string]bool{},
+		unitEnabled: map[string]bool{},
+		unitActive:  map[string]bool{},
+	}
 }
 
 func (f *fakeMachine) count(prefix string) int {
@@ -123,16 +132,30 @@ func (f *fakeMachine) exec(cmd string, stdin []byte) (string, uint32) {
 		}
 		return "", 1
 	case a[0] == "systemctl":
+		unit := a[len(a)-1]
+		now := len(a) > 2 && a[2] == "--now"
 		switch a[1] {
 		case "daemon-reload":
 		case "enable":
 			f.enabled = true
+			f.unitEnabled[unit] = true
+			if now {
+				f.active = true
+				f.unitActive[unit] = true
+			}
 		case "restart":
 			f.active = true
+			f.unitActive[unit] = true
 		case "stop":
 			f.active = false
+			f.unitActive[unit] = false
 		case "disable":
 			f.enabled = false
+			f.unitEnabled[unit] = false
+			if now {
+				f.active = false
+				f.unitActive[unit] = false
+			}
 		default:
 			return "unknown verb\n", 1
 		}
@@ -650,10 +673,28 @@ func TestRemove(t *testing.T) {
 	if f.fm.active || f.fm.enabled {
 		t.Fatalf("service still active=%v enabled=%v", f.fm.active, f.fm.enabled)
 	}
-	// The liveness timer goes first (T-0027), or it would restart the stopped agent.
-	if got := f.fm.cmds; len(got) != 3 || !strings.HasPrefix(got[0], "systemctl disable --now fleet-agent-liveness.timer") ||
-		!strings.HasPrefix(got[1], "systemctl stop") || !strings.HasPrefix(got[2], "systemctl disable") {
-		t.Fatalf("cmds = %v", got)
+	for _, u := range []string{"fleet-agent.service", "fleet-watchdog.service", "fleet-agent-liveness.timer", "fleet-watchdog-liveness.timer"} {
+		if f.fm.unitEnabled[u] || f.fm.unitActive[u] {
+			t.Fatalf("%s still enabled=%v active=%v", u, f.fm.unitEnabled[u], f.fm.unitActive[u])
+		}
+	}
+	// The liveness timers go first (T-0027/T-0030), or they would restart the stopped services.
+	wantPrefixes := []string{
+		"systemctl disable --now fleet-agent-liveness.timer",
+		"systemctl disable --now fleet-watchdog-liveness.timer",
+		"systemctl stop fleet-watchdog.service",
+		"systemctl disable fleet-watchdog.service",
+		"systemctl stop fleet-agent.service",
+		"systemctl disable fleet-agent.service",
+	}
+	if got := f.fm.cmds; len(got) != len(wantPrefixes) {
+		t.Fatalf("cmds = %v, want %d commands", got, len(wantPrefixes))
+	} else {
+		for i, want := range wantPrefixes {
+			if !strings.HasPrefix(got[i], want) {
+				t.Fatalf("cmds[%d] = %q, want prefix %q (all: %v)", i, got[i], want, got)
+			}
+		}
 	}
 	m, _ := f.reg.Get(id)
 	if !m.Removed || m.RemovedAt == nil || m.Provisioned || m.RevokedFingerprint != res.Machine.CertFingerprint {
@@ -732,4 +773,111 @@ func TestShQuote(t *testing.T) {
 			t.Errorf("shQuote(%q) = %q, want %q", in, got, want)
 		}
 	}
+}
+
+func TestProvisionInstallsWatchdogAndLiveness(t *testing.T) {
+	l := DefaultLayout()
+
+	t.Run("worker_full", func(t *testing.T) {
+		f := newFixture(t, "root")
+		if _, err := f.p.Provision(context.Background(), f.target("root", registry.RoleWorker)); err != nil {
+			t.Fatal(err)
+		}
+		wd, ok := f.fm.file(l.watchdogUnitPath())
+		if !ok || wd.mode != "0644" || wd.owner != "root" {
+			t.Fatalf("watchdog unit not installed: %+v", wd)
+		}
+		for _, want := range []string{
+			"Description=Fleet watchdog (load-safety net)\n",
+			"User=root\n",
+			"Environment=FLEET_DATA_DIR=/var/lib/fleet-agent\n",
+			"ExecStart=/usr/local/bin/fleet-agent watchdog --config /etc/fleet-agent/config.json\n",
+			"WorkingDirectory=/var/lib/fleet-agent\n",
+			"Restart=always\n",
+			"OOMScoreAdjust=-900\n",
+			"Nice=-5\n",
+			"WantedBy=multi-user.target\n",
+		} {
+			if !strings.Contains(string(wd.data), want) {
+				t.Errorf("worker watchdog unit missing %q:\n%s", want, wd.data)
+			}
+		}
+		if strings.Contains(string(wd.data), "FLEET_WATCHDOG_MODE=headless") {
+			t.Errorf("worker watchdog unit must not be headless:\n%s", wd.data)
+		}
+		if _, ok := f.fm.file(l.watchdogPolicyPath()); ok {
+			t.Error("worker must not be seeded with stripped monitor policy.yaml")
+		}
+
+		for _, u := range []string{"fleet-agent.service", "fleet-watchdog.service", "fleet-agent-liveness.timer", "fleet-watchdog-liveness.timer"} {
+			if !f.fm.unitEnabled[u] || !f.fm.unitActive[u] {
+				t.Errorf("%s enabled=%v active=%v, want true/true", u, f.fm.unitEnabled[u], f.fm.unitActive[u])
+			}
+		}
+
+		for deployPath, installedPath := range map[string]string{
+			"../../deploy/systemd/fleet-watchdog-liveness.service": l.watchdogLivenessServicePath(),
+			"../../deploy/systemd/fleet-watchdog-liveness.timer":   l.watchdogLivenessTimerPath(),
+		} {
+			got, ok := f.fm.file(installedPath)
+			if !ok || got.mode != "0644" || got.owner != "root" {
+				t.Fatalf("%s not installed: %+v", installedPath, got)
+			}
+			wantBytes, err := os.ReadFile(deployPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := string(wantBytes)
+			if i := strings.Index(want, "[Unit]"); i >= 0 {
+				want = want[i:]
+			}
+			if strings.TrimSpace(string(got.data)) != strings.TrimSpace(want) {
+				t.Errorf("%s differs from %s:\n got: %s\nwant: %s", installedPath, deployPath, got.data, want)
+			}
+		}
+	})
+
+	t.Run("monitor_headless_stripped", func(t *testing.T) {
+		f := newFixture(t, "root")
+		if _, err := f.p.Provision(context.Background(), f.target("root", registry.RoleMonitor)); err != nil {
+			t.Fatal(err)
+		}
+		wd, ok := f.fm.file(l.watchdogUnitPath())
+		if !ok || wd.mode != "0644" || wd.owner != "root" {
+			t.Fatalf("monitor watchdog unit not installed: %+v", wd)
+		}
+		for _, want := range []string{
+			"Description=Fleet watchdog (headless)\n",
+			"Environment=FLEET_WATCHDOG_MODE=headless\n",
+			"Environment=FLEET_DATA_DIR=/var/lib/fleet-agent\n",
+			"ExecStart=/usr/local/bin/fleet-agent watchdog --config /etc/fleet-agent/config.json\n",
+			"Restart=always\n",
+			"WantedBy=multi-user.target\n",
+		} {
+			if !strings.Contains(string(wd.data), want) {
+				t.Errorf("monitor watchdog unit missing %q:\n%s", want, wd.data)
+			}
+		}
+		polFile, ok := f.fm.file(l.watchdogPolicyPath())
+		if !ok || polFile.mode != "0640" || polFile.owner != l.ServiceUser {
+			t.Fatalf("monitor policy.yaml not installed properly: %+v", polFile)
+		}
+		pf, err := watchdog.ParseProfile(polFile.data)
+		if err != nil {
+			t.Fatalf("monitor policy.yaml invalid: %v\n%s", err, polFile.data)
+		}
+		pol, err := pf.Effective("mon-1", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if pol.Steps.Throttle || pol.Steps.KillSession || !pol.Steps.Restart || !pol.Steps.Reboot ||
+			pol.LoadController.CPUPercent != 0 || pol.LoadController.MemoryPercent != 0 {
+			t.Errorf("monitor stripped policy = %+v", pol)
+		}
+		for _, u := range []string{"fleet-agent.service", "fleet-watchdog.service", "fleet-agent-liveness.timer", "fleet-watchdog-liveness.timer"} {
+			if !f.fm.unitEnabled[u] || !f.fm.unitActive[u] {
+				t.Errorf("%s enabled=%v active=%v, want true/true", u, f.fm.unitEnabled[u], f.fm.unitActive[u])
+			}
+		}
+	})
 }
