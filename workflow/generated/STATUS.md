@@ -5,7 +5,9 @@
 ## Now (running / in review)
 _none_
 ## Next (ready, in order)
-_none_
+- **T-0035** server-state-versioning-migrate  `after: [T-0006, T-0024]`
+- **T-0036** github-release-and-installer  `after: [T-0024, T-0032, T-0035]`
+
 ## Waiting for the operator (merged → see CHECKS.md)
 - **T-0001** project-skeleton  `after: []`
 - **T-0002** internal-ca  `after: [T-0001]`
