@@ -74,7 +74,11 @@ type Config struct {
 	Provisioner *onboard.Provisioner // nil: onboarding reports ErrUnavailable
 	Gate        *exec.Gate
 	NewLink     LinkFactory
-	Logger      *slog.Logger
+	// AgentDial, when set, is the listener agent_dial machines connect to: the
+	// manager builds their links from it (instead of NewLink) and serves it
+	// from Start. Nil leaves agent_dial machines without a link (offline).
+	AgentDial *AgentListener
+	Logger    *slog.Logger
 	// PollInterval is how often link state is sampled (default 1 s).
 	PollInterval time.Duration
 	// ConfirmTTL is how long a minted confirmation token stays valid
@@ -168,7 +172,7 @@ const (
 
 type node struct {
 	id       string
-	ip       string
+	key      string // what the link was built for: the machine's IP, or keyAgentDial; a change restarts it
 	link     Link
 	q        *exec.Queue
 	cancel   context.CancelFunc
@@ -249,6 +253,15 @@ func (m *Manager) Start(ctx context.Context) {
 	m.mu.Unlock()
 	m.reconcile()
 	m.startObserveLoops()
+	if al := m.cfg.AgentDial; al != nil {
+		m.wg.Add(1)
+		go func() {
+			defer m.wg.Done()
+			if err := al.Serve(ctx); err != nil {
+				m.log.Error("agent_dial listener", "component", "fleet", "err", err)
+			}
+		}()
+	}
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
@@ -285,12 +298,27 @@ func (m *Manager) Close() {
 	m.wg.Wait()
 }
 
-// wanted reports whether a machine should have a live link.
-func wanted(mc registry.Machine) (ip string, ok bool) {
-	if !mc.Provisioned || mc.Removed || mc.ConnectMode != registry.ConnectModeServerDial || len(mc.PrivateIPs) == 0 {
+// keyAgentDial is the node key of an agent_dial machine (it needs no address).
+const keyAgentDial = "agent_dial"
+
+// wanted reports whether a machine should have a live link, and the key that
+// link is built for (a server_dial machine's IP, or keyAgentDial); a machine
+// whose key changes gets a new link. agentDial is whether this manager has an
+// agent_dial listener; without one those machines stay offline.
+func wanted(mc registry.Machine, agentDial bool) (key string, ok bool) {
+	if !mc.Provisioned || mc.Removed {
 		return "", false
 	}
-	return mc.PrivateIPs[0], true
+	switch mc.ConnectMode {
+	case registry.ConnectModeServerDial:
+		if len(mc.PrivateIPs) == 0 {
+			return "", false
+		}
+		return mc.PrivateIPs[0], true
+	case registry.ConnectModeAgentDial:
+		return keyAgentDial, agentDial
+	}
+	return "", false
 }
 
 // reconcile starts links for machines that need one and stops links that no
@@ -298,26 +326,26 @@ func wanted(mc registry.Machine) (ip string, ok bool) {
 // called after every registry change.
 func (m *Manager) reconcile() {
 	m.mu.Lock()
-	if m.closed || m.ctx == nil || m.cfg.NewLink == nil {
+	if m.closed || m.ctx == nil || (m.cfg.NewLink == nil && m.cfg.AgentDial == nil) {
 		m.mu.Unlock()
 		return
 	}
 	var stop []*node
 	seen := map[string]bool{}
 	for _, mc := range m.cfg.Registry.List() {
-		ip, ok := wanted(mc)
+		key, ok := wanted(mc, m.cfg.AgentDial != nil)
 		if !ok {
 			continue
 		}
 		seen[mc.ID] = true
 		if n := m.nodes[mc.ID]; n != nil {
-			if n.ip == ip {
+			if n.key == key {
 				continue
 			}
 			stop = append(stop, n)
 			delete(m.nodes, mc.ID)
 		}
-		n, err := m.startNode(mc, ip)
+		n, err := m.startNode(mc, key)
 		if err != nil {
 			m.log.Error("start link", "component", "fleet", "machine", mc.ID, "err", err)
 			continue
@@ -341,12 +369,19 @@ func (m *Manager) reconcile() {
 }
 
 // startNode builds the queue and link for mc and runs them. m.mu is held.
-func (m *Manager) startNode(mc registry.Machine, ip string) (*node, error) {
-	n := &node{id: mc.ID, ip: ip, done: make(chan struct{})}
+func (m *Manager) startNode(mc registry.Machine, key string) (*node, error) {
+	newLink := m.cfg.NewLink
+	if mc.ConnectMode == registry.ConnectModeAgentDial {
+		newLink = m.cfg.AgentDial.Factory() // wanted() ensured there is a listener
+	}
+	if newLink == nil {
+		return nil, fmt.Errorf("no way to link a %s machine", mc.ConnectMode)
+	}
+	n := &node{id: mc.ID, key: key, done: make(chan struct{})}
 	n.q = exec.NewQueue(mc.ID, senderFunc(func(ctx context.Context, env channel.Envelope) error {
 		return n.link.Send(ctx, env)
 	}), func(ev exec.Event) { m.onExec(mc.ID, ev) })
-	link, err := m.cfg.NewLink(mc, m.agentHandler(n, mc.Role, n.q.Handle))
+	link, err := newLink(mc, m.agentHandler(n, mc.Role, n.q.Handle))
 	if err != nil {
 		return nil, err
 	}
@@ -552,8 +587,8 @@ func (m *Manager) info(mc registry.Machine, n *node) MachineInfo {
 		in.Note = "Decommissioned."
 	case !mc.Provisioned:
 		in.Note = "Not provisioned yet."
-	case mc.ConnectMode == registry.ConnectModeAgentDial:
-		in.Note = "agent_dial: the main server accepts agent-initiated connections in a later task."
+	case mc.ConnectMode == registry.ConnectModeAgentDial && n == nil:
+		in.Note = "agent_dial: this server's agent listener is not enabled (set server.agent_dial_addr)."
 	case n == nil:
 		in.Note = "No link."
 	default:
