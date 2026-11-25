@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -49,6 +50,8 @@ type fakeMachine struct {
 	unitActive  map[string]bool
 	failCmd     string // if non-empty, commands containing this exit 1
 	sudoSeen    bool
+	unameOS     string // defaults to Linux (or host OS)
+	unameArch   string // defaults to host arch
 }
 
 func newFakeMachine() *fakeMachine {
@@ -101,6 +104,26 @@ func (f *fakeMachine) exec(cmd string, stdin []byte) (string, uint32) {
 	}
 	a := strings.Fields(cmd) // fake paths contain no spaces or quotes
 	switch {
+	case a[0] == "uname":
+		uOS := f.unameOS
+		if uOS == "" {
+			uOS = runtime.GOOS
+			if uOS == "linux" {
+				uOS = "Linux"
+			} else if uOS == "darwin" {
+				uOS = "Darwin"
+			}
+		}
+		uArch := f.unameArch
+		if uArch == "" {
+			uArch = runtime.GOARCH
+			if uArch == "amd64" {
+				uArch = "x86_64"
+			} else if uArch == "arm64" {
+				uArch = "aarch64"
+			}
+		}
+		return uOS + " " + uArch + "\n", 0
 	case a[0] == "getent" && a[1] == "passwd":
 		if f.users[a[2]] {
 			return a[2] + ":x:999:999::/var/lib:/usr/sbin/nologin\n", 0
@@ -878,6 +901,94 @@ func TestProvisionInstallsWatchdogAndLiveness(t *testing.T) {
 			if !f.fm.unitEnabled[u] || !f.fm.unitActive[u] {
 				t.Errorf("%s enabled=%v active=%v, want true/true", u, f.fm.unitEnabled[u], f.fm.unitActive[u])
 			}
+		}
+	})
+}
+
+func TestProvisionSelectsBinaryFromAgentBinaryDirAndErrorsClearly(t *testing.T) {
+	dir := t.TempDir()
+	for _, p := range []string{"linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64"} {
+		if err := os.WriteFile(filepath.Join(dir, "fleet-agent-"+p), []byte("BIN-"+p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Prefers AgentBinaryDir over AgentBinaryPath and picks the binary matching uname -sm.
+	for _, tc := range []struct {
+		unameOS, unameArch, wantBin string
+	}{
+		{"Linux", "x86_64", "BIN-linux-amd64"},
+		{"Linux", "aarch64", "BIN-linux-arm64"},
+		{"Darwin", "x86_64", "BIN-darwin-amd64"},
+		{"Darwin", "arm64", "BIN-darwin-arm64"},
+	} {
+		t.Run(tc.unameOS+"_"+tc.unameArch, func(t *testing.T) {
+			f := newFixture(t, "root")
+			f.fm.unameOS = tc.unameOS
+			f.fm.unameArch = tc.unameArch
+			f.p.AgentBinaryDir = dir
+			// f.p.AgentBinaryPath is still set to the fake host binary; dir must win.
+			if _, err := f.p.Provision(context.Background(), f.target("root", registry.RoleMonitor)); err != nil {
+				t.Fatalf("Provision: %v", err)
+			}
+			got, ok := f.fm.file(DefaultLayout().Binary)
+			if !ok {
+				t.Fatalf("binary not installed at %s", DefaultLayout().Binary)
+			}
+			if string(got.data) != tc.wantBin {
+				t.Errorf("installed binary = %q, want %q", got.data, tc.wantBin)
+			}
+		})
+	}
+
+	// Host fallback works when agent_binary_dir lacks the host binary, but a non-host
+	// platform without a binary in agent_binary_dir fails clearly BEFORE installing anything.
+	t.Run("missing_target_platform_errors_before_install", func(t *testing.T) {
+		f := newFixture(t, "root")
+		partialDir := t.TempDir()
+		f.p.AgentBinaryDir = partialDir
+		// Target is linux/arm64 while host is runtime.GOOS/runtime.GOARCH (or darwin/arm64 if host is linux/arm64).
+		f.fm.unameOS = "Linux"
+		f.fm.unameArch = "aarch64"
+		if runtime.GOOS == "linux" && runtime.GOARCH == "arm64" {
+			f.fm.unameOS = "Darwin"
+			f.fm.unameArch = "x86_64"
+		}
+
+		_, err := f.p.Provision(context.Background(), f.target("root", registry.RoleWorker))
+		if !errors.Is(err, ErrAgentBinaryMissing) {
+			t.Fatalf("err = %v, want ErrAgentBinaryMissing", err)
+		}
+		// Only the read-only uname probe may have run; nothing was installed or registered.
+		for _, c := range f.fm.cmds {
+			if !strings.HasPrefix(c, "uname ") {
+				t.Errorf("install command ran despite missing binary: %q", c)
+			}
+		}
+		if len(f.fm.files) != 0 || len(f.fm.dirs) != 0 || len(f.fm.users) != 0 {
+			t.Errorf("remote state modified despite missing binary: files=%d dirs=%d users=%d",
+				len(f.fm.files), len(f.fm.dirs), len(f.fm.users))
+		}
+		if len(f.reg.List()) != 0 {
+			t.Errorf("registry entry created despite missing binary: %+v", f.reg.List())
+		}
+		if _, err := os.Stat(f.store.Path()); !errors.Is(err, os.ErrNotExist) {
+			t.Error("registry file written despite missing binary")
+		}
+	})
+
+	// Explicit Target.OS/Target.Arch fails before even dialing SSH.
+	t.Run("explicit_target_platform_fails_before_dial", func(t *testing.T) {
+		f := newFixture(t, "root")
+		f.p.AgentBinaryDir = t.TempDir()
+		tgt := f.target("root", registry.RoleWorker)
+		tgt.OS, tgt.Arch = "darwin", "amd64"
+		_, err := f.p.Provision(context.Background(), tgt)
+		if !errors.Is(err, ErrAgentBinaryMissing) || !strings.Contains(err.Error(), "darwin/amd64") {
+			t.Fatalf("err = %v", err)
+		}
+		if len(f.fm.rawCmds) != 0 {
+			t.Errorf("commands ran despite preflight error: %v", f.fm.rawCmds)
 		}
 	})
 }

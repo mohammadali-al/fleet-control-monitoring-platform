@@ -1,6 +1,7 @@
 package enroll
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -213,4 +214,130 @@ func TestScriptInstallsWatchdogOnLinuxWorkerAndMonitor(t *testing.T) {
 			}
 		}
 	})
+}
+
+func runScriptForPlatform(t *testing.T, e *env, base, code, root, osName, unameArch string) (string, error) {
+	t.Helper()
+	script, err := exec.Command("curl", "-fsSk", "--pinnedpubkey", "sha256//"+e.svc.Pin(), base+"/enroll/e/"+code).Output()
+	if err != nil {
+		return "fetch failed: " + err.Error(), err
+	}
+	s := string(script)
+	for _, p := range []string{"/usr/local", "/etc/fleet-agent", "/etc/systemd", "/var/lib/fleet-agent", "/Library/LaunchDaemons"} {
+		s = strings.ReplaceAll(s, p, root+p)
+	}
+	stubs := filepath.Join(root, "stubs")
+	if err := os.MkdirAll(stubs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stub := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(stubs, name), []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls := filepath.Join(root, "calls.log")
+	stub("id", `echo 0`)
+	stub("systemctl", `echo "systemctl $*" >> `+calls)
+	stub("launchctl", `echo "launchctl $*" >> `+calls)
+	if osName == OSDarwin {
+		stub("uname", `case "$1" in -s) echo Darwin;; -m) echo `+unameArch+`;; -r) echo 23.5.0;; esac`)
+		stub("sw_vers", `echo 14.5`)
+		stub("sysctl", `case "$2" in hw.ncpu) echo 10;; hw.memsize) echo 17179869184;; esac`)
+	} else {
+		stub("uname", `case "$1" in -s) echo Linux;; -m) echo `+unameArch+`;; -r) echo 6.8.0;; esac`)
+	}
+	cmd := exec.Command("bash")
+	cmd.Stdin = strings.NewReader(s)
+	cmd.Env = append(os.Environ(), "PATH="+stubs+":"+os.Getenv("PATH"))
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	err = cmd.Run()
+	return out.String(), err
+}
+
+func TestInstallerSelectsBinaryByPlatformAndErrorsClearlyWhenMissing(t *testing.T) {
+	need(t, "curl", "openssl", "bash", "install", "awk")
+
+	dir := t.TempDir()
+	for _, p := range []string{"linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64"} {
+		if err := os.WriteFile(filepath.Join(dir, "fleet-agent-"+p), []byte("BIN-"+p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fallback := filepath.Join(t.TempDir(), "fleet-agent-host")
+	if err := os.WriteFile(fallback, []byte("BIN-host-fallback"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	e := newEnv(t)
+	// Prefer agent_binary_dir over agent_binary_path for all four targets.
+	e.svc.cfg.Binary = BinaryDir(dir, fallback, OSLinux, "amd64")
+	base, _ := startEndpoint(t, e)
+
+	for _, tc := range []struct {
+		osName, unameArch, wantArch, role, wantBin string
+	}{
+		{OSLinux, "x86_64", "amd64", config.RoleWorker, "BIN-linux-amd64"},
+		{OSLinux, "aarch64", "arm64", config.RoleWorker, "BIN-linux-arm64"},
+		{OSDarwin, "x86_64", "amd64", config.RoleMonitor, "BIN-darwin-amd64"},
+		{OSDarwin, "arm64", "arm64", config.RoleMonitor, "BIN-darwin-arm64"},
+	} {
+		t.Run(tc.osName+"_"+tc.wantArch, func(t *testing.T) {
+			if tc.osName == OSLinux {
+				if _, err := os.Stat("/proc/meminfo"); err != nil {
+					t.Skip("Linux only")
+				}
+			}
+			m, err := e.svc.Mint(tc.role, "alice")
+			if err != nil {
+				t.Fatal(err)
+			}
+			root := t.TempDir()
+			out, err := runScriptForPlatform(t, e, base, m.Token.Code, root, tc.osName, tc.unameArch)
+			if err != nil {
+				t.Fatalf("script failed: %v\n%s", err, out)
+			}
+			got, err := os.ReadFile(filepath.Join(root, BinaryPath))
+			if err != nil {
+				t.Fatalf("installed binary missing: %v", err)
+			}
+			if string(got) != tc.wantBin {
+				t.Errorf("installed binary = %q, want %q", got, tc.wantBin)
+			}
+		})
+	}
+
+	// Missing binary: host only has linux/amd64 fallback and dir lacks linux/arm64 and darwin/amd64.
+	partialDir := t.TempDir()
+	e2 := newEnv(t)
+	e2.svc.cfg.Binary = BinaryDir(partialDir, fallback, OSLinux, "amd64")
+	base2, _ := startEndpoint(t, e2)
+
+	for _, tc := range []struct {
+		osName, unameArch, wantArch, role string
+	}{
+		{OSLinux, "aarch64", "arm64", config.RoleWorker},
+		{OSDarwin, "x86_64", "amd64", config.RoleMonitor},
+	} {
+		t.Run("missing_"+tc.osName+"_"+tc.wantArch, func(t *testing.T) {
+			m, _ := e2.svc.Mint(tc.role, "alice")
+			root := t.TempDir()
+			out, err := runScriptForPlatform(t, e2, base2, m.Token.Code, root, tc.osName, tc.unameArch)
+			if err == nil {
+				t.Fatalf("expected failure for missing %s/%s binary, got success:\n%s", tc.osName, tc.wantArch, out)
+			}
+			if !strings.Contains(out, "404") || !strings.Contains(out, tc.osName+"/"+tc.wantArch) {
+				t.Errorf("error message not clear enough:\n%s", out)
+			}
+			if _, err := os.Stat(filepath.Join(root, "etc")); err == nil {
+				t.Error("files were installed despite missing agent binary")
+			}
+			if _, err := os.Stat(filepath.Join(root, BinaryPath)); err == nil {
+				t.Error("binary path created despite missing agent binary")
+			}
+			if len(e2.reg.List()) != 0 {
+				t.Errorf("machine registered despite missing agent binary: %+v", e2.reg.List())
+			}
+		})
+	}
 }
