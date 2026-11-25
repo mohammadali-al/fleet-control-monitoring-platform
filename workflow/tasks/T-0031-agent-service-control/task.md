@@ -1,7 +1,7 @@
 ---
 id: T-0031
 title: agent-service-control
-state: ready
+state: merged
 touches: [internal/channel/envelope.go, internal/agent/servicecontrol.go, internal/agent/servicecontrol_test.go,
           internal/agent/worker.go, internal/agent/monitor.go, internal/fleet/fleet.go,
           internal/panel/machines.go, internal/panel/machines_servicecontrol_test.go]

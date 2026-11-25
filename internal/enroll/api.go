@@ -30,6 +30,7 @@ func (s *Service) APIHandler() http.Handler {
 	mux.HandleFunc("GET "+APIPrefix+"script", s.apiScript)
 	mux.HandleFunc("GET "+APIPrefix+"machines", s.apiMachines)
 	mux.HandleFunc("POST "+APIPrefix+"machines/{id}/stop", s.apiStop)
+	mux.HandleFunc("POST "+APIPrefix+"machines/{id}/start", s.apiStart)
 	mux.HandleFunc("POST "+APIPrefix+"machines/{id}/detach", s.apiDetach)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -135,13 +136,22 @@ func (s *Service) apiStop(w http.ResponseWriter, r *http.Request) {
 	if err := s.Stop(r.Context(), id); err != nil {
 		msg := err.Error()
 		if errors.Is(err, ErrStopUnsupported) {
-			msg = "This agent cannot be stopped from here (monitor agents have no command channel). " +
+			msg = "This agent cannot be stopped from here (no service-control or command runner configured). " +
 				"Run `sudo fleet-agent stop` on the machine, or Detach it."
 		}
 		writeJSON(w, statusFor(err), errBody(msg))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"stopped": id})
+}
+
+func (s *Service) apiStart(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.Start(r.Context(), id); err != nil {
+		writeJSON(w, statusFor(err), errBody(err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"started": id})
 }
 
 func (s *Service) apiDetach(w http.ResponseWriter, r *http.Request) {

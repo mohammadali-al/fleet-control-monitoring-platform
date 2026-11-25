@@ -73,8 +73,12 @@ type Config struct {
 	// stops the machine's link (fleet.Manager.Reconcile); nil does nothing.
 	Reconcile func()
 	// Runner executes Stop on the machine; nil makes Stop report that remote
-	// stop is unavailable.
+	// stop is unavailable (unless ServiceControl is set).
 	Runner Runner
+	// ServiceControl sends a service-control action (stop | start | status) to
+	// an agent of any role over the control channel. When set, Stop and Start
+	// use it instead of Runner.
+	ServiceControl func(ctx context.Context, machineID, action string) error
 	// Binary returns the path of the agent binary for an OS and architecture
 	// (see BinaryDir). Nil serves no binary.
 	Binary func(os, arch string) (path string, err error)
@@ -389,22 +393,28 @@ func (s *Service) Machines() []Machine {
 }
 
 // Stop disables the machine's service so it stays down across a reboot (the
-// machine's own `fleet-agent start` re-enables it): it sends StopCommand for
-// the machine's operating system to the agent. The machine stays registered.
+// machine's own `fleet-agent start` or remote Start re-enables it). The machine
+// stays registered.
 func (s *Service) Stop(ctx context.Context, id string) error {
 	m, err := s.attached(id)
 	if err != nil {
 		return err
 	}
-	if s.cfg.Runner == nil {
-		return ErrStopUnsupported
-	}
-	os := OSLinux
-	if m.Specs != nil && m.Specs.OS != "" {
-		os = m.Specs.OS
-	}
-	if err := s.cfg.Runner.Run(ctx, id, StopCommand(os)); err != nil {
-		return err
+	if s.cfg.ServiceControl != nil {
+		if err := s.cfg.ServiceControl(ctx, id, "stop"); err != nil {
+			return err
+		}
+	} else {
+		if s.cfg.Runner == nil {
+			return ErrStopUnsupported
+		}
+		os := OSLinux
+		if m.Specs != nil && m.Specs.OS != "" {
+			os = m.Specs.OS
+		}
+		if err := s.cfg.Runner.Run(ctx, id, StopCommand(os)); err != nil {
+			return err
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -412,6 +422,26 @@ func (s *Service) Stop(ctx context.Context, id string) error {
 		return err
 	}
 	s.log.Info("agent stopped", "component", "enroll", "machine", id)
+	return s.persist()
+}
+
+// Start re-enables and starts the machine's service over the control channel.
+func (s *Service) Start(ctx context.Context, id string) error {
+	if _, err := s.attached(id); err != nil {
+		return err
+	}
+	if s.cfg.ServiceControl == nil {
+		return ErrStopUnsupported
+	}
+	if err := s.cfg.ServiceControl(ctx, id, "start"); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.cfg.Registry.Update(id, func(m *registry.Machine) { m.Stopped = false }); err != nil {
+		return err
+	}
+	s.log.Info("agent started", "component", "enroll", "machine", id)
 	return s.persist()
 }
 

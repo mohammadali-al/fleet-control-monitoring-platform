@@ -147,6 +147,7 @@ type DialingMonitor struct {
 
 	mu   sync.Mutex
 	base context.Context // lifetime context, set by Run
+	svc  ServiceController
 }
 
 // NewDialingMonitor validates cfg (MachineID is required; TLS and ListenAddr
@@ -161,7 +162,11 @@ func NewDialingMonitor(cfg MonitorConfig, ds DialSettings) (*DialingMonitor, err
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
-	m := &DialingMonitor{log: cfg.Logger, base: context.Background()}
+	svc := cfg.ServiceController
+	if svc == nil {
+		svc = defaultServiceController()
+	}
+	m := &DialingMonitor{log: cfg.Logger, base: context.Background(), svc: svc}
 	m.fl = monitor.NewFlusher(m.send, monitor.FlusherOptions{Interval: cfg.FlushInterval, MaxBuffered: cfg.MaxBuffered})
 	m.eng = probe.NewEngine(m.fl.Add)
 	for _, p := range cfg.Probers {
@@ -225,8 +230,18 @@ func (m *DialingMonitor) onConnect(peer string) {
 	}
 }
 
-// handle mirrors Monitor.handle: only mon-config is understood.
+func (m *DialingMonitor) serviceController() ServiceController {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.svc
+}
+
+// handle mirrors Monitor.handle: mon-config and service-control are understood.
 func (m *DialingMonitor) handle(ctx context.Context, env channel.Envelope) {
+	if env.Type == channel.TypeServiceControl {
+		handleServiceControl(ctx, m.log, serviceSenderFunc(m.send), m.serviceController(), env)
+		return
+	}
 	if env.Type != channel.TypeMonConfig {
 		m.log.Debug("ignoring envelope a monitor agent does not handle", "component", "fleet-agent", "type", env.Type)
 		return

@@ -5,7 +5,6 @@
 ## Now (running / in review)
 _none_
 ## Next (ready, in order)
-- **T-0031** agent-service-control  `after: [T-0021, T-0026]`
 - **T-0032** agent-binaries-multiplatform  `after: [T-0006, T-0026]`
 
 ## Waiting for the operator (merged → see CHECKS.md)
@@ -39,6 +38,7 @@ _none_
 - **T-0028** watchdog-reset-counters  `after: [T-0022]`
 - **T-0029** evidence-pull-agent  `after: [T-0009, T-0018]`
 - **T-0030** onboarding-install-watchdog  `after: [T-0012, T-0020, T-0022, T-0026, T-0027]`
+- **T-0031** agent-service-control  `after: [T-0021, T-0026]`
 
 ## Blocked
 _none_

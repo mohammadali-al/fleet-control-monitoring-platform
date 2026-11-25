@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strconv"
 
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/channel"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/enroll"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/fleet"
@@ -30,10 +31,23 @@ type enrollHost interface {
 	Submit(req fleet.SubmitRequest) (string, error)
 }
 
-// fleetRunner sends Stop to an agent as a one-shot command through the
-// manager's queue. The operator has confirmed Stop in the panel, so the
-// dangerous-command gate is confirmed too. A monitor agent has no command
-// role, so it cannot be stopped this way.
+type serviceControlHost interface {
+	ServiceControl(ctx context.Context, machine, action string) (channel.ServiceControlResultPayload, error)
+}
+
+// fleetServiceControl sends stop/start to an enrolled agent (worker or monitor)
+// via Manager.ServiceControl.
+type fleetServiceControl struct{ h serviceControlHost }
+
+func (c fleetServiceControl) Control(ctx context.Context, machine, action string) error {
+	_, err := c.h.ServiceControl(ctx, machine, action)
+	if errors.Is(err, fleet.ErrOffline) {
+		return fmt.Errorf("the agent is offline, so it cannot be told to %s (it is not running, or not connected): %w", action, err)
+	}
+	return err
+}
+
+// fleetRunner is the fallback when h does not implement serviceControlHost.
 type fleetRunner struct{ h enrollHost }
 
 func (r fleetRunner) Run(_ context.Context, machine, command string) error {
@@ -69,13 +83,18 @@ func newEnroll(s config.ServerConfig, dataDir string, h enrollHost, log *slog.Lo
 	}
 	store := registry.NewStore(dataDir)
 	reg := h.Registry()
+	var sc func(context.Context, string, string) error
+	if sch, ok := h.(serviceControlHost); ok {
+		sc = fleetServiceControl{sch}.Control
+	}
 	return enroll.New(enroll.Config{
 		CA: ca, Registry: reg,
-		Persist:    func() error { return store.Save(reg) },
-		Reconcile:  h.Reconcile,
-		Runner:     fleetRunner{h},
-		Binary:     enroll.BinaryDir(s.AgentBinaryDir, s.AgentBinaryPath, runtime.GOOS, runtime.GOARCH),
-		PublicHost: s.EnrollHost, EnrollPort: enrollPort, AgentDialPort: dialPort,
+		Persist:        func() error { return store.Save(reg) },
+		Reconcile:      h.Reconcile,
+		Runner:         fleetRunner{h},
+		ServiceControl: sc,
+		Binary:         enroll.BinaryDir(s.AgentBinaryDir, s.AgentBinaryPath, runtime.GOOS, runtime.GOARCH),
+		PublicHost:     s.EnrollHost, EnrollPort: enrollPort, AgentDialPort: dialPort,
 		ServerID: s.ServerIDOrDefault(), Logger: log,
 	})
 }
