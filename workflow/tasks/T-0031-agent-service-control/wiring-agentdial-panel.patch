@@ -1,0 +1,57 @@
+diff --git a/internal/agent/agentdial.go b/internal/agent/agentdial.go
+index 8ad8b96..d05ed9c 100644
+--- a/internal/agent/agentdial.go
++++ b/internal/agent/agentdial.go
+@@ -147,6 +147,7 @@ type DialingMonitor struct {
+ 
+ 	mu   sync.Mutex
+ 	base context.Context // lifetime context, set by Run
++	svc  ServiceController
+ }
+ 
+ // NewDialingMonitor validates cfg (MachineID is required; TLS and ListenAddr
+@@ -161,7 +162,11 @@ func NewDialingMonitor(cfg MonitorConfig, ds DialSettings) (*DialingMonitor, err
+ 	if cfg.Logger == nil {
+ 		cfg.Logger = slog.Default()
+ 	}
+-	m := &DialingMonitor{log: cfg.Logger, base: context.Background()}
++	svc := cfg.ServiceController
++	if svc == nil {
++		svc = defaultServiceController()
++	}
++	m := &DialingMonitor{log: cfg.Logger, base: context.Background(), svc: svc}
+ 	m.fl = monitor.NewFlusher(m.send, monitor.FlusherOptions{Interval: cfg.FlushInterval, MaxBuffered: cfg.MaxBuffered})
+ 	m.eng = probe.NewEngine(m.fl.Add)
+ 	for _, p := range cfg.Probers {
+@@ -225,8 +230,18 @@ func (m *DialingMonitor) onConnect(peer string) {
+ 	}
+ }
+ 
+-// handle mirrors Monitor.handle: only mon-config is understood.
++func (m *DialingMonitor) serviceController() ServiceController {
++	m.mu.Lock()
++	defer m.mu.Unlock()
++	return m.svc
++}
++
++// handle mirrors Monitor.handle: mon-config and service-control are understood.
+ func (m *DialingMonitor) handle(ctx context.Context, env channel.Envelope) {
++	if env.Type == channel.TypeServiceControl {
++		handleServiceControl(ctx, m.log, serviceSenderFunc(m.send), m.serviceController(), env)
++		return
++	}
+ 	if env.Type != channel.TypeMonConfig {
+ 		m.log.Debug("ignoring envelope a monitor agent does not handle", "component", "fleet-agent", "type", env.Type)
+ 		return
+diff --git a/internal/panel/api.go b/internal/panel/api.go
+index f7bb4da..5ed61fd 100644
+--- a/internal/panel/api.go
++++ b/internal/panel/api.go
+@@ -50,6 +50,7 @@ func (s *server) routesAPI(mux *http.ServeMux) {
+ 	mux.HandleFunc("POST /api/machines", s.live(s.onboardMachine))
+ 	mux.HandleFunc("POST /api/machines/{id}/reprovision", s.live(s.reprovisionMachine))
+ 	mux.HandleFunc("POST /api/machines/{id}/remove", s.live(s.removeMachine))
++	s.routesMachines(mux)
+ 
+ 	mux.HandleFunc("GET /api/commands", s.live(s.listCommands))
+ 	mux.HandleFunc("POST /api/commands", s.live(s.submitCommands))
