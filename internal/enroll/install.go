@@ -16,8 +16,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/watchdog"
 )
 
 // Where things go on the enrolled machine.
@@ -29,6 +31,22 @@ const (
 
 	SystemdUnit     = "fleet-agent.service"
 	SystemdUnitPath = "/etc/systemd/system/fleet-agent.service"
+
+	WatchdogSystemdUnit     = "fleet-watchdog.service"
+	WatchdogSystemdUnitPath = "/etc/systemd/system/fleet-watchdog.service"
+
+	AgentLivenessService     = "fleet-agent-liveness.service"
+	AgentLivenessServicePath = "/etc/systemd/system/fleet-agent-liveness.service"
+	AgentLivenessTimer       = "fleet-agent-liveness.timer"
+	AgentLivenessTimerPath   = "/etc/systemd/system/fleet-agent-liveness.timer"
+
+	WatchdogLivenessService     = "fleet-watchdog-liveness.service"
+	WatchdogLivenessServicePath = "/etc/systemd/system/fleet-watchdog-liveness.service"
+	WatchdogLivenessTimer       = "fleet-watchdog-liveness.timer"
+	WatchdogLivenessTimerPath   = "/etc/systemd/system/fleet-watchdog-liveness.timer"
+
+	WatchdogDir        = StateDir + "/" + watchdog.WatchdogSubdir
+	WatchdogPolicyPath = WatchdogDir + "/policy.yaml"
 
 	LaunchdLabel     = "com.fleet.agent"
 	LaunchdPlistPath = "/Library/LaunchDaemons/com.fleet.agent.plist"
@@ -129,8 +147,108 @@ WantedBy=multi-user.target
 `, BinaryPath, ConfigDir, StateDir)
 }
 
+// MonitorWatchdogPolicyYAML is the stripped headless policy seeded on Linux
+// monitor agents (architecture 5, 11.1): worker-only rungs (throttle,
+// kill_session) and the Load Controller ceiling are disabled.
+const MonitorWatchdogPolicyYAML = `# Stripped headless policy for monitor agents (installed at enrollment).
+version: 1
+load_controller_ceiling:
+  cpu_percent: 0
+  memory_percent: 0
+steps:
+  throttle: false
+  kill_session: false
+  restart: true
+  reboot: true
+`
+
+// RenderWatchdogSystemdUnit is the Linux fleet-watchdog.service unit
+// (architecture 11.1). Workers get the full watchdog; monitors get the
+// headless/stripped setup.
+func RenderWatchdogSystemdUnit(role string) string {
+	desc := "Fleet watchdog (load-safety net)"
+	extraEnv := ""
+	if role == config.RoleMonitor {
+		desc = "Fleet watchdog (headless)"
+		extraEnv = "Environment=FLEET_WATCHDOG_MODE=headless\n"
+	}
+	return fmt.Sprintf(`[Unit]
+Description=%[1]s
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+Environment=FLEET_DATA_DIR=%[4]s
+%[2]sExecStart=%[3]s watchdog --config %[5]s/config.json
+WorkingDirectory=%[4]s
+Restart=always
+RestartSec=2
+OOMScoreAdjust=-900
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target
+`, desc, extraEnv, BinaryPath, StateDir, ConfigDir)
+}
+
+// RenderAgentLivenessService is the one-shot that checks fleet-agent.service.
+func RenderAgentLivenessService() string {
+	return renderLivenessService("Fleet agent liveness check", SystemdUnit,
+		watchdog.HeartbeatPath(StateDir, watchdog.HeartbeatAgent))
+}
+
+// RenderAgentLivenessTimer fires fleet-agent-liveness.service every 45 s.
+func RenderAgentLivenessTimer() string {
+	return renderLivenessTimer("Fleet agent liveness check (every 45 s)", AgentLivenessService)
+}
+
+// RenderWatchdogLivenessService is the one-shot that checks fleet-watchdog.service.
+func RenderWatchdogLivenessService() string {
+	return renderLivenessService("Fleet watchdog liveness check", WatchdogSystemdUnit,
+		watchdog.HeartbeatPath(StateDir, watchdog.HeartbeatWatchdog))
+}
+
+// RenderWatchdogLivenessTimer fires fleet-watchdog-liveness.service every 45 s.
+func RenderWatchdogLivenessTimer() string {
+	return renderLivenessTimer("Fleet watchdog liveness check (every 45 s)", WatchdogLivenessService)
+}
+
+func renderLivenessService(desc, unit, hbPath string) string {
+	return fmt.Sprintf(`[Unit]
+Description=%s
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=%s
+`, desc, watchdog.LivenessExecStart(unit, hbPath))
+}
+
+func renderLivenessTimer(desc, targetService string) string {
+	return fmt.Sprintf(`[Unit]
+Description=%s
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=%ds
+AccuracySec=5s
+Unit=%s
+
+[Install]
+WantedBy=timers.target
+`, desc, int(watchdog.HeartbeatCheckEvery/time.Second), targetService)
+}
+
 // RenderLaunchdPlist is the macOS service (a launch daemon, so it runs at boot
 // before anyone logs in): RunAtLoad and KeepAlive.
+//
+// macOS watchdog stance: macOS agents are monitor-only and run no
+// fleet-watchdog service. Watchdog host sampling (/proc/stat, /proc/meminfo,
+// /proc/loadavg, netlink) and actuation (cgroups, systemctl, tc) are Linux-only;
+// launchd's RunAtLoad + KeepAlive already keeps com.fleet.agent running.
 func RenderLaunchdPlist() string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -344,10 +462,31 @@ if [ "$OS" = linux ]; then
   install -d -m 0755 "$(dirname %s)"
   cat > %s <<'FLEET_UNIT'
 %sFLEET_UNIT
+  cat > %s <<'FLEET_WATCHDOG_UNIT'
+%sFLEET_WATCHDOG_UNIT
+  cat > %s <<'FLEET_AGENT_LIVENESS_UNIT'
+%sFLEET_AGENT_LIVENESS_UNIT
+  cat > %s <<'FLEET_AGENT_LIVENESS_TIMER'
+%sFLEET_AGENT_LIVENESS_TIMER
+  cat > %s <<'FLEET_WATCHDOG_LIVENESS_UNIT'
+%sFLEET_WATCHDOG_LIVENESS_UNIT
+  cat > %s <<'FLEET_WATCHDOG_LIVENESS_TIMER'
+%sFLEET_WATCHDOG_LIVENESS_TIMER
+  if [ "$ROLE" = monitor ]; then
+    install -d -m 0750 %s
+    cat > %s <<'FLEET_WATCHDOG_POLICY'
+%sFLEET_WATCHDOG_POLICY
+    chmod 0640 %s
+  fi
   systemctl daemon-reload
   systemctl enable %s
   systemctl restart %s
+  systemctl enable %s
+  systemctl restart %s
+  systemctl enable --now %s
+  systemctl enable --now %s
 else
+  # macOS is monitor-only and runs no fleet-watchdog (Linux-only /proc, cgroups, systemctl, tc).
   install -d -m 0755 "$(dirname %s)"
   cat > %s <<'FLEET_PLIST'
 %sFLEET_PLIST
@@ -365,7 +504,16 @@ main </dev/null
 		ConfigDir, ConfigDir, ConfigDir, machineIDPlaceholder, ConfigDir,
 		RenderAgentConfig(p.Role, p.ServerAddr, p.ServerID), ConfigDir,
 		shq(WrapperPath), RenderWrapper(), shq(WrapperPath),
-		shq(SystemdUnitPath), shq(SystemdUnitPath), RenderSystemdUnit(), SystemdUnit, SystemdUnit,
+		shq(SystemdUnitPath), shq(SystemdUnitPath), RenderSystemdUnit(),
+		shq(WatchdogSystemdUnitPath), RenderWatchdogSystemdUnit(p.Role),
+		shq(AgentLivenessServicePath), RenderAgentLivenessService(),
+		shq(AgentLivenessTimerPath), RenderAgentLivenessTimer(),
+		shq(WatchdogLivenessServicePath), RenderWatchdogLivenessService(),
+		shq(WatchdogLivenessTimerPath), RenderWatchdogLivenessTimer(),
+		shq(WatchdogDir), shq(WatchdogPolicyPath), MonitorWatchdogPolicyYAML, shq(WatchdogPolicyPath),
+		SystemdUnit, SystemdUnit,
+		WatchdogSystemdUnit, WatchdogSystemdUnit,
+		AgentLivenessTimer, WatchdogLivenessTimer,
 		shq(LaunchdPlistPath), shq(LaunchdPlistPath), RenderLaunchdPlist(), shq(LaunchdPlistPath),
 		LaunchdLabel, LaunchdLabel, shq(LaunchdPlistPath), p.Role)
 	return b.String()
