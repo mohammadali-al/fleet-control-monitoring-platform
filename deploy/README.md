@@ -1,8 +1,6 @@
 # Deploying the Fleet main server
 
-A reference deployment: `fleet-server` as a systemd service on the main server, with the panel
-published over HTTPS behind an auth proxy that adds password + TOTP (2FA). The panel keeps no accounts
-of its own (D-0004, architecture decision 20); it trusts the `Remote-User` header the proxy forwards.
+Reference deployment for the Fleet main server: `fleet-server` as a systemd service bound to loopback (`127.0.0.1:6789`) behind a TLS + 2FA auth proxy (Caddy + Authelia). The panel keeps no accounts of its own (D-0004); it trusts the `Remote-User` header forwarded by the proxy.
 
 ```
 operator browser --HTTPS--> Caddy :443 --forward auth--> Authelia 127.0.0.1:9091
@@ -13,195 +11,102 @@ fleet-server --mTLS (internal CA), server_dial--> fleet-agent <machine IP>:7443 
 fleet-server --SSH, onboarding only-----------> new machine :22
 ```
 
-What lives where (all paths are defaults of the files in this directory):
+## Layout (deployed host)
 
-| Thing | Location |
-|---|---|
-| `fleet-server` binary and systemd unit | `/usr/local/bin/fleet-server`, `/etc/systemd/system/fleet-server.service` |
-| Server config (JSON) | `/etc/fleet-server/config.json` (`server.agent_binary_dir` / `server.agent_binary_path` and log settings) |
-| Optional env overrides | `/etc/fleet-server/fleet-server.env` (`FLEET_LISTEN_ADDR`, `FLEET_DATA_DIR`) |
-| Data dir (`FLEET_DATA_DIR`) | `/var/lib/fleet-server`: registry, `ca/` (internal CA, **contains the CA private key**), `config/` |
-| `fleet-agent` binaries | `/usr/local/share/fleet/agents/fleet-agent-<os>-<arch>` (`server.agent_binary_dir`, multi-platform) or `/usr/local/share/fleet/fleet-agent` (`server.agent_binary_path`, single-platform fallback) |
-| Proxy stack | `deploy/proxy/` (Caddy + Authelia via `compose.yml`), Authelia config in `deploy/authelia/` |
-| Proxy state (certs, secrets, users, sessions) | `deploy/proxy/state/` (git-ignored; never commit it) |
+| Component | Location | Notes |
+|---|---|---|
+| `fleet-server` binary & unit | `/usr/local/bin/fleet-server`, `/etc/systemd/system/fleet-server.service` | Managed by systemd (`fleet` user) |
+| Server config & env | `/etc/fleet-server/config.json`, `fleet-server.env`, `install-answers.env` | Live files never overwritten on upgrade (`*.example` updated alongside) |
+| Server data dir (`FLEET_DATA_DIR`) | `/var/lib/fleet-server` | Registry, `ca/` (**CA private key**), `SCHEMA_VERSION`, backups |
+| `fleet-agent` binaries | `/usr/local/share/fleet/agents/fleet-agent-<os>-<arch>` & `/usr/local/share/fleet/fleet-agent` | Multi-platform (`server.agent_binary_dir`) + host fallback |
+| Proxy home | `/opt/fleet/proxy/` | `compose.yml`, `Caddyfile`, `authelia/configuration.yml` (+ `*.example`) |
+| Proxy mutable state | `/var/lib/fleet-proxy/` | `certs/`, `secrets/`, `authelia/` (`users.yml`, `db.sqlite3`), `caddy/` |
+| Proxy systemd unit(s) | `/etc/systemd/system/fleet-proxy.service` | Docker Compose (`--proxy=docker`) or native `fleet-caddy` + `fleet-authelia` (`--proxy=native`) |
+| Upgrade helper | `/usr/local/lib/fleet/upgrade-server.sh` | Invoked by `install-server.sh --upgrade` or directly |
 
 ## Prerequisites
 
-- Main server: Linux with systemd, root access, and Go (to build) or prebuilt `fleet-server` and
-  `fleet-agent` binaries.
-- Docker with the Compose plugin (for the proxy), and `openssl`.
-- Network: operators reach the main server on TCP 443; the main server reaches each machine on TCP 7443
-  (agent channel) and TCP 22 (SSH, for onboarding only). Do not expose `:6789` or `:9091` off the host.
-- Two names for the panel that resolve to the main server in operators' browsers (the reference uses
-  `fleet.internal` for the panel and `auth.fleet.internal` for the login portal). Authelia needs a
-  DNS-style cookie domain, so an IP address alone does not work for the browser URL. Use internal DNS or
-  an `/etc/hosts` line on each operator machine:
+See [`deploy/REQUIREMENTS.md`](REQUIREMENTS.md) for the full host matrix, ports, and pinned Caddy (`2.10.0`) / Authelia (`4.39.27`) versions.
 
-  ```
-  <main server IP>  fleet.internal auth.fleet.internal
-  ```
+- Linux host with `systemd`, root access, unified **cgroup v2**, **nftables**, `openssl`, and at least 2 GiB free on `/var/lib`.
+- Docker + Compose v2 plugin for the default `--proxy=docker` mode, or use `--proxy=native` for standalone Caddy + Authelia binaries with no Docker dependency.
+- DNS names (e.g. `fleet.internal` and `auth.fleet.internal`, or public domains) pointing to the main server. Authelia requires a DNS-style cookie domain; an IP address alone will not work.
 
-  To use other names, change them in `deploy/proxy/Caddyfile`, `deploy/authelia/configuration.yml`
-  (`access_control`, `session.cookies`) and in the certificate below. Only the panel name appears in
-  `access_control`; the portal name is covered automatically.
+## 1. Install from GitHub Release (recommended)
 
-## 1. Build
+For a private repository (or to avoid GitHub API rate limits), export a scoped token first:
 
-```
-scripts/build.sh          # builds bin/fleet-server, bin/fleet-agent, and bin/agents/fleet-agent-<os>-<arch>
+```bash
+export GH_TOKEN="<github-token-with-repo-read>"
 ```
 
-`scripts/build.sh` also runs `scripts/build-agents.sh` (you can run `scripts/build-agents.sh [output-dir]` or
-`scripts/build.sh agents` directly). It cross-compiles `fleet-agent` with `CGO_ENABLED=0` and the same
-reproducible `-trimpath` / version ldflags for all four supported targets into `bin/agents/` (git-ignored):
+Run the bootstrap installer (checks prerequisites, offers to install missing OS packages, downloads + SHA256-verifies binaries, prompts for domains/admin/TLS, generates secrets + CA, and starts `fleet-server` + `fleet-proxy`):
 
-- `bin/agents/fleet-agent-linux-amd64`
-- `bin/agents/fleet-agent-linux-arm64`
-- `bin/agents/fleet-agent-darwin-amd64` (monitor-only)
-- `bin/agents/fleet-agent-darwin-arm64` (monitor-only)
-
-To serve multiple platforms (for both SSH onboarding and token enrollment), copy `bin/agents/` to the main
-server (e.g. `/usr/local/share/fleet/agents/`) and set `"agent_binary_dir": "/usr/local/share/fleet/agents"`
-under `"server"` in `/etc/fleet-server/config.json`. `server.agent_binary_dir` is preferred;
-`server.agent_binary_path` remains as a single-platform fallback for the server's own OS and architecture.
-Targets without a matching binary fail clearly before anything is installed.
-
-## 2. Install the main server
-
-```
-sudo deploy/install-server.sh
+```bash
+curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+  https://raw.githubusercontent.com/mohammadali-al/fleet-control-monitoring-platform/main/deploy/install-server.sh \
+  | sudo -E bash
 ```
 
-This is safe to re-run (it only replaces files that changed, never overwrites an existing
-`/etc/fleet-server/config.json`, and restarts the service only when something changed). It:
+Options:
+- `--check`: run preflight checks only.
+- `--proxy=docker|native`: Docker Compose proxy (default) or native Caddy+Authelia binaries (`--proxy=native`).
+- `--yes` / `--no-install`: auto-approve or skip OS package installation.
+- `--answers FILE` / `--non-interactive`: supply answers from an env file without prompting. Non-secret answers are saved to `/etc/fleet-server/install-answers.env` for future upgrades.
+- `--tls-mode internal|acme`: generate an internal self-signed SAN cert (`internal`) or obtain public Let's Encrypt certs via Caddy (`acme`).
+- `--bin-dir DIR` / `--no-start` / `DESTDIR=DIR`: install from a local `scripts/build.sh` build or stage into a packaging directory.
 
-1. creates the `fleet` system user and the data dir `/var/lib/fleet-server` (mode 0750);
-2. installs `fleet-server`, the `fleet-agent` binary at `/usr/local/share/fleet/fleet-agent`, and the unit;
-3. writes `/etc/fleet-server/config.json` with `server.agent_binary_path` set to that agent binary
-   (without it, onboarding fails with "no agent binary path configured");
-4. enables and starts the service. The unit sets `FLEET_DATA_DIR=/var/lib/fleet-server` and
-   `FLEET_LISTEN_ADDR=127.0.0.1:6789`;
-5. waits for the first run to create the internal CA in `/var/lib/fleet-server/ca/` (`ca.crt`, `ca.key`).
-   An existing CA is never replaced; a half-present one makes the server refuse to start.
+## 2. Install from a local build (development / offline)
 
-Options: `--bin-dir DIR` (binaries from somewhere other than `bin/`), `--no-start` (install only).
-Check it: `systemctl status fleet-server` and `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:6789/`
-(expect `200`).
+```bash
+./scripts/build.sh            # builds bin/fleet-server + bin/fleet-agent + bin/agents/fleet-agent-<os>-<arch>
+sudo deploy/install-server.sh --bin-dir ./bin
+```
 
-Keep the server bound to loopback. The panel trusts `Remote-User` from whoever connects, so only the
-proxy may reach it. To change the listen address or data dir, put `FLEET_LISTEN_ADDR=...` /
-`FLEET_DATA_DIR=...` in `/etc/fleet-server/fleet-server.env` and restart; a different data dir also needs
-`ReadWritePaths=<dir>` in a unit drop-in (the unit uses `ProtectSystem=strict`).
+`scripts/build.sh` runs `scripts/build-agents.sh` to cross-compile all four supported agent targets (`linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`) into `bin/agents/`.
+
+## 3. First login and 2FA enrollment
+
+1. If using `--tls-mode internal`, trust `/var/lib/fleet-proxy/certs/tls.crt` in operator browsers (or replace `tls.crt` / `tls.key` with your CA-signed certificate and restart `fleet-proxy`).
+2. Browse to `https://<panel-domain>/` — you are redirected to `https://<auth-domain>/`.
+3. Sign in with the admin user and password configured during installation, and register a TOTP device.
+4. Read the one-time verification code from:
+
+   ```bash
+   sudo cat /var/lib/fleet-proxy/authelia/notification.txt
+   ```
+
+5. Scan the QR code with an authenticator app and enter the 6-digit code. Subsequent logins use password + TOTP.
+
+## 4. Onboard the first agent
+
+In the panel open **Machines** -> **Onboard machine** (or use token enrollment). Enter the target machine's IP, an SSH user (root or passwordless `sudo -n`), and its role (`worker` or `monitor`). `fleet-server` pushes the matching `fleet-agent-<os>-<arch>` binary, signs a leaf cert from `/var/lib/fleet-server/ca/`, and connects over mTLS (`TCP 7443` in default `server_dial` mode).
 
 **Back up `/var/lib/fleet-server/ca/`.** Losing the CA key means every agent must be re-onboarded.
 
-## 3. Prepare the proxy state
+## 5. Upgrading
 
-All commands run in `deploy/proxy/`.
-
-```
-cd deploy/proxy
-mkdir -p state/certs state/secrets state/authelia state/caddy
-```
-
-**Secrets** (three random strings, one per file):
-
-```
-for f in jwt session storage; do openssl rand -hex 32 > state/secrets/$f; done
-chmod 600 state/secrets/*
+```bash
+sudo /usr/local/lib/fleet/upgrade-server.sh
+# or:
+sudo deploy/install-server.sh --upgrade
 ```
 
-**TLS certificate.** For the reference, a self-signed certificate covering both names:
-
-```
-openssl req -x509 -newkey rsa:2048 -nodes -days 825 \
-  -keyout state/certs/tls.key -out state/certs/tls.crt \
-  -subj "/CN=fleet.internal" \
-  -addext "subjectAltName=DNS:fleet.internal,DNS:auth.fleet.internal"
-```
-
-Browsers will warn about it until you trust `state/certs/tls.crt` on the operator machines. To use a real
-certificate (internal CA or public), replace `state/certs/tls.crt` (full chain) and `state/certs/tls.key`
-with yours, then `docker compose restart caddy`. Both names must be in its SANs. Nothing else changes.
-
-**First user.** Copy the example, generate an argon2id hash and put it in the `password` field of the
-copy (also change the user name, display name and email as needed):
-
-```
-cp ../authelia/users.yml.example state/authelia/users.yml
-docker run --rm authelia/authelia:4.39 authelia crypto hash generate argon2 --password 'a long passphrase'
-${EDITOR:-vi} state/authelia/users.yml
-```
-
-The user key (`alice` in the example) is what the panel records as the operator in its audit trail.
-More users go in the same file (Authelia reloads it on change).
-
-## 4. Bring up the proxy
-
-```
-docker compose config -q      # optional: validates compose.yml
-docker compose up -d
-docker compose ps             # authelia and caddy should be running
-```
-
-Caddy runs on the host network and listens on `:443`; Authelia listens on `127.0.0.1:9091` only. Plain
-HTTP (`:80`) is not served.
-
-## 5. Open the panel and enrol 2FA
-
-1. Browse to `https://fleet.internal/`. Without a session you are redirected to
-   `https://auth.fleet.internal/`.
-2. Sign in with the user from step 3. The first time, choose to register a one-time-password device.
-   Authelia asks for an identity-verification code; this deployment has no SMTP, so the code is written to
-   a file: `cat deploy/proxy/state/authelia/notification.txt`.
-3. Scan the QR code with an authenticator app and enter the 6-digit code. From then on every sign-in is
-   password + TOTP, and the panel opens.
-
-The `access_control` rule is `two_factor` for the panel and `default_policy: deny`; a user that has not
-registered a TOTP device cannot reach the panel.
-
-## 6. Onboard the first agent
-
-In the panel open **Machines**, then **Onboard machine**. Enter the target machine's IP, an SSH user
-(root, or a user with passwordless `sudo -n`) with a password or key, and the role (worker or monitor). The
-credentials are used once and not stored. The main server then, over SSH, installs
-`/usr/local/bin/fleet-agent` (the file from `server.agent_binary_path`), creates the agent's client
-certificate from the internal CA, writes the pinned CA and the connect mode, and starts the service. The
-machine shows **online** once the main server's mTLS channel to `<machine IP>:7443` is up (the default
-`server_dial` mode), so allow TCP 7443 from the main server to the machine.
-
-The agent channel does not go through the proxy: it is mTLS directly between the main server and each
-agent, authenticated by the internal CA, so no panel login is involved.
+The upgrader:
+1. Queries the GitHub Releases API (pass `--token` or `GH_TOKEN` if private) and compares versions.
+2. Reuses `/etc/fleet-server/install-answers.env` without re-prompting (only asking for genuinely new keys).
+3. Stops `fleet-server`, backs up `/var/lib/fleet-server` + binaries + `config.json` under `/var/backups/fleet-server/`.
+4. Swaps binaries, updates `*.example` templates without clobbering live files, and runs `fleet-server migrate`.
+5. Restarts `fleet-server` and verifies health (`http://127.0.0.1:6789/` + CA intact); **automatically rolls back** binary + config + data backup on any failure.
+6. Upgrades the proxy (`docker compose pull && up -d` on pinned tags, or native binary upgrade) while preserving `/var/lib/fleet-proxy/`.
 
 ## Operations notes
 
-- **Upgrade:** `git pull`, `scripts/build.sh`, `sudo deploy/install-server.sh`. The agent binary at
-  `/usr/local/share/fleet/fleet-agent` is replaced too; machines already onboarded keep their installed
-  agent until you re-provision them from the panel.
-- **Logs:** `journalctl -u fleet-server`; proxy: `docker compose logs` in `deploy/proxy/`.
-- **Stop the proxy:** `docker compose down` (state in `deploy/proxy/state/` is kept).
-- **Sign-in brute force:** Authelia bans a user for 10 minutes after 5 failures in 2 minutes
-  (`regulation` in `deploy/authelia/configuration.yml`).
-
-## Open decision: packaging
-
-The reference uses the simplest path: a **tarball-style install** (built binaries copied by
-`install-server.sh`, a systemd unit, a Compose file for the proxy). The packaging choice itself is
-still open for the operator to make:
-
-| Option | Fits when | Cost |
-|---|---|---|
-| Tarball + `install-server.sh` (this reference) | few hosts, operators comfortable with a shell | no package-manager upgrades or dependency tracking |
-| `.deb` | Ubuntu everywhere (the agents are Ubuntu) and you want `apt`-style upgrades | a packaging task (control files, maintainer scripts doing what `install-server.sh` does); `DESTDIR` staging in the script is meant to make this easy |
-| Container image | you already run a container platform | the server needs the data dir (CA key!) on a persistent volume and the `fleet-agent` binary inside the image; onboarding SSH and agent channel egress must be allowed |
+- **Logs:** `journalctl -u fleet-server -f`, `journalctl -u fleet-proxy -f` (or `docker compose -f /opt/fleet/proxy/compose.yml logs -f`).
+- **Brute-force protection:** Authelia bans a user for 10 minutes after 5 failed logins in 2 minutes (`regulation` in `/opt/fleet/proxy/authelia/configuration.yml`).
+- **Additional users:** Edit `/var/lib/fleet-proxy/authelia/users.yml` and generate argon2id hashes with `docker run --rm authelia/authelia:4.39.27 authelia crypto hash generate argon2 --password '...'` (or `/usr/local/bin/authelia` in native mode).
+- **Keep `fleet-server` on loopback:** The panel trusts `Remote-User` from the proxy; never expose `:6789` or `:9091` externally.
 
 ## Alternative: Pomerium instead of Authelia
 
-Authelia is the reference, not a requirement. Any forward-auth proxy that terminates TLS, enforces 2FA
-and passes the signed-in user to `127.0.0.1:6789` works. Pomerium is the named alternative: it acts as the
-proxy itself (route `https://fleet.internal` to `http://127.0.0.1:6789`) with an identity provider that
-provides MFA. `fleet-server` reads the operator name from, in order, `Remote-User`, `X-Forwarded-User`,
-`X-Auth-Request-User` and `X-Pomerium-Claim-Email` (`internal/panel/api.go`), so a proxy that forwards
-the user in one of those headers needs no server change (this reference was only run with Authelia and
-Caddy; a Pomerium setup is untested here). Keep the same rule: `fleet-server` must be reachable only from
-the proxy.
+Any forward-auth or identity-aware proxy that terminates TLS, enforces 2FA, and forwards the authenticated user header works. `fleet-server` checks `Remote-User`, `X-Forwarded-User`, `X-Auth-Request-User`, and `X-Pomerium-Claim-Email` (`internal/panel/api.go`).
