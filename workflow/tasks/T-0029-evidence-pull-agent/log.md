@@ -41,4 +41,4 @@
   onboarded worker) is not run here.
 - No patch needed; nothing outside `touches` changed.
 
-<!-- wf: commits=PENDING left=- tests=server:pass,agent:pass blocked=no -->
+<!-- wf: commits=2db8800 left=- tests=server:pass,agent:pass blocked=no -->
