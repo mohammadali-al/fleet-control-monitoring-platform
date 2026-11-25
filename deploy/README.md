@@ -18,10 +18,10 @@ What lives where (all paths are defaults of the files in this directory):
 | Thing | Location |
 |---|---|
 | `fleet-server` binary and systemd unit | `/usr/local/bin/fleet-server`, `/etc/systemd/system/fleet-server.service` |
-| Server config (JSON) | `/etc/fleet-server/config.json` (only `server.agent_binary_path` and log settings) |
+| Server config (JSON) | `/etc/fleet-server/config.json` (`server.agent_binary_dir` / `server.agent_binary_path` and log settings) |
 | Optional env overrides | `/etc/fleet-server/fleet-server.env` (`FLEET_LISTEN_ADDR`, `FLEET_DATA_DIR`) |
 | Data dir (`FLEET_DATA_DIR`) | `/var/lib/fleet-server`: registry, `ca/` (internal CA, **contains the CA private key**), `config/` |
-| `fleet-agent` binary that onboarding pushes | `/usr/local/share/fleet/fleet-agent` (`server.agent_binary_path`) |
+| `fleet-agent` binaries | `/usr/local/share/fleet/agents/fleet-agent-<os>-<arch>` (`server.agent_binary_dir`, multi-platform) or `/usr/local/share/fleet/fleet-agent` (`server.agent_binary_path`, single-platform fallback) |
 | Proxy stack | `deploy/proxy/` (Caddy + Authelia via `compose.yml`), Authelia config in `deploy/authelia/` |
 | Proxy state (certs, secrets, users, sessions) | `deploy/proxy/state/` (git-ignored; never commit it) |
 
@@ -48,8 +48,23 @@ What lives where (all paths are defaults of the files in this directory):
 ## 1. Build
 
 ```
-scripts/build.sh          # writes bin/fleet-server and bin/fleet-agent
+scripts/build.sh          # builds bin/fleet-server, bin/fleet-agent, and bin/agents/fleet-agent-<os>-<arch>
 ```
+
+`scripts/build.sh` also runs `scripts/build-agents.sh` (you can run `scripts/build-agents.sh [output-dir]` or
+`scripts/build.sh agents` directly). It cross-compiles `fleet-agent` with `CGO_ENABLED=0` and the same
+reproducible `-trimpath` / version ldflags for all four supported targets into `bin/agents/` (git-ignored):
+
+- `bin/agents/fleet-agent-linux-amd64`
+- `bin/agents/fleet-agent-linux-arm64`
+- `bin/agents/fleet-agent-darwin-amd64` (monitor-only)
+- `bin/agents/fleet-agent-darwin-arm64` (monitor-only)
+
+To serve multiple platforms (for both SSH onboarding and token enrollment), copy `bin/agents/` to the main
+server (e.g. `/usr/local/share/fleet/agents/`) and set `"agent_binary_dir": "/usr/local/share/fleet/agents"`
+under `"server"` in `/etc/fleet-server/config.json`. `server.agent_binary_dir` is preferred;
+`server.agent_binary_path` remains as a single-platform fallback for the server's own OS and architecture.
+Targets without a matching binary fail clearly before anything is installed.
 
 ## 2. Install the main server
 

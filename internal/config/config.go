@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Agent roles (one binary, two role profiles).
@@ -136,6 +137,73 @@ func (s ServerConfig) ServerIDOrDefault() string {
 		return s.ServerID
 	}
 	return DefaultServerID
+}
+
+// ErrAgentBinaryUnavailable is returned by SelectAgentBinary when the target
+// platform is unsupported or no matching fleet-agent binary is configured/present.
+var ErrAgentBinaryUnavailable = errors.New("no matching fleet-agent binary")
+
+// AgentBinaryName returns the expected filename inside agent_binary_dir for
+// the given OS and architecture ("fleet-agent-<os>-<arch>").
+func AgentBinaryName(goos, arch string) string {
+	return "fleet-agent-" + goos + "-" + arch
+}
+
+// NormalizeAgentPlatform maps OS and CPU architecture names (such as uname -s /
+// uname -m output or Go GOOS/GOARCH values) to the canonical fleet-agent
+// platform names (linux|darwin, amd64|arm64).
+func NormalizeAgentPlatform(rawOS, rawArch string) (string, string, error) {
+	var goos, arch string
+	switch strings.ToLower(strings.TrimSpace(rawOS)) {
+	case "linux":
+		goos = "linux"
+	case "darwin":
+		goos = "darwin"
+	default:
+		return "", "", fmt.Errorf("unsupported operating system %q (linux and darwin only)", rawOS)
+	}
+	switch strings.ToLower(strings.TrimSpace(rawArch)) {
+	case "x86_64", "amd64":
+		arch = "amd64"
+	case "aarch64", "arm64":
+		arch = "arm64"
+	default:
+		return "", "", fmt.Errorf("unsupported CPU architecture %q (amd64 and arm64 only)", rawArch)
+	}
+	return goos, arch, nil
+}
+
+// SelectAgentBinary resolves the fleet-agent binary path for targetOS/targetArch.
+// It prefers <dir>/fleet-agent-<os>-<arch> (agent_binary_dir) when present as a
+// non-empty regular file, and otherwise falls back to fallback (agent_binary_path)
+// only when targetOS/targetArch match hostOS/hostArch.
+func SelectAgentBinary(dir, fallback, targetOS, targetArch, hostOS, hostArch string) (string, error) {
+	goos, arch, err := NormalizeAgentPlatform(targetOS, targetArch)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrAgentBinaryUnavailable, err)
+	}
+	if dir == "" && fallback == "" {
+		return "", fmt.Errorf("%w: no agent binary configured (set server.agent_binary_dir or server.agent_binary_path)", ErrAgentBinaryUnavailable)
+	}
+	if dir != "" {
+		p := filepath.Join(dir, AgentBinaryName(goos, arch))
+		if st, err := os.Stat(p); err == nil && st.Mode().IsRegular() && st.Size() > 0 {
+			return p, nil
+		}
+	}
+	if fallback != "" && goos == hostOS && arch == hostArch {
+		return fallback, nil
+	}
+	if dir != "" && fallback != "" {
+		return "", fmt.Errorf("%w for %s/%s: %s not found in %s (and server.agent_binary_path only covers host %s/%s)",
+			ErrAgentBinaryUnavailable, goos, arch, AgentBinaryName(goos, arch), dir, hostOS, hostArch)
+	}
+	if dir != "" {
+		return "", fmt.Errorf("%w for %s/%s: %s not found in %s",
+			ErrAgentBinaryUnavailable, goos, arch, AgentBinaryName(goos, arch), dir)
+	}
+	return "", fmt.Errorf("%w for %s/%s: server.agent_binary_path only covers host %s/%s (set server.agent_binary_dir)",
+		ErrAgentBinaryUnavailable, goos, arch, hostOS, hostArch)
 }
 
 // AgentConfig is the fleet-agent configuration.

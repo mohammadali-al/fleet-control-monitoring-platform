@@ -26,6 +26,7 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -121,6 +122,10 @@ type Target struct {
 	// back to the fingerprint stored for a known machine, else trust-on-first-
 	// use: the observed key is recorded in the registry and pinned afterwards.
 	HostKeyFingerprint string
+	// OS and Arch optionally specify the target platform (linux|darwin,
+	// amd64|arm64). When empty, Provision detects them over SSH via uname -sm.
+	OS   string
+	Arch string
 }
 
 func (t Target) addr() string {
@@ -153,14 +158,17 @@ func (e *RemoteError) Error() string {
 type DialFunc func(ctx context.Context, t Target, pinnedHostKey string) (Remote, string, error)
 
 // Provisioner onboards machines. The zero value is not usable; set CA,
-// Registry and AgentBinaryPath (Store is optional but normally set).
+// Registry and AgentBinaryDir or AgentBinaryPath (Store is optional but normally set).
 type Provisioner struct {
 	CA       *pki.CA
 	Registry *registry.Registry
 	// Store, if set, receives the registry after every change.
 	Store *registry.Store
-	// AgentBinaryPath is the fleet-agent binary to install (from config,
-	// ServerConfig.AgentBinaryPath).
+	// AgentBinaryDir holds per-platform fleet-agent-<os>-<arch> binaries
+	// (from config, ServerConfig.AgentBinaryDir). Preferred over AgentBinaryPath.
+	AgentBinaryDir string
+	// AgentBinaryPath is the single-platform fallback fleet-agent binary for
+	// the server's own OS/arch (from config, ServerConfig.AgentBinaryPath).
 	AgentBinaryPath string
 	// CertValidity is the client cert lifetime (default 1 year).
 	CertValidity time.Duration
@@ -241,10 +249,35 @@ func (p *Provisioner) Provision(ctx context.Context, t Target) (*Result, error) 
 	if err := validateTarget(&t); err != nil {
 		return nil, err
 	}
-	// Fail on a missing agent binary before touching the registry or the network.
-	binary, err := loadAgentBinary(p.AgentBinaryPath)
+	// Fail fast on missing/invalid agent binary configuration before touching
+	// the registry or the network.
+	binary, err := p.preflightBinary(t)
 	if err != nil {
 		return nil, err
+	}
+
+	pinned := p.pinnedHostKey(t)
+	dial := p.Dial
+	if dial == nil {
+		dial = p.dialSSH
+	}
+	rem, hostKey, err := dial(ctx, t, pinned)
+	if err != nil {
+		return nil, fmt.Errorf("onboard: connect to %s: %w", t.addr(), err)
+	}
+	defer rem.Close()
+
+	// Detect the target's OS/arch and select the matching binary before any
+	// registry entry or remote installation happens.
+	if binary == nil {
+		targetOS, targetArch, err := p.detectTargetPlatform(ctx, rem)
+		if err != nil {
+			return nil, err
+		}
+		binary, err = p.loadBinaryForPlatform(targetOS, targetArch)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	m, created, err := p.resolveMachine(t)
@@ -256,20 +289,6 @@ func (p *Provisioner) Provision(ctx context.Context, t Target) (*Result, error) 
 	if err := p.persist(); err != nil {
 		return nil, err
 	}
-
-	pinned := t.HostKeyFingerprint
-	if pinned == "" {
-		pinned = m.SSHHostKey
-	}
-	dial := p.Dial
-	if dial == nil {
-		dial = p.dialSSH
-	}
-	rem, hostKey, err := dial(ctx, t, pinned)
-	if err != nil {
-		return nil, fmt.Errorf("onboard: connect to %s: %w", t.addr(), err)
-	}
-	defer rem.Close()
 
 	j := &job{p: p, t: t, l: p.layout(), rem: rem, m: m, binary: binary, forceCert: m.Removed}
 	res := &Result{Created: created}
@@ -321,6 +340,77 @@ func validateTarget(t *Target) error {
 		return errors.New("onboard: no SSH credentials (need a password or a private key)")
 	}
 	return nil
+}
+
+// preflightBinary checks the agent binary config before dialing, and loads the
+// binary early when the target platform is already known (or only
+// AgentBinaryPath is configured). Returns nil, nil when platform detection over
+// SSH is still needed.
+func (p *Provisioner) preflightBinary(t Target) ([]byte, error) {
+	if p.AgentBinaryDir == "" && p.AgentBinaryPath == "" {
+		return nil, fmt.Errorf("%w: no agent binary configured (set server.agent_binary_dir or server.agent_binary_path)", ErrAgentBinaryMissing)
+	}
+	if (t.OS != "") != (t.Arch != "") {
+		return nil, fmt.Errorf("%w: target OS and Arch must both be set when specified", ErrAgentBinaryMissing)
+	}
+	if t.OS != "" {
+		return p.loadBinaryForPlatform(t.OS, t.Arch)
+	}
+	if p.AgentBinaryDir == "" {
+		return loadAgentBinary(p.AgentBinaryPath)
+	}
+	if st, err := os.Stat(p.AgentBinaryDir); (err != nil || !st.IsDir()) && p.AgentBinaryPath == "" {
+		return nil, fmt.Errorf("%w: agent_binary_dir %s is not a usable directory", ErrAgentBinaryMissing, p.AgentBinaryDir)
+	}
+	return nil, nil
+}
+
+func (p *Provisioner) detectTargetPlatform(ctx context.Context, rem Remote) (string, string, error) {
+	out, err := rem.Run(ctx, "uname -sm", nil)
+	if err != nil {
+		return "", "", fmt.Errorf("%w: detect target OS/arch: %v", ErrAgentBinaryMissing, err)
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) == 0 && p.AgentBinaryDir == "" {
+		// Minimal stub Remotes (such as panel tests) return empty output in single-binary mode.
+		return runtime.GOOS, runtime.GOARCH, nil
+	}
+	if len(fields) < 2 {
+		return "", "", fmt.Errorf("%w: unexpected uname -sm output %q", ErrAgentBinaryMissing, strings.TrimSpace(string(out)))
+	}
+	goos, arch, err := config.NormalizeAgentPlatform(fields[0], fields[1])
+	if err != nil {
+		return "", "", fmt.Errorf("%w: %v", ErrAgentBinaryMissing, err)
+	}
+	return goos, arch, nil
+}
+
+func (p *Provisioner) loadBinaryForPlatform(targetOS, targetArch string) ([]byte, error) {
+	binPath, err := config.SelectAgentBinary(p.AgentBinaryDir, p.AgentBinaryPath, targetOS, targetArch, runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrAgentBinaryMissing, err)
+	}
+	return loadAgentBinary(binPath)
+}
+
+func (p *Provisioner) pinnedHostKey(t Target) string {
+	if t.HostKeyFingerprint != "" {
+		return t.HostKeyFingerprint
+	}
+	if t.MachineID != "" {
+		if m, ok := p.Registry.Get(t.MachineID); ok {
+			return m.SSHHostKey
+		}
+		return ""
+	}
+	for _, m := range p.Registry.List() {
+		for _, ip := range m.PrivateIPs {
+			if sameIP(ip, t.Host) {
+				return m.SSHHostKey
+			}
+		}
+	}
+	return ""
 }
 
 // loadAgentBinary reads the configured fleet-agent binary.

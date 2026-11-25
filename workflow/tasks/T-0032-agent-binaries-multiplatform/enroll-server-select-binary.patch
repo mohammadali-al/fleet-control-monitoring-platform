@@ -1,0 +1,38 @@
+diff --git a/internal/enroll/server.go b/internal/enroll/server.go
+index 8ddbbcf..bf1899d 100644
+--- a/internal/enroll/server.go
++++ b/internal/enroll/server.go
+@@ -15,11 +15,12 @@ import (
+ 	"net"
+ 	"net/http"
+ 	"os"
+-	"path/filepath"
+ 	"strconv"
+ 	"strings"
+ 	"sync"
+ 	"time"
++
++	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
+ )
+ 
+ const (
+@@ -265,18 +266,6 @@ func (s *Service) serveCSR(w http.ResponseWriter, r *http.Request) {
+ // file system, so the query cannot name another path.
+ func BinaryDir(dir, fallback, hostOS, hostArch string) func(goos, arch string) (string, error) {
+ 	return func(goos, arch string) (string, error) {
+-		if (goos != OSLinux && goos != OSDarwin) || (arch != "amd64" && arch != "arm64") {
+-			return "", errors.New("enroll: unsupported platform")
+-		}
+-		if dir != "" {
+-			p := filepath.Join(dir, "fleet-agent-"+goos+"-"+arch)
+-			if st, err := os.Stat(p); err == nil && st.Mode().IsRegular() {
+-				return p, nil
+-			}
+-		}
+-		if fallback != "" && goos == hostOS && arch == hostArch {
+-			return fallback, nil
+-		}
+-		return "", os.ErrNotExist
++		return config.SelectAgentBinary(dir, fallback, goos, arch, hostOS, hostArch)
+ 	}
+ }

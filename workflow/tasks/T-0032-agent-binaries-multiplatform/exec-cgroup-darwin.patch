@@ -1,0 +1,56 @@
+diff --git a/internal/exec/session.go b/internal/exec/session.go
+index 5bccd8a..aea5bf8 100644
+--- a/internal/exec/session.go
++++ b/internal/exec/session.go
+@@ -9,7 +9,6 @@ import (
+ 	"strconv"
+ 	"strings"
+ 	"sync"
+-	"syscall"
+ 	"time"
+ )
+ 
+@@ -108,12 +107,6 @@ func newCgroup(root, id string) (*Cgroup, error) {
+ 	return &Cgroup{Path: path, dir: dir}, nil
+ }
+ 
+-// attach makes attrs place the child in this cgroup.
+-func (c *Cgroup) attach(attrs *syscall.SysProcAttr) {
+-	attrs.UseCgroupFD = true
+-	attrs.CgroupFD = int(c.dir.Fd())
+-}
+-
+ // Kill SIGKILLs every process in the cgroup (cgroup.kill, kernel 5.14+).
+ func (c *Cgroup) Kill() error {
+ 	return os.WriteFile(filepath.Join(c.Path, "cgroup.kill"), []byte("1"), 0o644)
+diff --git a/internal/exec/session_linux.go b/internal/exec/session_linux.go
+new file mode 100644
+index 0000000..54df361
+--- /dev/null
++++ b/internal/exec/session_linux.go
+@@ -0,0 +1,11 @@
++//go:build linux
++
++package exec
++
++import "syscall"
++
++// attach makes attrs place the child in this cgroup.
++func (c *Cgroup) attach(attrs *syscall.SysProcAttr) {
++	attrs.UseCgroupFD = true
++	attrs.CgroupFD = int(c.dir.Fd())
++}
+diff --git a/internal/exec/session_other.go b/internal/exec/session_other.go
+new file mode 100644
+index 0000000..72a6d6d
+--- /dev/null
++++ b/internal/exec/session_other.go
+@@ -0,0 +1,8 @@
++//go:build !linux
++
++package exec
++
++import "syscall"
++
++// attach is a no-op off Linux: cgroup v2 attachment (UseCgroupFD) is Linux-only.
++func (c *Cgroup) attach(_ *syscall.SysProcAttr) {}

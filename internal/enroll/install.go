@@ -412,6 +412,7 @@ GOT="$(openssl x509 -in "$WORK/ca.crt" -outform DER | openssl dgst -sha256 | awk
 
 echo "Downloading the agent ($OS/$ARCH)..."
 fetch "$BASE/enroll/agent?os=$OS&arch=$ARCH" "$WORK/fleet-agent"
+[ -s "$WORK/fleet-agent" ] || die "the server sent an empty agent binary for $OS/$ARCH"
 
 echo "Generating this machine's key and certificate request..."
 openssl ecparam -name prime256v1 -genkey -noout -out "$WORK/ec.key"
