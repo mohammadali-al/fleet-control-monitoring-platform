@@ -6,6 +6,7 @@
 _none_
 ## Next (ready, in order)
 - **T-0032** agent-binaries-multiplatform  `after: [T-0006, T-0026]`
+- **T-0033** consolidate-service-control-endpoint  `after: [T-0031]`
 
 ## Waiting for the operator (merged → see CHECKS.md)
 - **T-0001** project-skeleton  `after: []`
