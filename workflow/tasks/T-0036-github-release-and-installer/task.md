@@ -26,10 +26,14 @@ not GitHub.)
 1. **Release pipeline** (`.github/workflows/release.yml`): on a version tag, build `fleet-server` + the
    four `fleet-agent-<os>-<arch>` binaries (reuse `scripts/build.sh` / `build-agents.sh`), produce
    `SHA256SUMS`, and attach them to a **GitHub Release**. Pin the Go version.
-2. **Preflight / requirements** (`deploy/REQUIREMENTS.md` + a `--check` in the installer): verify root,
+2. **Preflight + requirements install** (`deploy/REQUIREMENTS.md` + the installer): verify root,
    systemd, Docker + Compose, `openssl`, **cgroup v2 + nftables**, free ports (443/6789/7443/9091/22),
-   disk space, min kernel/OS — fail early with clear messages. Document the pinned Caddy/Authelia image
-   tags here.
+   disk space, min kernel/OS. Beyond `--check`, the installer **installs the missing OS-level
+   requirements** (Docker + Compose, `openssl`, …) via the host package manager — gated behind consent
+   (interactive y/N or `--yes`), skippable with `--no-install`, and a clear error if it can't. Also
+   offer a **native (no-Docker) proxy path**: run Caddy + Authelia as standalone binaries + systemd
+   units instead of containers, for hosts that can't/won't run Docker (`--proxy=docker|native`). Document
+   the pinned Caddy/Authelia versions (image tags and native binary versions) here.
 3. **Bootstrap installer** (`deploy/install-server.sh`, runnable as `curl … | sudo bash`): downloads the
    release asset for the host, **verifies the checksum**, runs preflight, then **interactively prompts**
    for the values that can't be defaulted (panel + auth domains, admin user/email, TLS mode: internal CA
