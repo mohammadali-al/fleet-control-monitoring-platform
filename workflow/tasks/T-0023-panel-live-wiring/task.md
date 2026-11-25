@@ -1,7 +1,7 @@
 ---
 id: T-0023
 title: panel-live-wiring
-state: ready
+state: merged
 touches: [internal/panel/api.go, internal/panel/ws.go, internal/panel/templates.go,
           internal/panel/observe_test.go, internal/fleet/fleet.go,
           web/pages/evidence.html, web/pages/backup.html, web/pages/monitor.html, web/pages/watchdog.html,
