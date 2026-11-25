@@ -250,6 +250,155 @@
   }
 
   /* ======================================================================
+     Token enrollment (T-0026): "Add agent (token)" and the enrolled agents.
+     The server is /api/enroll/*; all server text goes in through textContent.
+     ====================================================================== */
+  function initEnroll() {
+    var section = $('#enroll');
+    var form = $('#enroll-form');
+    var result = $('[data-enroll-result]');
+    var tableBox = $('#enrolled');
+    var rows = $('#enrolled-rows');
+    if (!section || !form || !tableBox) return;
+    var roleSel = $('#e-role');
+    var scriptLink = $('[data-enroll-script]');
+    var countdown = null;
+
+    function setScriptLink() { scriptLink.href = '/api/enroll/script?role=' + encodeURIComponent(roleSel.value); }
+    setScriptLink();
+    roleSel.addEventListener('change', setScriptLink);
+
+    function tick(expires) {
+      if (countdown) window.clearInterval(countdown);
+      var box = $('[data-enroll-expiry]');
+      function upd() {
+        var left = Math.round((new Date(expires) - Date.now()) / 1000);
+        if (left <= 0) { box.textContent = 'This code has expired. Generate a new one.'; window.clearInterval(countdown); return; }
+        box.textContent = 'Expires in ' + Math.floor(left / 60) + ':' + ('0' + (left % 60)).slice(-2);
+      }
+      upd();
+      countdown = window.setInterval(upd, 1000);
+    }
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var btn = $('button[type="submit"]', form);
+      btn.disabled = true;
+      setStatus(form, 'info', 'Generating...');
+      api('POST', '/api/enroll/tokens', { role: roleSel.value }).then(function (r) {
+        btn.disabled = false;
+        if (!r.ok) { result.hidden = true; setStatus(form, 'danger', r.data.error || ('Could not generate a token (' + r.status + ')')); return; }
+        setStatus(form, 'ok', 'Token ready. It works once, for one machine, within 10 minutes.');
+        $('[data-enroll-code]').textContent = r.data.code;
+        $('[data-enroll-cmd="linux"]').textContent = r.data.linux;
+        $('[data-enroll-cmd="macos"]').textContent = r.data.macos || '';
+        $('[data-enroll-os="macos"]').hidden = !r.data.macos;
+        result.hidden = false;
+        tick(r.data.expires_at);
+      });
+    });
+    $$('[data-enroll-copy]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var text = $('[data-enroll-cmd="' + b.getAttribute('data-enroll-copy') + '"]').textContent;
+        (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(
+          function () { toast('Copied.'); },
+          function () { toast('Copy is blocked by the browser here; select the command and copy it.'); });
+      });
+    });
+
+    /* The enrolled agents */
+    function specText(sp) {
+      if (!sp) return '';
+      var parts = [];
+      if (sp.os) parts.push(sp.os + (sp.arch ? '/' + sp.arch : ''));
+      if (sp.os_version) parts.push(sp.os_version);
+      if (sp.cpus) parts.push(sp.cpus + ' CPU');
+      if (sp.mem_bytes) parts.push(fmtBytes(sp.mem_bytes) + ' RAM');
+      if (sp.hostname) parts.push(sp.hostname);
+      return parts.join(', ');
+    }
+    function renderRows(list) {
+      rows.textContent = '';
+      list.forEach(function (m) {
+        var tr = el('tr');
+        tr.setAttribute('data-id', m.id);
+        var th = el('th', null, m.id); th.scope = 'row'; tr.appendChild(th);
+        tr.appendChild(el('td', null, m.role === 'monitor' ? 'Monitor' : 'Worker'));
+        var st = el('td');
+        if (m.stopped) st.appendChild(chip('warn', 'Stopped', 'pause'));
+        else if (m.online) st.appendChild(chip('ok', 'Online', 'check', true));
+        else st.appendChild(chip('outline', 'Offline', 'clock'));
+        tr.appendChild(st);
+        tr.appendChild(el('td', 'muted', specText(m.specs)));
+        var act = el('td');
+        var stop = el('button', 'btn btn--sm', 'Stop');
+        stop.type = 'button';
+        stop.setAttribute('data-enroll-act', 'stop'); stop.setAttribute('data-machine', m.id);
+        var det = el('button', 'btn btn--sm btn--danger', 'Detach');
+        det.type = 'button';
+        det.setAttribute('data-enroll-act', 'detach'); det.setAttribute('data-machine', m.id);
+        act.appendChild(stop); act.appendChild(document.createTextNode(' ')); act.appendChild(det);
+        tr.appendChild(act);
+        rows.appendChild(tr);
+      });
+      $('[data-enrolled-empty]').hidden = list.length !== 0;
+      $('[data-enrolled-count]').textContent = list.length + (list.length === 1 ? ' agent' : ' agents');
+    }
+    var busy = false;
+    function refresh() {
+      if (busy) return;
+      api('GET', '/api/enroll/machines').then(function (r) {
+        if (!r.ok) {
+          // Enrollment is off on this server (no enroll_addr): say so instead of offering a dead button.
+          $$('[data-toggle-panel="#enroll"]').forEach(function (b) { b.disabled = true; b.title = 'Token enrollment is not enabled on this server (set server.enroll_addr).'; });
+          tableBox.hidden = true;
+          return;
+        }
+        tableBox.hidden = false;
+        renderRows(r.data.machines || []);
+      });
+    }
+    var refreshSoon = debounce(refresh, 300);
+    onEvent(function (m) { if (m.type === 'machine') refreshSoon(); });
+    onReconnect(refresh);
+    setInterval(refresh, 15000);
+    refresh();
+
+    /* Stop / Detach, each behind a confirmation */
+    var dlg = $('#dlg-enroll-act');
+    var aform = $('#enroll-act-form');
+    var pending = null;
+    document.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-enroll-act]');
+      if (!b) return;
+      pending = { kind: b.getAttribute('data-enroll-act'), machine: b.getAttribute('data-machine') };
+      var stop = pending.kind === 'stop';
+      $('#dlg-enroll-act-title').textContent = (stop ? 'Stop ' : 'Detach ') + pending.machine;
+      $('[data-enroll-act-intro]').textContent = stop
+        ? 'This disables the agent service on the machine: it stays down through a reboot. Someone must run "sudo fleet-agent start" on the machine to bring it back. The machine stays in the registry.'
+        : 'This revokes the machine\'s certificate and takes it out of the registry. The agent can no longer connect. To add the machine again you need a fresh token.';
+      var go = $('[data-enroll-act-submit]');
+      go.textContent = stop ? 'Stop agent' : 'Detach machine';
+      go.className = 'btn ' + (stop ? 'btn--primary' : 'btn--danger');
+      setStatus(aform, 'info', '');
+      dlg.showModal();
+    });
+    aform.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var go = $('[data-enroll-act-submit]');
+      go.disabled = true; busy = true;
+      setStatus(aform, 'info', 'Working...');
+      api('POST', '/api/enroll/machines/' + encodeURIComponent(pending.machine) + '/' + pending.kind, {}).then(function (r) {
+        go.disabled = false; busy = false;
+        if (!r.ok) { setStatus(aform, 'danger', r.data.error || ('Failed (' + r.status + ')')); return; }
+        dlg.close();
+        toast(pending.kind === 'stop' ? pending.machine + ' was stopped.' : pending.machine + ' was detached and its certificate revoked.');
+        refresh();
+      });
+    });
+  }
+
+  /* ======================================================================
      Command runner
      ====================================================================== */
   function b64bytes(s) {
@@ -1745,7 +1894,7 @@
   if (page === 'watchdog') initWatchdog();
   if (page === 'evidence') initEvidence();
   if (page === 'backup') initBackup();
-  if (page === 'machines') initMachines();
+  if (page === 'machines') { initMachines(); initEnroll(); }
   if (page === 'commands') initCommands();
   if (page === 'terminal') initTerminal();
 })();

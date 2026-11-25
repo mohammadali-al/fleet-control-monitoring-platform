@@ -368,6 +368,8 @@ func (s *Service) reconcile() {
 // Machine is an enrolled agent as the Machines page lists it.
 type Machine struct {
 	registry.Machine
+	// Online is the channel's live state (the registry type hides it from JSON).
+	Online bool `json:"online"`
 	// Stopped is true while the operator-stopped agent is down (it is cleared
 	// as soon as the agent is back online, e.g. after a local `fleet-agent start`).
 	Stopped bool `json:"stopped"`
@@ -381,7 +383,7 @@ func (s *Service) Machines() []Machine {
 			continue
 		}
 		stopped := m.Stopped && !m.Online
-		out = append(out, Machine{Machine: m, Stopped: stopped})
+		out = append(out, Machine{Machine: m, Online: m.Online, Stopped: stopped})
 	}
 	return out
 }

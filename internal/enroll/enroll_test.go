@@ -786,7 +786,8 @@ func TestOperatorAPI(t *testing.T) {
 
 	r := enrolled(t, e, "worker", "linux", "api-box")
 	rec = do("GET", "/api/enroll/machines", "", "")
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"id":"api-box"`) || !strings.Contains(rec.Body.String(), `"cpus":8`) {
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"id":"api-box"`) || !strings.Contains(rec.Body.String(), `"cpus":8`) ||
+		!strings.Contains(rec.Body.String(), `"online":false`) || !strings.Contains(rec.Body.String(), `"stopped":false`) {
 		t.Errorf("machines = %d %s", rec.Code, rec.Body)
 	}
 	if rec := do("POST", "/api/enroll/machines/"+r.MachineID+"/stop", "application/json", `{}`); rec.Code != 200 {
