@@ -5,8 +5,7 @@
 ## Now (running / in review)
 _none_
 ## Next (ready, in order)
-- **T-0034** panel-hacker-restyle-samples  `after: []`
-
+_none_
 ## Waiting for the operator (merged → see CHECKS.md)
 - **T-0001** project-skeleton  `after: []`
 - **T-0002** internal-ca  `after: [T-0001]`
@@ -41,6 +40,7 @@ _none_
 - **T-0031** agent-service-control  `after: [T-0021, T-0026]`
 - **T-0032** agent-binaries-multiplatform  `after: [T-0006, T-0026]`
 - **T-0033** consolidate-service-control-endpoint  `after: [T-0031]`
+- **T-0034** panel-hacker-restyle-samples  `after: []`
 
 ## Blocked
 _none_
