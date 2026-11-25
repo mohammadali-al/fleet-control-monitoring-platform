@@ -60,4 +60,4 @@
   follow-up.
 - Flush interval is clamped to 2-3 s by `monitor.Flusher`, so the end-to-end tests wait a few seconds.
 
-<!-- wf: commits=PENDING left=- tests=server:pass,agent:pass blocked=no -->
+<!-- wf: commits=cc9a4f7 left=- tests=server:pass,agent:pass blocked=no -->
