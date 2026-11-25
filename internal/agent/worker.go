@@ -10,6 +10,7 @@ import (
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/capture"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/channel"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/evidence"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/exec"
 )
 
@@ -70,8 +71,12 @@ type worker struct {
 	ready     chan struct{} // closed when the first executor exists
 	readyOnce sync.Once
 
-	cmu  sync.Mutex // guards caps
+	cmu  sync.Mutex // guards caps and live
 	caps map[string]SessionCapture
+	live map[string]struct{} // sessions running now (the idle-push condition)
+
+	ev     *evidence.Agent // evidence sync endpoint (evidence.go); nil when unavailable
+	evDone chan struct{}   // closed when the idle-push loop has ended
 
 	wg sync.WaitGroup // runs waiting for the first config
 }
@@ -84,12 +89,15 @@ func newWorker(cfg Config) *worker {
 		cfg.CaptureFactory = liveFactory
 	}
 	base, stop := context.WithCancel(context.Background())
-	return &worker{
+	w := &worker{
 		cfg: cfg, log: cfg.Logger, sender: &lazySender{},
 		base: base, stop: stop,
 		ready: make(chan struct{}),
 		caps:  map[string]SessionCapture{},
+		live:  map[string]struct{}{},
 	}
+	w.initEvidence()
+	return w
 }
 
 // start attaches the worker to the agent's lifetime context. Called once,
@@ -97,6 +105,7 @@ func newWorker(cfg Config) *worker {
 func (w *worker) start(ctx context.Context) {
 	w.stop()
 	w.base, w.stop = context.WithCancel(ctx)
+	w.startEvidence()
 }
 
 // onConnect runs when the main server's connection is established: it asks for
@@ -112,6 +121,8 @@ func (w *worker) onConnect(peer string) {
 	if err != nil {
 		w.log.Warn("request config", "component", "fleet-agent", "err", err)
 	}
+	// An idle agent offers segments the server lacks as soon as it is connected.
+	go w.offerEvidence()
 }
 
 // handle is the channel.Handler. It never blocks on a running command.
@@ -129,6 +140,8 @@ func (w *worker) handle(ctx context.Context, env channel.Envelope) {
 			defer w.wg.Done()
 			w.runWhenConfigured(env)
 		}()
+	case channel.TypeEvManifestReq, channel.TypeEvRange, channel.TypeEvVerify:
+		w.handleEvidence(ctx, env) // evidence sync: pull and idle-push exchanges
 	default:
 		// input, resize, terminate, confirm: addressed by session id, so every
 		// executor gets them and the one that owns the session acts.
@@ -198,6 +211,9 @@ func (w *worker) shutdown() {
 	w.mu.Unlock()
 
 	w.wg.Wait()
+	if w.evDone != nil {
+		<-w.evDone
+	}
 	for _, ex := range exs {
 		ex.Shutdown() // ends sessions; OnSessionEnd stops their captures
 	}
@@ -218,6 +234,9 @@ func (w *worker) shutdown() {
 // sessionStart is the executor's OnSessionStart hook: attach capture to the
 // session's cgroup. Capture is best-effort and never fails the command.
 func (w *worker) sessionStart(s *exec.Session) {
+	w.cmu.Lock()
+	w.live[s.ID] = struct{}{}
+	w.cmu.Unlock()
 	w.mu.Lock()
 	c := w.capt
 	w.mu.Unlock()
@@ -243,6 +262,7 @@ func (w *worker) sessionStart(s *exec.Session) {
 // sessionEnd is the executor's OnSessionEnd hook: stop the session's capture.
 func (w *worker) sessionEnd(info exec.SessionInfo) {
 	w.cmu.Lock()
+	delete(w.live, info.ID)
 	sc := w.caps[info.ID]
 	delete(w.caps, info.ID)
 	w.cmu.Unlock()
