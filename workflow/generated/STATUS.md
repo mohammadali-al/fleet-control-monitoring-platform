@@ -5,7 +5,10 @@
 ## Now (running / in review)
 _none_
 ## Next (ready, in order)
-_none_
+- **T-0025** agent-dial-channel  `after: [T-0003]`
+- **T-0026** token-enrollment  `after: [T-0006, T-0025]`
+- **T-0027** agent-heartbeat-liveness  `after: [T-0012, T-0022]`
+
 ## Waiting for the operator (merged → see CHECKS.md)
 - **T-0001** project-skeleton  `after: []`
 - **T-0002** internal-ca  `after: [T-0001]`
