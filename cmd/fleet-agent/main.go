@@ -1,6 +1,7 @@
 // Command fleet-agent is the role-profiled agent daemon. The worker role runs
 // the control-channel listener, the command executor and evidence capture
-// (internal/agent); the monitor role is not implemented yet.
+// (internal/agent); the monitor role runs the probe engine for the targets the
+// main server pushes and flushes the results back over the channel.
 package main
 
 import (
@@ -8,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -23,6 +25,13 @@ func main() {
 	code := run(ctx, os.Args[1:], os.Stdout, os.Stderr)
 	stop()
 	os.Exit(code)
+}
+
+// runner is a built agent of either role: it is bound to its channel address
+// and serves until its context is cancelled.
+type runner interface {
+	Addr() net.Addr
+	Run(ctx context.Context) error
 }
 
 // run is main with its inputs explicit: it serves until ctx is cancelled (a
@@ -61,21 +70,23 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	var (
+		a       runner
+		dataDir string
+	)
 	switch ac.Role {
-	case config.RoleWorker:
 	case config.RoleMonitor:
-		// TODO(T-0010 follow-up): the monitor runtime (probes, mon-config,
-		// mon-data) is wired after the monitors task; until then say so plainly.
-		fmt.Fprintln(stderr, "fleet-agent: the monitor role is not implemented yet")
-		return 1
+		// A monitor agent needs no data directory and no root: probes are
+		// unprivileged (raw ICMP is the one exception and fails per probe).
+		a, err = agent.MonitorFromConfig(ac, log)
+	default:
+		dataDir, err = ac.ResolveDataDir()
+		if err != nil {
+			fmt.Fprintf(stderr, "fleet-agent: %v\n", err)
+			return 1
+		}
+		a, err = agent.FromConfig(ac, dataDir, log)
 	}
-
-	dataDir, err := ac.ResolveDataDir()
-	if err != nil {
-		fmt.Fprintf(stderr, "fleet-agent: %v\n", err)
-		return 1
-	}
-	a, err := agent.FromConfig(ac, dataDir, log)
 	if err != nil {
 		fmt.Fprintf(stderr, "fleet-agent: %v\n", err)
 		return 1

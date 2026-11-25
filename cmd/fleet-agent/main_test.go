@@ -68,8 +68,9 @@ func writeAgentConfig(t *testing.T, role string) string {
 	return path
 }
 
-func TestWorkerStartsAndShutsDownCleanly(t *testing.T) {
-	cfg := writeAgentConfig(t, "worker")
+func startsAndShutsDownCleanly(t *testing.T, role string) {
+	t.Helper()
+	cfg := writeAgentConfig(t, role)
 	var stdout, stderr lockedBuf
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -82,7 +83,7 @@ func TestWorkerStartsAndShutsDownCleanly(t *testing.T) {
 		case code := <-done:
 			t.Fatalf("exited early with %d: %s", code, stderr.String())
 		case <-deadline:
-			t.Fatalf("worker did not start: %s", stderr.String())
+			t.Fatalf("%s did not start: %s", role, stderr.String())
 		case <-time.After(10 * time.Millisecond):
 		}
 	}
@@ -93,21 +94,26 @@ func TestWorkerStartsAndShutsDownCleanly(t *testing.T) {
 			t.Errorf("exit code %d, want 0; log: %s", code, stderr.String())
 		}
 	case <-time.After(10 * time.Second):
-		t.Fatal("worker did not shut down")
+		t.Fatalf("%s did not shut down", role)
 	}
 	if !strings.Contains(stderr.String(), "shut down") {
 		t.Errorf("no clean-shutdown log line: %s", stderr.String())
 	}
 }
 
-func TestMonitorRoleIsNotImplementedYet(t *testing.T) {
+func TestWorkerStartsAndShutsDownCleanly(t *testing.T) { startsAndShutsDownCleanly(t, "worker") }
+
+// The monitor role runs (no root, no data dir needed) and stops on cancel.
+func TestMonitorStartsAndShutsDownCleanly(t *testing.T) { startsAndShutsDownCleanly(t, "monitor") }
+
+func TestMonitorNeedsOnboarding(t *testing.T) {
 	var stdout, stderr lockedBuf
 	code := run(context.Background(), []string{"--role", "monitor"}, &stdout, &stderr)
-	if code == 0 {
-		t.Error("monitor role exited 0; it must not pretend to run")
+	if code == 0 || !strings.Contains(stderr.String(), "machine_id") {
+		t.Errorf("unonboarded monitor: exit %d, stderr %q, want a machine_id error", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "not implemented") {
-		t.Errorf("stderr = %q, want a not-implemented message", stderr.String())
+	if strings.Contains(stderr.String(), "not implemented") {
+		t.Errorf("stderr still says the monitor role is not implemented: %q", stderr.String())
 	}
 }
 

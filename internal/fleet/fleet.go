@@ -23,6 +23,7 @@ import (
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/exec"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/onboard"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/probe"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/registry"
 )
 
@@ -87,6 +88,24 @@ type Config struct {
 	// Capture is the per-node evidence-capture configuration pushed with it
 	// (an all-zero value pushes no capture section).
 	Capture config.CaptureConfig
+	// Monitor wires the monitor-agent data path (see MonitorSource). The zero
+	// value pushes no monitor config and drops mon-data; SetMonitor can bind it
+	// later.
+	Monitor MonitorSource
+}
+
+// MonitorIngestor receives the mon-data envelopes of a monitor agent;
+// monitor.Ingestor implements it. agentID is the machine's verified id.
+type MonitorIngestor interface {
+	Handle(ctx context.Context, agentID string, env channel.Envelope) error
+}
+
+// MonitorSource connects the manager to the monitor jobs and the sample sink:
+// ConfigFor is monitor.Jobs.ConfigFor (the targets, frequency and timeouts of
+// one monitor agent) and Ingest is a monitor.Ingestor writing into the Sink.
+type MonitorSource struct {
+	ConfigFor func(agent string) probe.Config
+	Ingest    MonitorIngestor
 }
 
 // MachineInfo is a registry entry plus its live state.
@@ -171,6 +190,7 @@ type Manager struct {
 	stop   context.CancelFunc
 	nodes  map[string]*node
 	closed bool
+	mon    MonitorSource
 
 	omu      sync.Mutex
 	outputs  map[string]*outBuf
@@ -197,7 +217,7 @@ func New(cfg Config) (*Manager, error) {
 		cfg.ConfirmTTL = defaultConfirm
 	}
 	return &Manager{
-		cfg: cfg, log: cfg.Logger, bus: newBus(),
+		cfg: cfg, log: cfg.Logger, bus: newBus(), mon: cfg.Monitor,
 		nodes:    map[string]*node{},
 		outputs:  map[string]*outBuf{},
 		sessions: map[string]string{},
@@ -338,8 +358,15 @@ func (m *Manager) agentHandler(n *node, role string, next channel.Handler) chann
 	return func(ctx context.Context, env channel.Envelope) {
 		switch env.Type {
 		case channel.TypeConfigReq:
-			if role == registry.RoleWorker {
+			switch role {
+			case registry.RoleWorker:
 				m.pushConfig(ctx, n)
+			case registry.RoleMonitor:
+				m.pushMonitorConfig(ctx, n)
+			}
+		case channel.TypeMonData:
+			if role == registry.RoleMonitor {
+				m.ingestMonitorData(ctx, n, env)
 			}
 		case channel.TypeConfigAck:
 			var ack channel.ConfigAckPayload
@@ -379,6 +406,73 @@ func (m *Manager) pushConfig(ctx context.Context, n *node) {
 		return
 	}
 	m.log.Info("pushed config", "component", "fleet", "machine", n.id)
+}
+
+// SetMonitor binds (or replaces) the monitor jobs and sink. Monitor agents
+// that connect afterwards get their config from it; call PushMonitorConfigs to
+// bring already-connected ones up to date.
+func (m *Manager) SetMonitor(src MonitorSource) {
+	m.mu.Lock()
+	m.mon = src
+	m.mu.Unlock()
+}
+
+func (m *Manager) monitorSource() MonitorSource {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.mon
+}
+
+// pushMonitorConfig sends a monitor agent its mon-config: the targets assigned
+// to it, with the global frequency and timeouts (monitor jobs ConfigFor). The
+// agent applies it idempotently, so it is re-sent on every connection.
+func (m *Manager) pushMonitorConfig(ctx context.Context, n *node) {
+	src := m.monitorSource()
+	if src.ConfigFor == nil {
+		m.log.Debug("no monitor jobs to push", "component", "fleet", "machine", n.id)
+		return
+	}
+	cfg := src.ConfigFor(n.id)
+	env, err := channel.NewEnvelope(channel.TypeMonConfig, "mon-config", cfg)
+	if err == nil {
+		err = n.link.Send(ctx, env)
+	}
+	if err != nil {
+		m.log.Warn("push monitor config", "component", "fleet", "machine", n.id, "err", err)
+		return
+	}
+	m.log.Info("pushed monitor config", "component", "fleet", "machine", n.id, "targets", len(cfg.Targets))
+}
+
+// PushMonitorConfigs re-sends mon-config to every connected monitor agent, for
+// after the jobs, targets or probe settings changed. Agents that are offline
+// get theirs when they connect.
+func (m *Manager) PushMonitorConfigs(ctx context.Context) {
+	m.mu.Lock()
+	var nodes []*node
+	for id, n := range m.nodes {
+		if mc, ok := m.cfg.Registry.Get(id); ok && mc.Role == registry.RoleMonitor && n.link != nil && n.link.Online() {
+			nodes = append(nodes, n)
+		}
+	}
+	m.mu.Unlock()
+	for _, n := range nodes {
+		m.pushMonitorConfig(ctx, n)
+	}
+}
+
+// ingestMonitorData hands one mon-data envelope to the ingest path. The agent
+// identity is the machine this link is verified against, never a field of the
+// batch. It runs on the link's read loop, so batches arrive in order.
+func (m *Manager) ingestMonitorData(ctx context.Context, n *node, env channel.Envelope) {
+	ing := m.monitorSource().Ingest
+	if ing == nil {
+		m.log.Debug("mon-data dropped: no ingest configured", "component", "fleet", "machine", n.id)
+		return
+	}
+	if err := ing.Handle(ctx, n.id, env); err != nil {
+		m.log.Warn("ingest mon-data", "component", "fleet", "machine", n.id, "err", err)
+	}
 }
 
 type senderFunc func(ctx context.Context, env channel.Envelope) error
