@@ -2,7 +2,7 @@
 
 ## 2026-11-25: token enrollment built (Go 1.26.8), two commits (backend, then UI + wiring) + one `.patch`
 
-**Split, as the brief allowed.** Commit 1 (`222c0e8`) is the whole backend; commit 2 is the Machines-page UI,
+**Split, as the brief allowed.** Commit 1 (`222c0e8`) is the whole backend; commit 2 (`2857354`) is the Machines-page UI,
 the `cmd/fleet-server` wiring and this log. Both land clean; nothing was left half done.
 
 **Built.**
@@ -102,4 +102,4 @@ applied, setting `enroll_addr` is a clear startup error** (enrollment stays off;
 - Operators must put the binaries to serve in `agent_binary_dir` (`fleet-agent-linux-amd64`, ...);
   `agent_binary_path` serves only the server's own platform. Packaging remains a later task.
 
-<!-- wf: commits=222c0e8,see-git-log tests=server:pass blocked=no left=- -->
+<!-- wf: commits=222c0e8,2857354 left=- tests=server:pass blocked=no -->
