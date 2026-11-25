@@ -7,6 +7,7 @@ _none_
 ## Next (ready, in order)
 - **T-0034** panel-hacker-restyle-samples  `after: []`
 - **T-0036** github-release-and-installer  `after: [T-0024, T-0032, T-0035]`
+- **T-0037** secret-scan-history  `after: []`
 
 ## Waiting for the operator (merged → see CHECKS.md)
 - **T-0001** project-skeleton  `after: []`
