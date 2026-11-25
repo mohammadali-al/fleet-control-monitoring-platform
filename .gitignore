@@ -7,3 +7,6 @@ coverage.*
 /data/
 
 .claude/settings.local.json
+
+# Master design doc kept outside the (public) repo
+Fleet_Control_Monitoring_Platform_Architecture*.md
