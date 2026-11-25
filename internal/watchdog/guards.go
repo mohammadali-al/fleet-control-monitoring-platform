@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -67,6 +68,10 @@ type Guards struct {
 	// guards then start in alert-only mode (fail safe: never risk a reboot
 	// loop on lost counters) until an operator resets them.
 	Corrupt error
+	// OnReset, if set, is called (outside the guards' lock) when a reset
+	// request left by another process is applied by Roll, with the time it was
+	// applied. The agent uses it to report the reset to the server.
+	OnReset func(now time.Time)
 }
 
 // LoadGuards reads the persisted state at <dataDir>/watchdog/state.json. A
@@ -102,6 +107,11 @@ func dayKey(t time.Time) string { return t.Format("2006-01-02") }
 // last written: the daily counters reset, and so does a latched alert-only mode
 // if autoReset is set. It reports whether the date changed.
 func (g *Guards) Roll(now time.Time, autoReset bool) bool {
+	if g.takeResetRequest() {
+		if err := g.Reset(now); err == nil && g.OnReset != nil {
+			g.OnReset(now)
+		}
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	today := dayKey(now)
@@ -214,6 +224,37 @@ func (g *Guards) Reset(now time.Time) error {
 	g.state.Stage = StepNone
 	g.Corrupt = nil
 	return g.saveLocked()
+}
+
+// resetRequestName is the marker file, next to state.json, through which the
+// process that holds the control channel asks the running watchdog (another
+// process, D-0006) to reset its counters: the watchdog owns state.json and
+// rewrites it from memory, so the channel process must not edit it.
+const resetRequestName = "reset.request"
+
+func resetRequestPath(dataDir string) string {
+	return filepath.Join(dataDir, WatchdogSubdir, resetRequestName)
+}
+
+// RequestReset asks the watchdog that reads dataDir to do the operator's
+// counter reset (Reset) at its next sample: daily counters, alert-only latch
+// and ladder stage cleared, cooldowns kept. It is safe to call whether or not a
+// watchdog is running; the request waits for the next one. Repeated requests
+// before it is applied are one reset.
+func RequestReset(dataDir string, now time.Time) error {
+	return writeFileAtomic(resetRequestPath(dataDir), []byte(now.UTC().Format(time.RFC3339Nano)+"\n"), 0o640)
+}
+
+// ResetRequested reports whether a reset request is waiting under dataDir.
+func ResetRequested(dataDir string) bool {
+	_, err := os.Stat(resetRequestPath(dataDir))
+	return err == nil
+}
+
+// takeResetRequest removes a pending reset request and reports whether there
+// was one. Removing is the test, so a request is taken exactly once.
+func (g *Guards) takeResetRequest() bool {
+	return os.Remove(filepath.Join(filepath.Dir(g.path), resetRequestName)) == nil
 }
 
 func (g *Guards) saveLocked() error {

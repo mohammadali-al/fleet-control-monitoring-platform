@@ -1,0 +1,12 @@
+diff --git a/web/assets/js/live.js b/web/assets/js/live.js
+index 5f7ee29..dff75af 100644
+--- a/web/assets/js/live.js
++++ b/web/assets/js/live.js
+@@ -1655,7 +1655,6 @@
+           tr.appendChild(td(h.condition === 'not-reporting' ? '-' : h.reboots_today + ' / ' + h.reboot_cap, 'num' + (h.condition === 'not-reporting' ? ' faint' : '')));
+           tr.appendChild(td(h.last_event ? fmtAgo(h.last_event.time) + ': ' + ((KIND[h.last_event.kind] || [0, h.last_event.kind])[1]) : 'none', h.last_event ? 'nowrap' : 'faint nowrap'));
+           var btn = el('button', 'btn btn--sm'); btn.type = 'button'; btn.textContent = 'Reset counters';
+-          btn.setAttribute('data-stub', 'Resetting counters needs a control-channel message to the agent\'s watchdog, which does not exist yet (a later task). Until then a counter reset is done on the host.');
+           tr.appendChild(td(btn, 'actions'));
+           tb.appendChild(tr);
+         });

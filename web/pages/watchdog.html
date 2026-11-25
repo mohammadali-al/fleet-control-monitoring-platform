@@ -1,5 +1,52 @@
 {{define "title"}}Watchdog{{end}}
-{{define "scripts"}}<script src="assets/js/live.js" defer></script>{{end}}
+{{define "scripts"}}<script src="assets/js/live.js" defer></script>
+<script defer>
+/* Counter reset (T-0028): the page-header button resets every connected worker,
+   the per-host buttons (rendered by live.js) reset one. The capture-phase
+   listener runs before the generic data-stub toast, so a per-host button that
+   still carries the old stub marker resets instead of announcing a stub. */
+(function () {
+  var NOTE = 'The watchdog clears the counters at its next sample (a few seconds). Cooldowns are kept, so a reset does not allow an immediate second restart or reboot.';
+  function say(kind, msg) {
+    var box = document.getElementById('wd-status');
+    if (!box) return;
+    box.hidden = false;
+    box.className = 'alert' + (kind === 'ok' ? '' : ' alert--' + kind);
+    box.textContent = msg;
+  }
+  function reset(machine, btn) {
+    var what = machine ? 'the counters and alert-only latch of ' + machine : 'the counters and alert-only latch of every connected worker agent';
+    if (!window.confirm('Reset ' + what + '? ' + NOTE)) return;
+    btn.disabled = true;
+    fetch('/api/watchdog/reset', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify(machine ? { machine: machine } : {})
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, data: d }; });
+    }).then(function (r) {
+      if (!r.ok) { say('danger', r.data.error || 'The counters were not reset.'); return; }
+      var n = (r.data.reset || []).length, bad = (r.data.failed || []).length;
+      if (machine) say('ok', 'Reset sent to ' + machine + '. ' + NOTE);
+      else if (!n && !bad) say('info', 'No worker agent is connected; nothing was reset.');
+      else say(bad ? 'danger' : 'ok', 'Reset sent to ' + n + ' worker agent' + (n === 1 ? '' : 's') + (bad ? '; failed for ' + r.data.failed.join(', ') : '') + '. ' + NOTE);
+    }, function () { say('danger', 'The server could not be reached; the counters were not reset.'); })
+      .then(function () { btn.disabled = false; });
+  }
+  document.addEventListener('click', function (e) {
+    var all = e.target.closest('#wd-reset-all');
+    if (all) { e.preventDefault(); reset('', all); return; }
+    var b = e.target.closest('#wd-hosts td.actions button');
+    if (!b) return;
+    var head = b.closest('tr').querySelector('th');
+    var name = head && head.firstChild ? head.firstChild.textContent.trim() : '';
+    if (!name) return;
+    e.preventDefault();
+    e.stopPropagation(); // not the generic stub toast
+    reset(name, b);
+  }, true);
+})();
+</script>{{end}}
 {{define "content"}}
       <div class="page-head">
         <div class="page-head__text">
@@ -7,7 +54,7 @@
           <p>Keeps a machine from hitting maximum resource use and becoming unreachable. It is a load safety net, not a tamper-proof supervisor: everything else is for the human watching this panel.</p>
         </div>
         <div class="page-head__actions">
-          <button class="btn" type="button" data-stub="Resetting counters needs a control-channel message to the agent's watchdog, which does not exist yet (a later task). Until then a counter reset is done on the host."><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Reset all counters</button>
+          <button class="btn" type="button" id="wd-reset-all" title="Clear the daily restart and reboot counts, the alert-only latch and the ladder stage on every connected worker agent"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Reset all counters</button>
         </div>
       </div>
       <div class="alert" data-form-status id="wd-status" role="status" aria-live="polite" hidden style="margin-bottom:var(--sp-4)"></div>
