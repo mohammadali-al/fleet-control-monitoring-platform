@@ -168,3 +168,22 @@ type dialerLink struct {
 func (l *dialerLink) Send(ctx context.Context, env channel.Envelope) error { return l.d.Send(ctx, env) }
 func (l *dialerLink) Run(ctx context.Context) error                        { return l.d.Run(ctx) }
 func (l *dialerLink) Online() bool                                         { return l.d.AgentID() == l.id }
+
+// Registry is the machine registry the manager runs on. Token enrollment
+// (internal/enroll) adds machines to it and the manager is told to pick the
+// change up with Reconcile.
+func (m *Manager) Registry() *registry.Registry { return m.cfg.Registry }
+
+// CA is the internal CA the manager's provisioner holds, or nil when
+// provisioning is unavailable.
+func (m *Manager) CA() *pki.CA {
+	if m.cfg.Provisioner == nil {
+		return nil
+	}
+	return m.cfg.Provisioner.CA
+}
+
+// Reconcile starts the links of machines that were added to the registry
+// outside the manager (token enrollment) and drops the links of machines that
+// were removed or detached.
+func (m *Manager) Reconcile() { m.reconcile() }

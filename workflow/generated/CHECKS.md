@@ -29,3 +29,4 @@
 - [ ] T-0029 evidence-pull-agent — Backend. Evidence pull/idle-push now served by the real worker runtime. Verified by review: fleettest pull+push + -race pass. Confirm to close.
 - [ ] T-0025 agent-dial-channel — Backend. Agent-dials-out direction (opt-in server listener via server.agent_dial_addr). Verified by review: both directions equivalent + -race pass. Confirm to close.
 - [ ] T-0028 watchdog-reset-counters — Watchdog page 'Reset counters' now clears a host's caps/alert-only (takes effect at the watchdog's next sample). Verified by review: reset + endpoint + -race pass. Confirm to close.
+- [ ] T-0026 token-enrollment — Machines 'Add agent (token)' gives a short code + one-liner; running it enrolls a permanent agent over agent_dial with specs. Follow-ups: remote Stop on a monitor returns 501 (run `fleet-agent stop` locally, or Detach); per-platform binaries in agent_binary_dir. Confirm to close.

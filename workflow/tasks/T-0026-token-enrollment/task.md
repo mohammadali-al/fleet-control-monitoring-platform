@@ -1,7 +1,7 @@
 ---
 id: T-0026
 title: token-enrollment
-state: ready
+state: merged
 touches: [internal/enroll/enroll.go, internal/enroll/install.go, internal/enroll/enroll_test.go,
           internal/pki/ca.go, internal/registry/registry.go, internal/panel/machines.go,
           internal/panel/machines_test.go, web/pages/machines.html, web/assets/js/live.js,
