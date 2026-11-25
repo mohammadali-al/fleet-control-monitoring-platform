@@ -114,16 +114,23 @@ func (s *Series) Write(_ context.Context, samples []monitor.Sample) error {
 		}
 		live = append(live, LivePoint{SeriesKey: b.key, Point: p})
 	}
-	// Age out old points of the series that were just written to.
+	// Age out old points of the series that were just written to. Points are
+	// appended in arrival order, which is time order per target in practice
+	// but is not relied on (a late batch after an outage may be older).
 	cut := now.Add(-s.retention)
 	for _, sm := range samples {
 		b := s.byKey[sm.Agent+"\x00"+sm.Result.TargetID]
 		if b == nil {
 			continue
 		}
-		i := sort.Search(len(b.pts), func(i int) bool { return !b.pts[i].T.Before(cut) })
-		if i > 0 {
-			b.pts = append([]Point(nil), b.pts[i:]...)
+		keep := b.pts[:0:0]
+		for _, p := range b.pts {
+			if !p.T.Before(cut) {
+				keep = append(keep, p)
+			}
+		}
+		if len(keep) != len(b.pts) {
+			b.pts = keep
 		}
 	}
 	for _, sub := range s.subs {
@@ -143,11 +150,17 @@ func (s *Series) Snapshot(since time.Time) []SeriesData {
 	defer s.mu.Unlock()
 	out := make([]SeriesData, 0, len(s.byKey))
 	for _, b := range s.byKey {
-		i := sort.Search(len(b.pts), func(i int) bool { return !b.pts[i].T.Before(since) })
-		if i == len(b.pts) {
+		var pts []Point
+		for _, p := range b.pts {
+			if !p.T.Before(since) {
+				pts = append(pts, p)
+			}
+		}
+		if len(pts) == 0 {
 			continue
 		}
-		out = append(out, SeriesData{SeriesKey: b.key, Points: append([]Point(nil), b.pts[i:]...)})
+		sort.SliceStable(pts, func(i, j int) bool { return pts[i].T.Before(pts[j].T) })
+		out = append(out, SeriesData{SeriesKey: b.key, Points: pts})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Agent != out[j].Agent {

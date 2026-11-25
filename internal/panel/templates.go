@@ -27,8 +27,8 @@ var pages = []pageSpec{
 	{"terminal", false},
 	{"baseline", true},
 	{"maneuver", true},
-	{"monitor", true},
-	{"watchdog", true},
+	{"monitor", false},
+	{"watchdog", false},
 	{"evidence", false},
 	{"backup", false},
 }

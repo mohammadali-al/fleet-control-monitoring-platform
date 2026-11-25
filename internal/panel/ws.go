@@ -20,12 +20,16 @@ import (
 //	             (JSON text frames, see eventMsg), for every page.
 //	/ws/shell    one interactive shell on a worker agent: the browser's xterm.js
 //	             on one side, the agent's PTY on the other.
+//	/ws/monitor  live probe results as the monitor agents deliver them (Monitor data page).
+//	/ws/watchdog watchdog events as the worker agents forward them (Watchdog page).
 //
 // The browser speaks to the main server only; the agent link stays behind the
 // control channel. Origin is checked by the websocket library (same host).
 func (s *server) routesWS(mux *http.ServeMux) {
 	mux.HandleFunc("GET /ws/events", s.wsEvents)
 	mux.HandleFunc("GET /ws/shell", s.wsShell)
+	mux.HandleFunc("GET /ws/monitor", s.wsMonitor)
+	mux.HandleFunc("GET /ws/watchdog", s.wsWatchdog)
 }
 
 const (
@@ -126,6 +130,89 @@ func (s *server) wsEvents(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if err := writeJSONFrame(ctx, c, msg); err != nil {
+				return
+			}
+		}
+	}
+}
+
+// observeSocket accepts a WebSocket for one of the Observe pages. ok is false
+// when the reply (503 or the handshake error) has already been written.
+func (s *server) observeSocket(w http.ResponseWriter, r *http.Request) (c *websocket.Conn, ctx context.Context, o *fleet.Observe, ob observer, ok bool) {
+	if s.be == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errBody("the panel has no backend configured"))
+		return
+	}
+	ob, isObs := s.be.(observer)
+	if isObs {
+		o = ob.Observe()
+	}
+	if o == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errBody("this server has no monitor or watchdog backend configured"))
+		return
+	}
+	c, err := websocket.Accept(w, r, nil)
+	if err != nil {
+		return // Accept has already written the reply
+	}
+	c.SetReadLimit(wsReadLimit)
+	return c, c.CloseRead(r.Context()), o, ob, true
+}
+
+// wsMonitor streams the probe results the monitor agents deliver:
+//
+//	{"type":"hello"}
+//	{"type":"samples","points":[{"agent":..,"target":..,"history_key":..,"type":"http","t":..,"ms":..,"ok":true}, ...]}
+//
+// The page loads a snapshot from /api/monitor/live and then appends these.
+func (s *server) wsMonitor(w http.ResponseWriter, r *http.Request) {
+	c, ctx, o, _, ok := s.observeSocket(w, r)
+	if !ok {
+		return
+	}
+	defer c.CloseNow()
+	if o.Series == nil {
+		_ = c.Close(websocket.StatusInternalError, "no monitor sink")
+		return
+	}
+	feed, cancel := o.Series.Subscribe()
+	defer cancel()
+	if err := writeJSONFrame(ctx, c, map[string]string{"type": "hello"}); err != nil {
+		return
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case pts := <-feed:
+			if err := writeJSONFrame(ctx, c, map[string]any{"type": "samples", "points": pts}); err != nil {
+				return
+			}
+		}
+	}
+}
+
+// wsWatchdog streams watchdog events as they arrive from the worker agents:
+//
+//	{"type":"hello"}
+//	{"type":"event","event":{"machine":..,"time":..,"kind":..,...}}
+func (s *server) wsWatchdog(w http.ResponseWriter, r *http.Request) {
+	c, ctx, _, ob, ok := s.observeSocket(w, r)
+	if !ok {
+		return
+	}
+	defer c.CloseNow()
+	feed, cancel := ob.SubscribeWatchdog()
+	defer cancel()
+	if err := writeJSONFrame(ctx, c, map[string]string{"type": "hello"}); err != nil {
+		return
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev := <-feed:
+			if err := writeJSONFrame(ctx, c, map[string]any{"type": "event", "event": ev}); err != nil {
 				return
 			}
 		}

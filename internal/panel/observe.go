@@ -35,6 +35,8 @@ type observer interface {
 func (s *server) routesObserve(mux *http.ServeMux) {
 	s.routesEvidence(mux)
 	s.routesBackup(mux)
+	s.routesMonitor(mux)
+	s.routesWatchdog(mux)
 }
 
 // observed wraps a handler of an Observe/Admin API: it needs the live backend

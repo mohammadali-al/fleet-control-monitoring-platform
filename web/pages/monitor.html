@@ -1,4 +1,5 @@
 {{define "title"}}Monitor data{{end}}
+{{define "scripts"}}<script src="assets/js/live.js" defer></script>{{end}}
 {{define "content"}}
       <div class="page-head">
         <div class="page-head__text">
@@ -6,9 +7,10 @@
           <p>Availability and response time of the targets, probed continuously by the monitor agents. This is <strong>monitor data</strong>: it is stored and shown separately from worker evidence logs.</p>
         </div>
         <div class="page-head__actions">
-          <span class="chip chip--ok"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-check"/></svg>4 of 4 monitor agents reporting</span>
+          <span class="chip {{if and .Summary.Monitors (eq .Summary.MonitorsOnline .Summary.Monitors)}}chip--ok{{else}}chip--warn{{end}}" id="mon-agents-chip"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-{{if and .Summary.Monitors (eq .Summary.MonitorsOnline .Summary.Monitors)}}check{{else}}alert{{end}}"/></svg>{{.Summary.MonitorsOnline}} of {{.Summary.Monitors}} monitor agents online</span>
         </div>
       </div>
+      <div class="alert" data-form-status id="mon-status" role="status" aria-live="polite" hidden style="margin-bottom:var(--sp-4)"></div>
 
       <div class="card">
         <div class="tabs" role="tablist" aria-label="Monitor data views" data-tabs>
@@ -28,77 +30,48 @@
                   <label><input type="radio" name="view" value="target"><span>Per target</span></label>
                 </div>
                 <label class="sr-only" for="m-target">Target</label>
-                <select class="select" id="m-target" style="width:auto"><option>shop.example.test · 198.51.100.10</option><option>dns.example.test · 198.51.100.12</option></select>
+                <select class="select" id="m-target" style="width:auto"><option value="">All targets</option></select>
               </div>
               <div class="row">
                 <label class="sr-only" for="m-win">Live window</label>
-                <select class="select" id="m-win" style="width:auto"><option>Last 60 s (default)</option><option>Last 2 min</option><option>Last 5 min</option></select>
-                <button class="btn" type="button" data-stub="Static preview: pausing the live chart is not wired yet."><svg class="icon" aria-hidden="true"><use href="#i-pause"/></svg>Pause</button>
+                <select class="select" id="m-win" style="width:auto"><option value="60">Last 60 s (default)</option><option value="120">Last 2 min</option><option value="300">Last 5 min</option></select>
+                <button class="btn" type="button" id="m-pause"><svg class="icon" aria-hidden="true"><use href="#i-pause"/></svg><span>Pause</span></button>
               </div>
             </div>
 
             <section class="grid" aria-label="Current values">
-              <div class="card stat col-3 col-3--md-6"><div class="stat__label">Availability (60 s)</div><div class="stat__value">99.2 <small>%</small></div><div class="stat__note">1 failed probe of 120</div></div>
-              <div class="card stat col-3 col-3--md-6"><div class="stat__label">Response time, median</div><div class="stat__value">184 <small>ms</small></div><div class="stat__note">95th percentile 412 ms</div></div>
-              <div class="card stat col-3 col-3--md-6"><div class="stat__label">Last result</div><div class="stat__value">1.4 <small>s ago</small></div><div class="stat__note">Monitors flush every 2-3 s</div></div>
-              <div class="card stat col-3 col-3--md-6"><div class="stat__label">Probe types</div><div class="stat__value">3</div><div class="stat__note">HTTP(S), TCP connect, ICMP</div></div>
+              <div class="card stat col-3 col-3--md-6"><div class="stat__label">Availability</div><div class="stat__value" id="mon-avail">-</div><div class="stat__note" id="mon-avail-note">No results yet</div></div>
+              <div class="card stat col-3 col-3--md-6"><div class="stat__label">Response time, median</div><div class="stat__value" id="mon-median">-</div><div class="stat__note" id="mon-p95">&nbsp;</div></div>
+              <div class="card stat col-3 col-3--md-6"><div class="stat__label">Last result</div><div class="stat__value" id="mon-last">-</div><div class="stat__note">Monitors flush every 2-3 s</div></div>
+              <div class="card stat col-3 col-3--md-6"><div class="stat__label">Probe types</div><div class="stat__value" id="mon-types">-</div><div class="stat__note" id="mon-types-note">&nbsp;</div></div>
             </section>
 
-            <figure class="chart-ph" aria-labelledby="chart-cap">
-              <figcaption id="chart-cap" class="row row--between" style="margin-bottom:var(--sp-2)"><b>Response time, all monitors merged</b><span class="muted">Mock data · raw points are queryable, display is downsampled</span></figcaption>
+            <figure class="chart-ph" aria-labelledby="chart-cap" style="border-style:solid">
+              <figcaption id="chart-cap" class="row row--between" style="margin-bottom:var(--sp-2)"><b id="mon-caption">Response time</b><span class="muted" id="mon-sub">Live from the monitor agents</span></figcaption>
               <div class="chart-ph__plot plot" style="height:12rem">
-                <svg viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true">
-                  <polyline fill="none" stroke="var(--series-1)" stroke-width="1.6" vector-effect="non-scaling-stroke" points="0,46 17,45 33,22 50,18 67,40 83,44 100,42 117,30 133,24 150,41 167,45 183,43 200,44"/>
-                  <polyline fill="none" stroke="var(--series-2)" stroke-width="1.6" stroke-dasharray="6 3" vector-effect="non-scaling-stroke" points="0,48 17,47 33,28 50,22 67,42 83,46 100,45 117,34 133,29 150,44 167,47 183,46 200,46"/>
-                  <polyline fill="none" stroke="var(--series-3)" stroke-width="1.6" stroke-dasharray="2 3" vector-effect="non-scaling-stroke" points="0,44 17,44 33,20 50,16 67,38 83,43 100,40 117,27 133,21 150,38 167,44 183,42 200,43"/>
-                  <polyline fill="none" stroke="var(--series-4)" stroke-width="1.6" stroke-dasharray="8 3 2 3" vector-effect="non-scaling-stroke" points="0,50 17,49 33,32 50,26 67,45 83,48 100,47 117,38 133,33 150,46 167,49 183,48 200,48"/>
-                </svg>
-                <div class="plot__cols" aria-hidden="true">
-                  <span class="plot__col" data-tip="-60 s to -55 s|No commands in this interval|Median 188 ms"></span>
-                  <span class="plot__col" data-tip="-55 s to -50 s|No commands in this interval|Median 186 ms"></span>
-                  <span class="plot__col" data-tip="-50 s to -45 s|Commands: HTTP GET flood (5 worker agents)|1,204 packets sent|Median 301 ms"></span>
-                  <span class="plot__col" data-tip="-45 s to -40 s|Commands: HTTP GET flood (5 worker agents)|2,860 packets sent|Median 412 ms"></span>
-                  <span class="plot__col" data-tip="-40 s to -35 s|Commands: HTTP GET flood (5 worker agents)|2,911 packets sent|Median 398 ms"></span>
-                  <span class="plot__col" data-tip="-35 s to -30 s|No commands in this interval|Median 205 ms"></span>
-                  <span class="plot__col" data-tip="-30 s to -25 s|No commands in this interval|Median 191 ms"></span>
-                  <span class="plot__col" data-tip="-25 s to -20 s|Commands: TCP SYN burst (4 worker agents)|9,402 packets sent|Median 266 ms"></span>
-                  <span class="plot__col" data-tip="-20 s to -15 s|Commands: TCP SYN burst (4 worker agents)|10,118 packets sent|Median 301 ms"></span>
-                  <span class="plot__col" data-tip="-15 s to -10 s|No commands in this interval|Median 196 ms"></span>
-                  <span class="plot__col" data-tip="-10 s to -5 s|No commands in this interval|Median 184 ms"></span>
-                  <span class="plot__col" data-tip="-5 s to now|No commands in this interval|Median 181 ms"></span>
-                </div>
+                <svg id="mon-svg" viewBox="0 0 200 60" preserveAspectRatio="none" role="img" aria-label="Response time chart"></svg>
+                <div class="chart-ph__label" id="mon-empty"><span>Waiting for results from the monitor agents</span></div>
+                <div class="plot__cols" id="mon-cols" aria-hidden="true"></div>
               </div>
-              <div class="ovl" role="group" aria-label="Command overlay: commands mapped onto this timeline">
+              <div class="ovl" id="mon-ovl" role="group" aria-label="Command overlay: commands mapped onto this timeline">
                 <span class="ovl__label">Commands</span>
-                <button class="ovl__mark" type="button" style="left:16.6%;width:25%" aria-label="HTTP GET flood from 50 to 35 seconds ago, about 7,000 packets" data-tip="HTTP GET flood|5 worker agents · 15 s|about 7,000 packets sent"></button>
-                <button class="ovl__mark" type="button" style="left:58.3%;width:16.6%" aria-label="TCP SYN burst from 25 to 15 seconds ago, about 19,500 packets" data-tip="TCP SYN burst|4 worker agents · 10 s|about 19,500 packets sent"></button>
               </div>
-              <div class="zoom__axis" aria-hidden="true"><span style="left:0">-60 s</span><span style="left:25%">-45 s</span><span style="left:50%">-30 s</span><span style="left:75%">-15 s</span><span style="left:100%">now</span></div>
-              <div class="legend">
-                <span class="legend__item"><span class="legend__swatch"></span>mon-01</span>
-                <span class="legend__item"><span class="legend__swatch legend__swatch--dash" style="border-top-color:var(--series-2)"></span>mon-02</span>
-                <span class="legend__item"><span class="legend__swatch legend__swatch--dot" style="border-top-color:var(--series-3)"></span>mon-03</span>
-                <span class="legend__item"><span class="legend__swatch" style="border-top-color:var(--series-4);border-top-style:double;border-top-width:4px"></span>mon-04</span>
-              </div>
-              <p class="field__hint" style="margin-top:var(--sp-2)">Hover or focus a command marker (or hover the chart) to see which commands ran in that interval and how many packets they sent. The overlay is not live: it appears once the evidence is available on the main server.</p>
+              <div class="zoom__axis" id="mon-axis" aria-hidden="true"></div>
+              <div class="legend" id="mon-legend"></div>
+              <p class="field__hint" style="margin-top:var(--sp-2)">Hover or focus a command marker (or hover the chart) to see which commands ran in that interval. Packet counts come from the evidence on the main server, so a command shows its packets once that evidence has been pulled; the chart itself is live. Failed probes are marked at the bottom of the chart.</p>
             </figure>
 
             <details class="card">
               <summary class="card__head" style="cursor:pointer"><h2>Data table (accessible alternative to the chart)</h2><svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
               <div class="table-wrap"><table class="table">
                 <caption class="sr-only">Latest samples per monitor agent</caption>
-                <thead><tr><th scope="col">Monitor agent</th><th scope="col">Probe</th><th scope="col" class="num">Last response</th><th scope="col" class="num">Success (60 s)</th><th scope="col">Last result</th></tr></thead>
-                <tbody>
-                  <tr><th scope="row">mon-01</th><td>HTTPS</td><td class="num">181 ms</td><td class="num">100%</td><td>1.4 s ago</td></tr>
-                  <tr><th scope="row">mon-02</th><td>HTTPS</td><td class="num">190 ms</td><td class="num">98.3%</td><td>2.1 s ago</td></tr>
-                  <tr><th scope="row">mon-03</th><td>TCP connect</td><td class="num">176 ms</td><td class="num">100%</td><td>1.8 s ago</td></tr>
-                  <tr><th scope="row">mon-04</th><td>ICMP</td><td class="num">203 ms</td><td class="num">100%</td><td>2.6 s ago</td></tr>
-                </tbody></table></div>
+                <thead><tr><th scope="col">Monitor agent</th><th scope="col">State</th><th scope="col">Probe</th><th scope="col" class="num">Last response</th><th scope="col" class="num">Success (window)</th><th scope="col">Last result</th></tr></thead>
+                <tbody id="mon-table"><tr><td colspan="6" class="faint">Loading...</td></tr></tbody></table></div>
             </details>
 
             <section class="card" aria-labelledby="gf-title">
               <div class="card__head"><div><h2 id="gf-title">Grafana</h2><p>Detailed dashboards from the time-series store, embedded.</p></div></div>
-              <div class="card__body"><div class="frame-ph" role="img" aria-label="Embedded Grafana frame placeholder"><div><b>Embedded Grafana dashboard mounts here</b>Shared sign-in with the panel; no separate login.</div></div></div>
+              <div class="card__body"><div class="frame-ph" role="img" aria-label="Embedded Grafana frame placeholder"><div><b>Placeholder: not wired yet</b>The long-term time-series store and its embedded dashboards come in a later task; this page shows the live window only.</div></div></div>
             </section>
           </div>
         </div>
@@ -106,7 +79,8 @@
         <!-- ================= HISTORY (semantic zoom) ================= -->
         <div class="card__body tabpanel" role="tabpanel" id="mp-hist" aria-labelledby="mtab-hist" hidden>
           <div class="stack">
-            <div class="alert"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><div>History opens as an <strong>overview of the whole timeline</strong>, with dense detail collapsed into merged labels. Zoom in to reveal more, like scrubbing a video editor. (Mock: three fixed zoom levels.)</div></div>
+            <div class="alert alert--warn" role="note"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><div><strong>Preview with sample data.</strong> The long-term history needs the time-series store, which is not wired yet. Nothing on this tab is real; the Live tab is.</div></div>
+            <div class="alert"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><div>History opens as an <strong>overview of the whole timeline</strong>, with dense detail collapsed into merged labels. Zoom in to reveal more, like scrubbing a video editor. </div></div>
             <div class="row row--between">
               <div class="row">
                 <label class="sr-only" for="h-target">Target</label>
@@ -154,7 +128,7 @@
             </div>
 
             <figure class="chart-ph" aria-labelledby="hchart-cap">
-              <figcaption id="hchart-cap" class="row row--between" style="margin-bottom:var(--sp-2)"><b>Availability over the selected range</b><span class="muted">Mock data</span></figcaption>
+              <figcaption id="hchart-cap" class="row row--between" style="margin-bottom:var(--sp-2)"><b>Availability over the selected range</b><span class="muted">Sample data (preview)</span></figcaption>
               <div class="chart-ph__plot" style="height:8rem"><svg viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true">
                 <polyline fill="none" stroke="var(--series-1)" stroke-width="1.6" vector-effect="non-scaling-stroke" points="0,8 60,8 62,30 66,8 110,8 112,24 118,8 150,8 154,34 158,8 200,8"/></svg>
                 <div class="chart-ph__label"><span>Chart placeholder</span></div></div>
@@ -167,14 +141,16 @@
         <div class="card__body tabpanel" role="tabpanel" id="mp-cfg" aria-labelledby="mtab-cfg" hidden>
           <div class="stack">
             <section class="card" aria-labelledby="def-title">
-              <div class="card__head"><div><h2 id="def-title">Global defaults</h2><p>Pushed to every monitor agent; a target can override frequency and timeout.</p></div></div>
-              <form class="card__body stack" data-stub-form="Static preview: defaults were not saved.">
+              <div class="card__head"><div><h2 id="def-title">Global defaults</h2><p>Pushed to every monitor agent; a target can override frequency.</p></div></div>
+              <form class="card__body stack" id="mon-defaults-form">
                 <div class="form-grid">
-                  <div class="field"><label for="d-freq">Probe frequency</label><input class="input input--mono" id="d-freq" value="1 s"><span class="field__hint">From 300 ms to several seconds.</span></div>
-                  <div class="field"><label for="d-to">Timeout</label><input class="input input--mono" id="d-to" value="3 s"></div>
-                  <div class="field"><label for="d-win">Live window</label><input class="input input--mono" id="d-win" value="60 s"><span class="field__hint">Shown on the Live tab.</span></div>
+                  <div class="field"><label for="d-freq">Probe frequency (ms)</label><input class="input input--mono" id="d-freq" name="interval_ms" inputmode="numeric" required><span class="field__hint" id="d-freq-h">From 300 ms to 60 s.</span></div>
+                  <div class="field"><label for="d-to-http">HTTP(S) timeout (ms)</label><input class="input input--mono" id="d-to-http" name="http" inputmode="numeric"></div>
+                  <div class="field"><label for="d-to-tcp">TCP connect timeout (ms)</label><input class="input input--mono" id="d-to-tcp" name="tcp" inputmode="numeric"></div>
+                  <div class="field"><label for="d-to-icmp">ICMP timeout (ms)</label><input class="input input--mono" id="d-to-icmp" name="icmp" inputmode="numeric"></div>
+                  <div class="field"><label for="d-to-dns">DNS timeout (ms)</label><input class="input input--mono" id="d-to-dns" name="dns" inputmode="numeric"></div>
                 </div>
-                <div class="row"><button class="btn btn--primary" type="submit">Save defaults</button></div>
+                <div class="row"><button class="btn btn--primary" type="submit">Save defaults and push</button><span class="muted">The live window is chosen on the Live tab.</span></div>
               </form>
             </section>
 
@@ -182,35 +158,24 @@
               <div class="card__head"><div><h2 id="jobs-title">Monitor jobs</h2><p>Long-lived watchers, not tied to one test. One job per <code>(ip, origin)</code>.</p></div></div>
               <div class="table-wrap"><table class="table">
                 <caption class="sr-only">Monitor jobs</caption>
-                <thead><tr><th scope="col">Origin</th><th scope="col">IP</th><th scope="col">Paths</th><th scope="col">Probes</th><th scope="col">Frequency</th><th scope="col">Monitor agents</th><th scope="col">State</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
-                <tbody>
-                  <tr><th scope="row" class="cell-primary mono">https://shop.example.test</th><td class="mono">198.51.100.10</td><td class="mono">/, /checkout</td>
-                    <td><span class="chip chip--outline">HTTP(S)</span> <span class="chip chip--outline">TCP</span> <span class="chip chip--outline">ICMP</span></td><td>1 s <span class="faint">(default)</span></td><td>mon-01, mon-02, mon-04</td><td><span class="chip chip--ok"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-check"/></svg>Running</span></td>
-                    <td class="actions"><button class="icon-btn icon-btn--sm" type="button" aria-label="Edit monitor job shop.example.test" data-stub="Static preview: editing is not wired yet."><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg></button><button class="icon-btn icon-btn--sm" type="button" aria-label="Delete monitor job shop.example.test" data-stub="Static preview: deleting is not wired yet."><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg></button></td></tr>
-                  <tr><th scope="row" class="cell-primary mono">dns.example.test:53</th><td class="mono">198.51.100.12</td><td class="faint">none</td>
-                    <td><span class="chip chip--outline">DNS</span> <span class="chip chip--outline">ICMP</span></td><td>500 ms <span class="faint">(override)</span></td><td>mon-01, mon-03</td><td><span class="chip chip--ok"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-check"/></svg>Running</span></td>
-                    <td class="actions"><button class="icon-btn icon-btn--sm" type="button" aria-label="Edit monitor job dns.example.test" data-stub="Static preview: editing is not wired yet."><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg></button><button class="icon-btn icon-btn--sm" type="button" aria-label="Delete monitor job dns.example.test" data-stub="Static preview: deleting is not wired yet."><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg></button></td></tr>
-                </tbody></table></div>
-              <div class="card__foot">Each monitor agent is assigned 2-3 targets. Mock data.</div>
+                <thead><tr><th scope="col">Origin</th><th scope="col">IP</th><th scope="col">Paths</th><th scope="col">Probes</th><th scope="col">Frequency</th><th scope="col">Monitor agents</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+                <tbody id="mon-jobs"><tr><td colspan="7" class="faint">Loading...</td></tr></tbody></table></div>
+              <div class="card__foot" id="mon-agent-load">Each monitor agent is assigned 2-3 targets.</div>
             </section>
 
             <!-- Create job: origin FIRST and most prominent, ip required (architecture 8.2) -->
             <section class="card" aria-labelledby="new-title">
               <div class="card__head"><div><h2 id="new-title">Create monitor job</h2><p>Enter the URL first: the origin and path are derived from it.</p></div></div>
-              <form class="card__body stack" data-stub-form="Static preview: no monitor job was created.">
+              <form class="card__body stack" id="mon-job-form">
                 <div class="field field--prominent"><label for="j-url">Origin / URL</label>
-                  <input class="input input--mono" id="j-url" type="url" placeholder="https://shop.example.test/checkout" aria-describedby="j-url-h">
+                  <input class="input input--mono" id="j-url" name="url" type="url" placeholder="https://shop.example.test/checkout" aria-describedby="j-url-h">
                   <span class="field__hint" id="j-url-h">Optional but shown first: it is the more important field. Derived: origin <code>https://shop.example.test</code>, path <code>/checkout</code>. Two subdomains or two ports are different origins.</span></div>
                 <div class="form-grid">
-                  <div class="field"><label for="j-ip">IP address <span class="faint">(required)</span></label><input class="input input--mono" id="j-ip" inputmode="decimal" placeholder="198.51.100.10" required aria-describedby="j-ip-h"><span class="field__hint" id="j-ip-h">No duplicate job may exist for the same <code>(ip, origin)</code>.</span></div>
-                  <div class="field"><label for="j-paths">Extra paths</label><input class="input input--mono" id="j-paths" placeholder="/, /api/health"><span class="field__hint">Several paths of one origin are allowed.</span></div>
-                  <div class="field"><label for="j-freq">Frequency override</label><input class="input input--mono" id="j-freq" placeholder="default (1 s)"></div>
-                  <div class="field"><label for="j-to">Timeout override</label><input class="input input--mono" id="j-to" placeholder="default (3 s)"></div>
+                  <div class="field"><label for="j-ip">IP address <span class="faint">(required)</span></label><input class="input input--mono" id="j-ip" name="ip" inputmode="decimal" placeholder="198.51.100.10" required aria-describedby="j-ip-h"><span class="field__hint" id="j-ip-h">No duplicate job may exist for the same <code>(ip, origin)</code>.</span></div>
+                  <div class="field"><label for="j-paths">Extra paths</label><input class="input input--mono" id="j-paths" name="paths" placeholder="/, /api/health"><span class="field__hint">Several paths of one origin are allowed.</span></div>
+                  <div class="field"><label for="j-freq">Frequency override (ms)</label><input class="input input--mono" id="j-freq" name="interval_ms" inputmode="numeric" placeholder="default"></div>
                 </div>
-                <fieldset class="field"><legend>Probe types</legend>
-                  <div class="row"><label class="check"><input type="checkbox" checked> HTTP(S): status, latency, TLS info</label><label class="check"><input type="checkbox" checked> TCP connect</label><label class="check"><input type="checkbox"> ICMP: RTT, loss</label><label class="check"><input type="checkbox"> DNS: latency, answer</label></div></fieldset>
-                <fieldset class="field"><legend>Monitor agents</legend>
-                  <div class="row"><label class="check"><input type="checkbox" checked> mon-01 <span class="faint">(2 of 3 targets)</span></label><label class="check"><input type="checkbox" checked> mon-02 <span class="faint">(1 of 3)</span></label><label class="check"><input type="checkbox"> mon-03 <span class="faint">(2 of 3)</span></label><label class="check"><input type="checkbox"> mon-04 <span class="faint">(1 of 3)</span></label></div></fieldset>
+                <p class="field__hint">Probes are chosen for you: ICMP to the IP, and with a URL also a TCP connect to its port and an HTTP(S) probe per path. The targets are spread over the monitor agents (2-3 each).</p>
                 <div class="row"><button class="btn btn--primary" type="submit"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Create monitor job</button></div>
               </form>
             </section>
