@@ -7,7 +7,6 @@ _none_
 ## Next (ready, in order)
 - **T-0022** watchdog-agent-wiring  `after: [T-0012, T-0018]`
 - **T-0023** panel-live-wiring  `after: [T-0011, T-0009, T-0013, T-0021, T-0022]`
-- **T-0024** deployment  `after: [T-0011]`
 
 ## Waiting for the operator (merged → see CHECKS.md)
 - **T-0001** project-skeleton  `after: []`
@@ -31,6 +30,7 @@ _none_
 - **T-0019** panel-cleanup  `after: [T-0011]`
 - **T-0020** onboarding-agent-privileges  `after: [T-0006, T-0018]`
 - **T-0021** monitor-agent-runtime  `after: [T-0010, T-0018]`
+- **T-0024** deployment  `after: [T-0011]`
 
 ## Blocked
 _none_

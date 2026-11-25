@@ -1,7 +1,7 @@
 ---
 id: T-0024
 title: deployment
-state: ready
+state: merged
 touches: [deploy/README.md, deploy/authelia/configuration.yml, deploy/authelia/users.yml.example,
           deploy/proxy/compose.yml, deploy/install-server.sh, deploy/systemd/fleet-server.service]
 tests: []
