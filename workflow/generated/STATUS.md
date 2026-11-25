@@ -9,7 +9,6 @@ _none_
 - **T-0026** token-enrollment  `after: [T-0006, T-0025]`
 - **T-0027** agent-heartbeat-liveness  `after: [T-0012, T-0022]`
 - **T-0028** watchdog-reset-counters  `after: [T-0022]`
-- **T-0029** evidence-pull-agent  `after: [T-0009, T-0018]`
 
 ## Waiting for the operator (merged → see CHECKS.md)
 - **T-0001** project-skeleton  `after: []`
@@ -36,6 +35,7 @@ _none_
 - **T-0022** watchdog-agent-wiring  `after: [T-0012, T-0018]`
 - **T-0023** panel-live-wiring  `after: [T-0011, T-0009, T-0013, T-0021, T-0022]`
 - **T-0024** deployment  `after: [T-0011]`
+- **T-0029** evidence-pull-agent  `after: [T-0009, T-0018]`
 
 ## Blocked
 _none_

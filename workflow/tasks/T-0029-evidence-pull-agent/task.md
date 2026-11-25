@@ -1,7 +1,7 @@
 ---
 id: T-0029
 title: evidence-pull-agent
-state: ready
+state: merged
 touches: [internal/agent/evidence.go, internal/agent/evidence_test.go, internal/agent/worker.go,
           cmd/fleet-agent/main.go]
 tests: [server, agent]
