@@ -1,7 +1,7 @@
 ---
 id: T-0036
 title: github-release-and-installer
-state: ready
+state: merged
 touches: [.github/workflows/release.yml, deploy/install-server.sh, deploy/upgrade-server.sh,
           deploy/REQUIREMENTS.md, deploy/README.md, README.md,
           deploy/proxy/compose.yml, deploy/proxy/fleet-proxy.service]

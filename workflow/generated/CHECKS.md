@@ -37,3 +37,4 @@
 - [ ] T-0032 agent-binaries-multiplatform — scripts/build-agents.sh builds fleet-agent for linux amd64/arm64 + macOS amd64/arm64; onboarding serves the matching binary and errors clearly if missing. Verified by review (all 4 build). Confirm to close.
 - [ ] T-0034 panel-hacker-restyle-samples — 3 hacker-skin mockups in workflow/design/panel-hacker-samples/ (open the .html files). No gate; pick a direction (or none) for a follow-up. Confirm to close.
 - [ ] T-0035 server-state-versioning-migrate — schema_version + `fleet-server migrate` + auto-migrate startup guard (backup first, CA preserved, newer refuses). Verified by review. Confirm to close.
+- [ ] T-0036 github-release-and-installer — release pipeline + curl|bash installer (interactive, installs deps, docker|native proxy) + --upgrade (backup/migrate/rollback) + README. Verified by review; shellcheck + a real end-to-end install still to run. Confirm to close.
