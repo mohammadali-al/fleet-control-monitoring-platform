@@ -11,12 +11,12 @@
 - [ ] T-0005 serve-panel — Run ./bin/fleet-server, open http://localhost:6789: the panel loads and pages are navigable; unknown paths 404.
 - [ ] T-0007 command-executor — Backend (no UI). Verified by review: gofmt/vet clean, server+agent tests + exec -race pass. Confirm to close.
 - [ ] T-0006 machine-registry-onboarding — Backend (no UI). Verified by review: gofmt/vet clean, server tests + registry/onboard -race pass. Confirm to close.
-- [ ] T-0008 evidence-capture — **Needs a ROOT / real-machine smoke test**: run a command that makes outbound traffic on a real worker and confirm session records/segments appear (correct SHA/counts). Unit logic verified; the live nftables/NFLOG path is untested off-root. Confirm after a real run.
+- [ ] T-0008 evidence-capture — Unit logic verified; the live nftables/NFLOG setup/teardown **validated on 10.10.10.14 (root): PASS**. Full end-to-end packet capture confirmed once an agent is onboarded (T-0018/T-0020 on a real worker).
 - [ ] T-0009 evidence-sync-export — Backend (no UI). Verified by review: gofmt/vet clean, server+agent tests + evidence -race pass; pcapng validated (capinfos/tshark). Confirm to close.
 - [ ] T-0015 evidence-capture-fixes — Backend (no UI). Verified by review: full payloads stored, manifest concurrency-safe, capture+evidence -race pass. Confirm to close.
 - [ ] T-0011 panel-wiring — Open http://localhost:6789: Machines shows the (empty) live registry; onboard/remove a machine; Command runner streams a one-shot with the serial queue + confirmation gate; Terminal opens a shell (monitors not selectable). NOTE: a real machine shows online only after the agent side is wired (T-0018).
 - [ ] T-0010 monitors — Backend lib (no UI; not wired into the agent/server runtime yet). Verified by review: probe/monitor tests + -race pass. Confirm to close.
-- [ ] T-0017 capture-live-hang-fix — Hang FIXED (Close-unblock proven off-root, -race clean). **Real-machine smoke still PENDING** — 10.10.10.14 was unreachable during validation; rerun `sudo capture.test -run TestLiveCaptureSmoke -v` on a real worker when reachable.
+- [ ] T-0017 capture-live-hang-fix — Hang FIXED (Close-unblock proven off-root, -race clean). **VALIDATED on 10.10.10.14 (root): PASS in 1.34s, clean setup/teardown, no leftover table/cgroup.**
 - [ ] T-0019 panel-cleanup — Open http://localhost:6789: all pages still render (light/dark); the row 'More' menu no longer scrolls/closes itself.
 - [ ] T-0016 shell-concurrent-exec — Backend (no UI). Verified by review: shells concurrent with one-shots, exec tests + -race pass. Confirm to close.
 - [ ] T-0014 test-report — Generator verified by review (rendered sample is a complete, offline, self-contained HTML report; -race clean). Wire a 'Generate report' action later. Confirm to close.
