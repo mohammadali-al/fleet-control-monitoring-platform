@@ -50,7 +50,6 @@ func (s *server) routesAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/machines", s.live(s.onboardMachine))
 	mux.HandleFunc("POST /api/machines/{id}/reprovision", s.live(s.reprovisionMachine))
 	mux.HandleFunc("POST /api/machines/{id}/remove", s.live(s.removeMachine))
-	s.routesMachines(mux)
 
 	mux.HandleFunc("GET /api/commands", s.live(s.listCommands))
 	mux.HandleFunc("POST /api/commands", s.live(s.submitCommands))
