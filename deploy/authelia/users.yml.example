@@ -1,0 +1,18 @@
+# Authelia local users file (example). The README copies this to
+# deploy/proxy/state/authelia/users.yml; never commit the real file.
+#
+# Generate a password hash (the argon2id string goes in `password`):
+#   docker run --rm authelia/authelia:4.39 \
+#     authelia crypto hash generate argon2 --password 'choose-a-long-passphrase'
+# and paste the line that starts with "$argon2id$".
+#
+# The panel shows the Remote-User header (the key under `users:`, here
+# "alice") as the operator in its audit trail. Authelia forwards it.
+users:
+  alice:
+    disabled: false
+    displayname: 'Alice Operator'
+    password: '$argon2id$v=19$m=65536,t=3,p=4$REPLACE_WITH_REAL_HASH'
+    email: 'alice@fleet.internal'
+    groups:
+      - 'operators'

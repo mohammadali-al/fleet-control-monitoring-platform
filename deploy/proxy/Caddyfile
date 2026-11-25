@@ -1,0 +1,39 @@
+# Reverse proxy for the Fleet panel: terminates HTTPS, asks Authelia to
+# authenticate every request (password + TOTP), then forwards to fleet-server
+# with the authenticated user in the Remote-User header.
+#
+# Runs with network_mode: host (see compose.yml), so 127.0.0.1:9091 is Authelia
+# and 127.0.0.1:6789 is fleet-server. fleet-server must stay bound to loopback:
+# it trusts Remote-User, so nothing but this proxy may reach it.
+#
+# Hostnames: change fleet.internal here, in deploy/authelia/configuration.yml
+# and in the certificate together.
+{
+	# No port-80 listener; plain HTTP is not served at all.
+	auto_https disable_redirects
+}
+
+# Login portal (Authelia's own UI).
+auth.fleet.internal {
+	tls /certs/tls.crt /certs/tls.key
+	reverse_proxy 127.0.0.1:9091
+}
+
+# The panel.
+fleet.internal {
+	tls /certs/tls.crt /certs/tls.key
+
+	forward_auth 127.0.0.1:9091 {
+		uri /api/authz/forward-auth
+		# Authelia's answer becomes these request headers for fleet-server.
+		# Caddy replaces any Remote-* header a client sent itself with the
+		# value Authelia returned (or removes it), so a client cannot forge
+		# the operator name.
+		copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
+	}
+
+	# Plain proxying keeps the Host header, which the panel's WebSocket
+	# endpoints require to match the browser's Origin; WebSocket upgrades
+	# (live updates, shell) pass through unchanged.
+	reverse_proxy 127.0.0.1:6789
+}
