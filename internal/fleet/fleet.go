@@ -92,6 +92,11 @@ type Config struct {
 	// value pushes no monitor config and drops mon-data; SetMonitor can bind it
 	// later.
 	Monitor MonitorSource
+	// Watchdog wires the watchdog policy push and event intake (see
+	// WatchdogSource). The zero value pushes no policy; the agent then keeps
+	// running its last-known (or baked-in default) policy. SetWatchdog can bind
+	// it later.
+	Watchdog WatchdogSource
 }
 
 // MonitorIngestor receives the mon-data envelopes of a monitor agent;
@@ -191,6 +196,10 @@ type Manager struct {
 	nodes  map[string]*node
 	closed bool
 	mon    MonitorSource
+	wsrc   WatchdogSource
+
+	wmu sync.Mutex // guards wd
+	wd  map[string]*wdState
 
 	omu      sync.Mutex
 	outputs  map[string]*outBuf
@@ -217,7 +226,8 @@ func New(cfg Config) (*Manager, error) {
 		cfg.ConfirmTTL = defaultConfirm
 	}
 	return &Manager{
-		cfg: cfg, log: cfg.Logger, bus: newBus(), mon: cfg.Monitor,
+		cfg: cfg, log: cfg.Logger, bus: newBus(), mon: cfg.Monitor, wsrc: cfg.Watchdog,
+		wd:       map[string]*wdState{},
 		nodes:    map[string]*node{},
 		outputs:  map[string]*outBuf{},
 		sessions: map[string]string{},
@@ -361,12 +371,21 @@ func (m *Manager) agentHandler(n *node, role string, next channel.Handler) chann
 			switch role {
 			case registry.RoleWorker:
 				m.pushConfig(ctx, n)
+				m.pushPolicy(ctx, n)
 			case registry.RoleMonitor:
 				m.pushMonitorConfig(ctx, n)
 			}
 		case channel.TypeMonData:
 			if role == registry.RoleMonitor {
 				m.ingestMonitorData(ctx, n, env)
+			}
+		case channel.TypePolicyAck:
+			if role == registry.RoleWorker {
+				m.recordPolicyAck(n, env)
+			}
+		case channel.TypeWatchdogEv:
+			if role == registry.RoleWorker {
+				m.recordWatchdogEvent(n, env)
 			}
 		case channel.TypeConfigAck:
 			var ack channel.ConfigAckPayload

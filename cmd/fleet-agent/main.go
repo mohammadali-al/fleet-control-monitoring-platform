@@ -37,6 +37,9 @@ type runner interface {
 // run is main with its inputs explicit: it serves until ctx is cancelled (a
 // signal, in production) and returns the process exit code.
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "watchdog" {
+		return runWatchdog(ctx, args[1:], stderr)
+	}
 	fs := flag.NewFlagSet("fleet-agent", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	cfgPath := fs.String("config", "", "path to config file (JSON); defaults are used if absent")
@@ -85,7 +88,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "fleet-agent: %v\n", err)
 			return 1
 		}
-		a, err = agent.FromConfig(ac, dataDir, log)
+		// The worker also takes part in the watchdog protocol: it stores the
+		// policy the server pushes and forwards the events the watchdog
+		// process (`fleet-agent watchdog`) records.
+		a, err = agent.WorkerFromConfig(ac, dataDir, log)
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "fleet-agent: %v\n", err)
@@ -99,5 +105,44 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	log.Info("shut down", "component", "fleet-agent")
+	return 0
+}
+
+// runWatchdog is `fleet-agent watchdog`: the load-safety net as its own
+// process (fleet-watchdog.service). It reads the pushed policy from the data
+// directory (the main agent stores it there) and applies changes live, acts
+// through systemctl/cgroups/tc (root), and records its events in the data
+// directory for the main agent to forward. It never opens the channel, so it
+// keeps running when the main agent is down. It stops on ctx cancellation.
+func runWatchdog(ctx context.Context, args []string, stderr io.Writer) int {
+	fs := flag.NewFlagSet("fleet-agent watchdog", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cfgPath := fs.String("config", "", "path to config file (JSON); defaults are used if absent")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "fleet-agent watchdog: %v\n", err)
+		return 1
+	}
+	ac := cfg.Agent
+	log, err := logging.New(stderr, ac.Log.Level, ac.Log.Format)
+	if err != nil {
+		fmt.Fprintf(stderr, "fleet-agent watchdog: %v\n", err)
+		return 1
+	}
+	dataDir, err := ac.ResolveDataDir()
+	if err != nil {
+		fmt.Fprintf(stderr, "fleet-agent watchdog: %v\n", err)
+		return 1
+	}
+	log.Info("starting", "component", "fleet-watchdog", "version", version.Version,
+		"machine", ac.MachineID, "config", *cfgPath, "data_dir", dataDir)
+	if err := agent.RunWatchdog(ctx, ac, dataDir, log, agent.WatchdogRunOptions{}); err != nil {
+		log.Error("watchdog stopped", "component", "fleet-watchdog", "err", err)
+		return 1
+	}
+	log.Info("shut down", "component", "fleet-watchdog")
 	return 0
 }
