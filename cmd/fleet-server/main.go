@@ -92,6 +92,12 @@ func run() int {
 	defer stop()
 	mgr.Start(ctx)
 	defer mgr.Close()
+	// Token enrollment (off unless server.enroll_addr is set): its own TLS
+	// listener outside the auth proxy, and the operator API beside the panel.
+	if handler, err = enableEnroll(ctx, cfg.Server, dataDir, mgr, handler, log); err != nil {
+		log.Error("token enrollment", "component", "fleet-server", "err", err)
+		return 1
+	}
 
 	log.Info("starting", "component", "fleet-server", "version", version.Version, "config", *cfgPath)
 	log.Info("data directory", "component", "fleet-server", "path", dataDir)

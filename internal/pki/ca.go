@@ -19,8 +19,10 @@ package pki
 import (
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -226,6 +228,87 @@ func (c *CA) IssuePeer(id string, ips []net.IP, validity time.Duration) (certPEM
 	}
 	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 	return certPEM, keyPEM, nil
+}
+
+// SignCSR signs a certificate for the public key in a PKCS#10 certificate
+// request (PEM), so the requester keeps its private key (token enrollment,
+// T-0026). Only the request's public key is used, after its self-signature
+// proves possession of the matching private key: the subject, SANs and
+// extensions the requester asked for are ignored. The certificate is a peer
+// leaf exactly as IssuePeer makes it (CN and DNS SAN = id, serverAuth and
+// clientAuth), so the machine's identity is what the server decided, not what
+// the machine claimed.
+//
+// Accepted keys: ECDSA (P-256 or larger), Ed25519, RSA >= 2048 bits.
+func (c *CA) SignCSR(csrPEM []byte, id string, ips []net.IP, validity time.Duration) (certPEM []byte, err error) {
+	if err := validatePeerID(id); err != nil {
+		return nil, err
+	}
+	if validity <= 0 {
+		return nil, errors.New("pki: peer validity must be positive")
+	}
+	block, _ := pem.Decode(csrPEM)
+	if block == nil || (block.Type != "CERTIFICATE REQUEST" && block.Type != "NEW CERTIFICATE REQUEST") {
+		return nil, errors.New("pki: no CERTIFICATE REQUEST PEM block")
+	}
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("pki: parse certificate request: %w", err)
+	}
+	if err := csr.CheckSignature(); err != nil {
+		return nil, fmt.Errorf("pki: certificate request signature: %w", err)
+	}
+	if err := checkRequestKey(csr.PublicKey); err != nil {
+		return nil, err
+	}
+	now := c.now()
+	notAfter := now.Add(validity)
+	if notAfter.After(c.cert.NotAfter) {
+		return nil, errors.New("pki: peer validity extends past CA expiry")
+	}
+	for _, ip := range ips {
+		if ip == nil || len(ip) != net.IPv4len && len(ip) != net.IPv6len {
+			return nil, errors.New("pki: invalid IP address for peer SAN")
+		}
+	}
+	serial, err := newSerial()
+	if err != nil {
+		return nil, err
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: id},
+		DNSNames:              []string{id},
+		IPAddresses:           ips,
+		NotBefore:             now.Add(-clockSkew),
+		NotAfter:              notAfter,
+		BasicConstraintsValid: true,
+		IsCA:                  false,
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, c.cert, csr.PublicKey, c.key)
+	if err != nil {
+		return nil, fmt.Errorf("pki: sign certificate request: %w", err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), nil
+}
+
+func checkRequestKey(pub crypto.PublicKey) error {
+	switch k := pub.(type) {
+	case *ecdsa.PublicKey:
+		if k.Curve.Params().BitSize < 256 {
+			return errors.New("pki: request key is a weak elliptic curve")
+		}
+	case ed25519.PublicKey:
+	case *rsa.PublicKey:
+		if k.N.BitLen() < 2048 {
+			return errors.New("pki: request RSA key is smaller than 2048 bits")
+		}
+	default:
+		return fmt.Errorf("pki: unsupported request key type %T", pub)
+	}
+	return nil
 }
 
 // validatePeerID requires a non-empty id of printable ASCII without spaces, so
