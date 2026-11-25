@@ -1,0 +1,70 @@
+# Authelia configuration for the Fleet panel reference deployment (T-0024).
+# Targets Authelia 4.39 (pinned in deploy/proxy/compose.yml).
+#
+# Secrets are NOT in this file. They come from files named by *_FILE environment
+# variables set in compose.yml (jwt secret, session secret, storage key).
+#
+# The names below assume the panel is served at https://fleet.internal and the
+# login portal at https://auth.fleet.internal. Authelia needs a real DNS-style
+# cookie domain (an IP address is not accepted), so give both names to operators'
+# browsers via DNS or /etc/hosts. To use other names, change them here, in
+# deploy/proxy/Caddyfile and in the certificate (see deploy/README.md).
+
+server:
+  address: 'tcp://:9091/'
+  endpoints:
+    authz:
+      forward-auth:
+        implementation: 'ForwardAuth'
+
+log:
+  level: 'info'
+
+theme: 'auto'
+
+# Local users with a file backend; no external directory. Copy
+# users.yml.example to the proxy state dir as users.yml (see README).
+authentication_backend:
+  file:
+    path: '/data/users.yml'
+    watch: true
+    password:
+      algorithm: 'argon2'
+
+access_control:
+  default_policy: 'deny'
+  rules:
+    # Every request to the panel needs password + TOTP.
+    - domain: 'fleet.internal'
+      policy: 'two_factor'
+
+session:
+  name: 'fleet_session'
+  expiration: '8h'
+  inactivity: '1h'
+  cookies:
+    - domain: 'fleet.internal'
+      authelia_url: 'https://auth.fleet.internal'
+      default_redirection_url: 'https://fleet.internal'
+
+regulation:
+  max_retries: 5
+  find_time: '2m'
+  ban_time: '10m'
+
+storage:
+  local:
+    path: '/data/db.sqlite3'
+
+# No SMTP in the reference deployment: one-time codes (for example the identity
+# check when registering a TOTP device) are written to this file instead.
+# Read it with: cat deploy/proxy/state/authelia/notification.txt
+notifier:
+  filesystem:
+    filename: '/data/notification.txt'
+
+# TOTP is the only second factor the reference enables.
+totp:
+  issuer: 'Fleet panel'
+  period: 30
+  digits: 6

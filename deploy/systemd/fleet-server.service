@@ -1,0 +1,41 @@
+# Fleet main server (T-0024). Installed by deploy/install-server.sh.
+#
+# The panel listens on loopback only: it trusts the Remote-User header, so it must be
+# reachable solely through the auth proxy (deploy/proxy). Overrides for the listen
+# address and data dir live in /etc/fleet-server/fleet-server.env.
+[Unit]
+Description=Fleet main server (panel and agent control channel)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=fleet
+Group=fleet
+# Defaults; the optional env file below wins over them.
+Environment=FLEET_LISTEN_ADDR=127.0.0.1:6789
+Environment=FLEET_DATA_DIR=/var/lib/fleet-server
+EnvironmentFile=-/etc/fleet-server/fleet-server.env
+ExecStart=/usr/local/bin/fleet-server --config /etc/fleet-server/config.json
+# systemd creates /var/lib/fleet-server for the fleet user. The first start creates the
+# internal CA under <data>/ca; that directory holds the CA private key, so keep it private.
+StateDirectory=fleet-server
+StateDirectoryMode=0750
+UMask=0077
+Restart=on-failure
+RestartSec=3
+
+# Hardening. The server only needs its state dir, outbound network (agent channel, SSH
+# onboarding) and read access to its config and the agent binary it pushes.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
