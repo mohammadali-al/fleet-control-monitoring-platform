@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/backup"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/fleet"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/onboard"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/registry"
@@ -54,6 +55,8 @@ func (s *server) routesAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/commands", s.live(s.submitCommands))
 	mux.HandleFunc("GET /api/commands/{id}", s.live(s.getCommand))
 	mux.HandleFunc("POST /api/commands/{id}/cancel", s.live(s.cancelCommand))
+
+	s.routesObserve(mux)
 }
 
 // live wraps an API handler: no backend is a 503, and a state-changing request
@@ -135,7 +138,8 @@ func statusFor(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, fleet.ErrNoShell):
 		return http.StatusUnprocessableEntity
-	case errors.Is(err, fleet.ErrOffline):
+	case errors.Is(err, fleet.ErrOffline), errors.Is(err, fleet.ErrBusy),
+		errors.Is(err, backup.ErrNoServer), errors.Is(err, backup.ErrBackupRunning):
 		return http.StatusConflict
 	case errors.Is(err, fleet.ErrBadRequest):
 		return http.StatusBadRequest

@@ -1,0 +1,20 @@
+diff --git a/cmd/fleet-server/main.go b/cmd/fleet-server/main.go
+index 8358663..5f7efc4 100644
+--- a/cmd/fleet-server/main.go
++++ b/cmd/fleet-server/main.go
+@@ -57,6 +57,15 @@ func run() int {
+ 		log.Error("fleet", "component", "fleet-server", "err", err)
+ 		return 1
+ 	}
++	// The Observe/Admin backends behind the Evidence, Backup, Monitor data and
++	// Watchdog pages: the evidence archive, the backup service (its schedule
++	// runs with the manager), the monitor jobs and probe-result sink, and the
++	// watchdog policy store. Bound before Start so agents get their monitor
++	// config and watchdog policy as soon as they connect.
++	if err := mgr.EnableObserve(dataDir); err != nil {
++		log.Error("observe backends", "component", "fleet-server", "err", err)
++		return 1
++	}
+ 	handler, err := panel.New(panel.Options{Assets: web.FS, Templates: web.Templates, Backend: mgr, Logger: log})
+ 	if err != nil {
+ 		log.Error("panel", "component", "fleet-server", "err", err)

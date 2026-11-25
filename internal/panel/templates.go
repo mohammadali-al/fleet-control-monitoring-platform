@@ -27,10 +27,10 @@ var pages = []pageSpec{
 	{"terminal", false},
 	{"baseline", true},
 	{"maneuver", true},
-	{"monitor", true},
-	{"watchdog", true},
-	{"evidence", true},
-	{"backup", true},
+	{"monitor", false},
+	{"watchdog", false},
+	{"evidence", false},
+	{"backup", false},
 }
 
 // fragments are the pieces of live pages that the browser re-fetches as data
