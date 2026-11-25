@@ -1,7 +1,7 @@
 ---
 id: T-0030
 title: onboarding-install-watchdog
-state: ready
+state: merged
 touches: [internal/onboard/ssh.go, internal/onboard/ssh_test.go,
           internal/enroll/install.go, internal/enroll/install_test.go]
 tests: [server]

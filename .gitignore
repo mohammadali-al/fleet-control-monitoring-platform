@@ -5,3 +5,5 @@ coverage.*
 *.coverprofile
 .claude/worktrees/
 /data/
+
+.claude/settings.local.json
