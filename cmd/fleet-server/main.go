@@ -5,38 +5,48 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/fleet"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/logging"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/migrate"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/panel"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/version"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/web"
 )
 
-func main() { os.Exit(run()) }
+func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
-func run() int {
-	cfgPath := flag.String("config", "", "path to config file (JSON); defaults are used if absent")
-	showVersion := flag.Bool("version", false, "print version and exit")
-	flag.Parse()
+func run(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "migrate" {
+		return runMigrate(args[1:], stdout, stderr)
+	}
+	fs := flag.NewFlagSet("fleet-server", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cfgPath := fs.String("config", "", "path to config file (JSON); defaults are used if absent")
+	showVersion := fs.Bool("version", false, "print version and exit")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
 
 	if *showVersion {
-		fmt.Println(version.String())
+		fmt.Fprintln(stdout, version.String())
 		return 0
 	}
 
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "fleet-server: %v\n", err)
+		fmt.Fprintf(stderr, "fleet-server: %v\n", err)
 		return 1
 	}
-	log, err := logging.New(os.Stderr, cfg.Server.Log.Level, cfg.Server.Log.Format)
+	log, err := logging.New(stderr, cfg.Server.Log.Level, cfg.Server.Log.Format)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "fleet-server: %v\n", err)
+		fmt.Fprintf(stderr, "fleet-server: %v\n", err)
 		return 1
 	}
 
@@ -48,6 +58,19 @@ func run() int {
 	if err != nil {
 		log.Error("data dir", "component", "fleet-server", "err", err)
 		return 1
+	}
+
+	// Startup schema guard: initializes fresh empty data dirs at current,
+	// auto-migrates older state in place after backing up, and refuses to start
+	// if on-disk state is newer than this binary.
+	migRes, err := migrate.EnsureCurrent(migrate.Options{DataDir: dataDir, ConfigPath: *cfgPath})
+	if err != nil {
+		log.Error("schema guard", "component", "fleet-server", "err", err)
+		return 1
+	}
+	if migRes.Migrated {
+		log.Info("migrated server state", "component", "fleet-server",
+			"from", migRes.FromVersion, "to", migRes.ToVersion, "backup", migRes.BackupDir)
 	}
 
 	// The live fleet: registry, internal CA, onboarding, and the channel links
@@ -108,5 +131,63 @@ func run() int {
 		return 1
 	}
 	log.Info("shutting down", "component", "fleet-server", "reason", "signal")
+	return 0
+}
+
+// runMigrate implements `fleet-server migrate`: upgrades persistent state
+// (data dir + optional config file) to migrate.CurrentVersion after backing up
+// the data directory. Re-running when already current is a no-op.
+func runMigrate(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("fleet-server migrate", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cfgPath := fs.String("config", "", "path to config file (JSON); defaults are used if absent")
+	dataDirFlag := fs.String("data-dir", "", "override data directory (defaults to config / FLEET_DATA_DIR)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "fleet-server migrate: %v\n", err)
+		return 1
+	}
+
+	var dataDir string
+	if *dataDirFlag != "" {
+		abs, err := filepath.Abs(*dataDirFlag)
+		if err != nil {
+			fmt.Fprintf(stderr, "fleet-server migrate: resolve data dir %q: %v\n", *dataDirFlag, err)
+			return 1
+		}
+		dataDir = abs
+	} else {
+		exe, _ := os.Executable()
+		dataDir, err = cfg.Server.ResolveDataDir(exe)
+		if err != nil {
+			fmt.Fprintf(stderr, "fleet-server migrate: %v\n", err)
+			return 1
+		}
+	}
+
+	res, err := migrate.Run(migrate.Options{DataDir: dataDir, ConfigPath: *cfgPath})
+	if err != nil {
+		fmt.Fprintf(stderr, "fleet-server migrate: %v\n", err)
+		return 1
+	}
+
+	switch {
+	case res.Initialized:
+		fmt.Fprintf(stdout, "fleet-server migrate: initialized %s at schema version %d\n", dataDir, res.ToVersion)
+	case res.Migrated:
+		if res.BackupDir != "" {
+			fmt.Fprintf(stdout, "fleet-server migrate: backed up %s -> %s\n", dataDir, res.BackupDir)
+		}
+		for _, s := range res.Applied {
+			fmt.Fprintf(stdout, "fleet-server migrate: v%d -> v%d: %s\n", s.FromVersion, s.ToVersion, s.Description)
+		}
+		fmt.Fprintf(stdout, "fleet-server migrate: upgraded %s from v%d to v%d\n", dataDir, res.FromVersion, res.ToVersion)
+	default:
+		fmt.Fprintf(stdout, "fleet-server migrate: %s already at schema version %d (nothing to do)\n", dataDir, res.ToVersion)
+	}
 	return 0
 }

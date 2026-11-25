@@ -7,15 +7,43 @@
 package registry
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
+	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
 )
+
+// CurrentFormatVersion is the machines.json schema version supported by this
+// binary.
+const CurrentFormatVersion = 1
+
+// InspectFileVersion reads <dataDir>/registry/machines.json (if present) and
+// returns its recorded format version. A missing file returns (0, false, nil).
+func InspectFileVersion(dataDir string) (int, bool, error) {
+	path := filepath.Join(dataDir, config.RegistryDirName, FileName)
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("registry: read %s: %w", path, err)
+	}
+	var hdr struct {
+		Version int `json:"version"`
+	}
+	if err := json.Unmarshal(data, &hdr); err != nil {
+		return 0, true, fmt.Errorf("registry: parse %s: %w", path, err)
+	}
+	return hdr.Version, true, nil
+}
 
 // Roles and connect modes are shared with the config package.
 const (

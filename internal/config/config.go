@@ -295,10 +295,26 @@ func (c CaptureConfig) IsZero() bool {
 		c.DiskWarnPercent == 0 && c.DiskPausePercent == 0 && len(c.Reflectors) == 0 && c.NFLOGGroup == 0
 }
 
+// CurrentSchemaVersion is the on-disk schema version expected by this
+// binary for config.json (schema_version) and <FLEET_DATA_DIR>/SCHEMA_VERSION.
+// Version 1 represents the initial unversioned layout; version 2 establishes
+// the versioned baseline.
+const CurrentSchemaVersion = 2
+
+// SchemaVersionFile is the marker file inside the server's base data
+// directory that records the on-disk schema version.
+const SchemaVersionFile = "SCHEMA_VERSION"
+
+// ErrNewerSchema is returned when on-disk persistent state (config.json,
+// SCHEMA_VERSION, or registry) declares a schema version newer than this binary
+// supports.
+var ErrNewerSchema = errors.New("schema version is newer than this binary supports")
+
 // Config is the on-disk file: one section per binary.
 type Config struct {
-	Server ServerConfig `json:"server"`
-	Agent  AgentConfig  `json:"agent"`
+	SchemaVersion int          `json:"schema_version,omitempty"`
+	Server        ServerConfig `json:"server"`
+	Agent         AgentConfig  `json:"agent"`
 }
 
 // Defaults returns the configuration used when no file is present.
@@ -379,6 +395,17 @@ func Load(path string) (Config, error) {
 		data, err := os.ReadFile(path)
 		switch {
 		case err == nil:
+			ver, err := parseSchemaVersion(data)
+			if err != nil {
+				return Config{}, fmt.Errorf("parse config %s: %w", path, err)
+			}
+			if ver < 0 {
+				return Config{}, fmt.Errorf("config %s: invalid schema_version %d", path, ver)
+			}
+			if ver > CurrentSchemaVersion {
+				return Config{}, fmt.Errorf("config %s has schema_version %d (%w: binary supports %d); upgrade the binary instead of downgrading",
+					path, ver, ErrNewerSchema, CurrentSchemaVersion)
+			}
 			dec := json.NewDecoder(bytes.NewReader(data))
 			dec.DisallowUnknownFields()
 			if err := dec.Decode(&cfg); err != nil {
@@ -392,6 +419,40 @@ func Load(path string) (Config, error) {
 	}
 	cfg.Server.applyEnv()
 	return cfg, nil
+}
+
+// ReadSchemaVersion reads path (if present) and returns its schema_version
+// field without rejecting unknown fields from other versions. A missing file or
+// empty path returns (0, false, nil).
+func ReadSchemaVersion(path string) (int, bool, error) {
+	if path == "" {
+		return 0, false, nil
+	}
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("read config %s: %w", path, err)
+	}
+	ver, err := parseSchemaVersion(data)
+	if err != nil {
+		return 0, true, fmt.Errorf("parse config %s: %w", path, err)
+	}
+	if ver < 0 {
+		return 0, true, fmt.Errorf("config %s: invalid schema_version %d", path, ver)
+	}
+	return ver, true, nil
+}
+
+func parseSchemaVersion(data []byte) (int, error) {
+	var header struct {
+		SchemaVersion int `json:"schema_version"`
+	}
+	if err := json.Unmarshal(data, &header); err != nil {
+		return 0, err
+	}
+	return header.SchemaVersion, nil
 }
 
 func (s *ServerConfig) applyEnv() {
