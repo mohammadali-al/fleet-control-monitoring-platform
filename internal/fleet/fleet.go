@@ -205,6 +205,9 @@ type Manager struct {
 	wmu sync.Mutex // guards wd
 	wd  map[string]*wdState
 
+	scMu      sync.Mutex // guards scPending
+	scPending map[string]chan channel.ServiceControlResultPayload
+
 	observeState // the Observe/Admin backends (observe.go)
 
 	omu      sync.Mutex
@@ -234,6 +237,7 @@ func New(cfg Config) (*Manager, error) {
 	return &Manager{
 		cfg: cfg, log: cfg.Logger, bus: newBus(), mon: cfg.Monitor, wsrc: cfg.Watchdog,
 		wd:           map[string]*wdState{},
+		scPending:    map[string]chan channel.ServiceControlResultPayload{},
 		observeState: newObserveState(),
 		nodes:        map[string]*node{},
 		outputs:      map[string]*outBuf{},
@@ -439,6 +443,8 @@ func (m *Manager) agentHandler(n *node, role string, next channel.Handler) chann
 			} else {
 				m.log.Info("agent applied config", "component", "fleet", "machine", n.id)
 			}
+		case channel.TypeServiceControlResult:
+			m.recordServiceControlResult(n, env)
 		default:
 			next(ctx, env)
 		}
@@ -1029,4 +1035,96 @@ func (m *Manager) appendOutput(session string, c *exec.ChunkPayload) {
 		return
 	}
 	b.segs = append(b.segs, OutputSegment{Stream: c.Stream, Text: string(data)})
+}
+
+// --- service control ---------------------------------------------------------
+
+// ServiceControl sends a service-control action (stop, start, or status) to an
+// online agent of any role (worker or monitor) over the control channel and
+// waits for the agent's result. It is independent of the command executor.
+func (m *Manager) ServiceControl(ctx context.Context, machine, action string) (channel.ServiceControlResultPayload, error) {
+	switch action {
+	case channel.ServiceActionStop, channel.ServiceActionStart, channel.ServiceActionStatus:
+	default:
+		return channel.ServiceControlResultPayload{}, fmt.Errorf("%w: invalid service-control action %q", ErrBadRequest, action)
+	}
+	mc, ok := m.cfg.Registry.Get(machine)
+	if !ok || mc.Removed {
+		return channel.ServiceControlResultPayload{}, ErrUnknown
+	}
+	m.mu.Lock()
+	n := m.nodes[machine]
+	mctx := m.ctx
+	up := n != nil && n.link != nil && n.link.Online()
+	m.mu.Unlock()
+	if !up {
+		return channel.ServiceControlResultPayload{}, ErrOffline
+	}
+
+	reqID := exec.NewSessionID()
+	env, err := channel.NewEnvelope(channel.TypeServiceControl, reqID, channel.ServiceControlPayload{Action: action})
+	if err != nil {
+		return channel.ServiceControlResultPayload{}, err
+	}
+
+	ch := make(chan channel.ServiceControlResultPayload, 1)
+	m.scMu.Lock()
+	m.scPending[reqID] = ch
+	m.scMu.Unlock()
+	defer func() {
+		m.scMu.Lock()
+		delete(m.scPending, reqID)
+		m.scMu.Unlock()
+	}()
+
+	if err := n.link.Send(ctx, env); err != nil {
+		return channel.ServiceControlResultPayload{}, err
+	}
+
+	var mgrDone <-chan struct{}
+	if mctx != nil {
+		mgrDone = mctx.Done()
+	}
+	select {
+	case res := <-ch:
+		if !res.OK {
+			msg := res.Error
+			if msg == "" {
+				msg = "service-control failed"
+			}
+			return res, fmt.Errorf("fleet: service-control %s on %s: %s", action, machine, msg)
+		}
+		switch action {
+		case channel.ServiceActionStop:
+			_ = m.cfg.Registry.Update(machine, func(mc *registry.Machine) { mc.Stopped = true })
+			m.publishMachine(machine)
+		case channel.ServiceActionStart:
+			_ = m.cfg.Registry.Update(machine, func(mc *registry.Machine) { mc.Stopped = false })
+			m.publishMachine(machine)
+		}
+		m.log.Info("service-control completed", "component", "fleet", "machine", machine, "action", action, "state", res.State)
+		return res, nil
+	case <-ctx.Done():
+		return channel.ServiceControlResultPayload{}, ctx.Err()
+	case <-mgrDone:
+		return channel.ServiceControlResultPayload{}, mctx.Err()
+	}
+}
+
+func (m *Manager) recordServiceControlResult(n *node, env channel.Envelope) {
+	var res channel.ServiceControlResultPayload
+	if err := json.Unmarshal(env.Payload, &res); err != nil {
+		m.log.Warn("bad service-control result", "component", "fleet", "machine", n.id, "err", err)
+		return
+	}
+	m.scMu.Lock()
+	ch := m.scPending[env.ID]
+	delete(m.scPending, env.ID)
+	m.scMu.Unlock()
+	if ch != nil {
+		select {
+		case ch <- res:
+		default:
+		}
+	}
 }

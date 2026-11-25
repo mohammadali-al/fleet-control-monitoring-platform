@@ -78,6 +78,9 @@ type worker struct {
 	ev     *evidence.Agent // evidence sync endpoint (evidence.go); nil when unavailable
 	evDone chan struct{}   // closed when the idle-push loop has ended
 
+	svcMu sync.Mutex // guards svc
+	svc   ServiceController
+
 	wg sync.WaitGroup // runs waiting for the first config
 }
 
@@ -95,9 +98,16 @@ func newWorker(cfg Config) *worker {
 		ready: make(chan struct{}),
 		caps:  map[string]SessionCapture{},
 		live:  map[string]struct{}{},
+		svc:   defaultServiceController(),
 	}
 	w.initEvidence()
 	return w
+}
+
+func (w *worker) serviceController() ServiceController {
+	w.svcMu.Lock()
+	defer w.svcMu.Unlock()
+	return w.svc
 }
 
 // start attaches the worker to the agent's lifetime context. Called once,
@@ -142,6 +152,8 @@ func (w *worker) handle(ctx context.Context, env channel.Envelope) {
 		}()
 	case channel.TypeEvManifestReq, channel.TypeEvRange, channel.TypeEvVerify:
 		w.handleEvidence(ctx, env) // evidence sync: pull and idle-push exchanges
+	case channel.TypeServiceControl:
+		handleServiceControl(ctx, w.log, w.sender, w.serviceController(), env)
 	default:
 		// input, resize, terminate, confirm: addressed by session id, so every
 		// executor gets them and the one that owns the session acts.

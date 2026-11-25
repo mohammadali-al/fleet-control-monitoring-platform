@@ -37,6 +37,8 @@ type MonitorConfig struct {
 	// Probers replaces or adds probers for their types (the four built-in
 	// probers are always registered first). Mostly for tests.
 	Probers []probe.Prober
+	// ServiceController handles service-control envelopes (default: systemctl/launchctl).
+	ServiceController ServiceController
 	// Logger defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -56,6 +58,7 @@ type Monitor struct {
 
 	mu   sync.Mutex
 	base context.Context // lifetime context, set by Run
+	svc  ServiceController
 }
 
 // NewMonitor validates cfg and binds the channel listener.
@@ -72,7 +75,11 @@ func NewMonitor(cfg MonitorConfig) (*Monitor, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
-	m := &Monitor{cfg: cfg, log: cfg.Logger, base: context.Background()}
+	svc := cfg.ServiceController
+	if svc == nil {
+		svc = defaultServiceController()
+	}
+	m := &Monitor{cfg: cfg, log: cfg.Logger, base: context.Background(), svc: svc}
 	m.fl = monitor.NewFlusher(m.send, monitor.FlusherOptions{Interval: cfg.FlushInterval, MaxBuffered: cfg.MaxBuffered})
 	m.eng = probe.NewEngine(m.fl.Add)
 	for _, p := range cfg.Probers {
@@ -180,9 +187,19 @@ func (m *Monitor) onConnect(peer string) {
 	}
 }
 
-// handle is the channel.Handler. A monitor agent understands only mon-config;
-// it has no executor, so run and friends are ignored.
+func (m *Monitor) serviceController() ServiceController {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.svc
+}
+
+// handle is the channel.Handler. A monitor agent handles mon-config and
+// service-control; it has no executor, so run and friends are ignored.
 func (m *Monitor) handle(ctx context.Context, env channel.Envelope) {
+	if env.Type == channel.TypeServiceControl {
+		handleServiceControl(ctx, m.log, serviceSenderFunc(m.send), m.serviceController(), env)
+		return
+	}
 	if env.Type != channel.TypeMonConfig {
 		m.log.Debug("ignoring envelope a monitor agent does not handle", "component", "fleet-agent", "type", env.Type)
 		return

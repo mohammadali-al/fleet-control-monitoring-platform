@@ -122,6 +122,33 @@ const (
 	TypeWatchdogReset = "watchdog-reset" // server -> agent
 )
 
+// Service-control envelope types (server -> agent, handled by both worker and
+// monitor runtimes independently of the command executor).
+const (
+	TypeServiceControl       = "service-control"        // server -> agent: stop | start | status (ServiceControlPayload)
+	TypeServiceControlResult = "service-control-result" // agent -> server: result of service-control (ServiceControlResultPayload)
+)
+
+// Service-control actions.
+const (
+	ServiceActionStop   = "stop"
+	ServiceActionStart  = "start"
+	ServiceActionStatus = "status"
+)
+
+// ServiceControlPayload is the payload of a service-control envelope (server -> agent).
+type ServiceControlPayload struct {
+	Action string `json:"action"` // stop | start | status
+}
+
+// ServiceControlResultPayload is the payload of a service-control-result envelope (agent -> server).
+type ServiceControlResultPayload struct {
+	Action string `json:"action"`
+	OK     bool   `json:"ok"`
+	State  string `json:"state,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
 // PolicyPayload is the payload of a policy envelope (server -> agent).
 type PolicyPayload struct {
 	// Version is the profile's version stamp; it must match the "version" key
