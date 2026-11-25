@@ -55,6 +55,10 @@ const (
 	DefaultChannelPort = 7443
 	// DefaultServerID is the main server's identity (its client certificate CN).
 	DefaultServerID = "fleet-server"
+	// DefaultAgentDialPort is the conventional port of the main server's
+	// agent_dial listener (ServerConfig.AgentDialAddr). The listener is off
+	// unless an address is configured; this is the value to put there.
+	DefaultAgentDialPort = 7444
 )
 
 // LogConfig selects logging behavior. Environment variables
@@ -91,6 +95,11 @@ type ServerConfig struct {
 	// ServerID is the main server's identity on the control channel (the CN of
 	// its client certificate). Empty means DefaultServerID.
 	ServerID string `json:"server_id,omitempty"`
+	// AgentDialAddr is where the main server listens for agent-initiated
+	// connections (the agent_dial direction), e.g. ":7444". Empty means the
+	// listener is off and agent_dial machines stay offline; server_dial is
+	// unaffected either way.
+	AgentDialAddr string `json:"agent_dial_addr,omitempty"`
 	// AgentCapture is the evidence-capture configuration the main server
 	// pushes to every worker agent over the channel (config-push, T-0018).
 	// An all-zero section pushes nothing, leaving the agent's own defaults.
@@ -127,6 +136,12 @@ type AgentConfig struct {
 	// ConnectMode is the per-machine dial direction: server_dial (default
 	// when empty) or agent_dial.
 	ConnectMode string `json:"connect_mode,omitempty"`
+	// ServerAddr is the main server's agent_dial listener (host:port) that an
+	// agent_dial agent dials out to. Required in that mode, unused otherwise.
+	ServerAddr string `json:"server_addr,omitempty"`
+	// ServerID is the identity (certificate CN) the agent expects of the main
+	// server under agent_dial. Empty means DefaultServerID.
+	ServerID string `json:"server_id,omitempty"`
 	// CAFile is the pinned internal CA certificate; CertFile and KeyFile are
 	// this machine's client certificate and key.
 	CAFile   string `json:"ca_file,omitempty"`
@@ -211,6 +226,19 @@ func Defaults() Config {
 		Agent:  AgentConfig{Log: log},
 	}
 }
+
+// ServerIDOrDefault returns the main server identity an agent_dial agent
+// expects, or DefaultServerID when unset.
+func (a AgentConfig) ServerIDOrDefault() string {
+	if a.ServerID != "" {
+		return a.ServerID
+	}
+	return DefaultServerID
+}
+
+// Dials reports whether this agent dials out to the main server (agent_dial)
+// rather than listening for it (server_dial, the default).
+func (a AgentConfig) Dials() bool { return a.ConnectMode == ConnectModeAgentDial }
 
 // ListenAddrOrDefault returns ListenAddr, or ":7443" when unset.
 func (a AgentConfig) ListenAddrOrDefault() string {

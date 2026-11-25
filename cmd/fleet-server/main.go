@@ -66,6 +66,15 @@ func run() int {
 		log.Error("observe backends", "component", "fleet-server", "err", err)
 		return 1
 	}
+	// agent_dial: agents that cannot be dialed connect out to this listener
+	// (off unless server.agent_dial_addr is set; server_dial is unaffected).
+	if cfg.Server.AgentDialAddr != "" {
+		if err := mgr.EnableAgentDial(cfg.Server.AgentDialAddr, cfg.Server.ServerIDOrDefault()); err != nil {
+			log.Error("agent_dial listener", "component", "fleet-server", "addr", cfg.Server.AgentDialAddr, "err", err)
+			return 1
+		}
+		log.Info("agent_dial listening", "component", "fleet-server", "addr", mgr.AgentDialAddr().String())
+	}
 	handler, err := panel.New(panel.Options{Assets: web.FS, Templates: web.Templates, Backend: mgr, Logger: log})
 	if err != nil {
 		log.Error("panel", "component", "fleet-server", "err", err)
