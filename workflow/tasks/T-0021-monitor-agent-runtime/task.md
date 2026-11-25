@@ -1,7 +1,7 @@
 ---
 id: T-0021
 title: monitor-agent-runtime
-state: ready
+state: merged
 touches: [cmd/fleet-agent/main.go, internal/agent/monitor.go, internal/agent/monitor_test.go,
           internal/fleet/fleet.go, internal/config/config.go]
 tests: [server, agent]
