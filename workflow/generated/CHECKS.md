@@ -38,3 +38,4 @@
 - [ ] T-0034 panel-hacker-restyle-samples — 3 hacker-skin mockups in workflow/design/panel-hacker-samples/ (open the .html files). No gate; pick a direction (or none) for a follow-up. Confirm to close.
 - [ ] T-0035 server-state-versioning-migrate — schema_version + `fleet-server migrate` + auto-migrate startup guard (backup first, CA preserved, newer refuses). Verified by review. Confirm to close.
 - [ ] T-0036 github-release-and-installer — release pipeline + curl|bash installer (interactive, installs deps, docker|native proxy) + --upgrade (backup/migrate/rollback) + README. Verified by review; shellcheck + a real end-to-end install still to run. Confirm to close.
+- [ ] T-0034 round-2 — 5 new samples in workflow/design/panel-hacker-samples/round-2/ (open the .html). Pick a direction (or none). Confirm to close.

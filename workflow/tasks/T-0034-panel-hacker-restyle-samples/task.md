@@ -1,7 +1,7 @@
 ---
 id: T-0034
 title: panel-hacker-restyle-samples
-state: ready
+state: merged
 touches: [workflow/design/panel-hacker-samples/]
 tests: []
 after: []
