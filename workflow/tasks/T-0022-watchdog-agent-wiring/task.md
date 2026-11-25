@@ -1,7 +1,7 @@
 ---
 id: T-0022
 title: watchdog-agent-wiring
-state: ready
+state: merged
 touches: [cmd/fleet-agent/main.go, internal/agent/watchdog_wire.go, internal/agent/watchdog_wire_test.go,
           internal/fleet/fleet.go, internal/config/config.go]
 tests: [server, agent]

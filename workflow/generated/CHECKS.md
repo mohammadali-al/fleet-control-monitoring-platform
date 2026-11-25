@@ -25,3 +25,4 @@
 - [ ] T-0013 backup — Backend lib (Backup page wiring + Run loop not started from the server yet). Verified by review: additive SHA-256 replication, import round-trip, backup/diff/reminder tests + -race pass. Confirm to close.
 - [ ] T-0021 monitor-agent-runtime — Backend (monitor runtime + server push/ingest; production SetMonitor wiring lands in T-0023). Verified by review: end-to-end fleettest + -race pass. Confirm to close.
 - [ ] T-0024 deployment — Follow deploy/README.md to stand up fleet-server behind Caddy+Authelia: HTTPS reaches the panel, forward-auth header passes through, agent channel still works. (Configs validated in review; manual TOTP 2FA login not exercised.)
+- [ ] T-0022 watchdog-agent-wiring — Backend (`fleet-agent watchdog` subcommand + policy push/apply + event forward; server PolicyFor wiring lands in T-0023). Verified by review: policy/event end-to-end + -race pass. Confirm to close.
