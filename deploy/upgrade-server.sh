@@ -46,16 +46,11 @@ YES=0
 NON_INTERACTIVE=0
 
 # Saved answer defaults (populated from install-answers.env).
-FLEET_INSTALL_VERSION=""
 FLEET_PROXY_MODE="docker"
-FLEET_PANEL_DOMAIN=""
-FLEET_AUTH_DOMAIN=""
 FLEET_TLS_MODE="internal"
 FLEET_ACME_EMAIL=""
-FLEET_PANEL_PORT="443"
 FLEET_SERVER_PORT="6789"
 FLEET_AGENT_PORT="7443"
-FLEET_AUTH_PORT="9091"
 FLEET_DATA_DIR="/var/lib/fleet-server"
 FLEET_PROXY_DIR="/opt/fleet/proxy"
 FLEET_PROXY_STATE_DIR="/var/lib/fleet-proxy"
@@ -102,7 +97,9 @@ done
 
 [ "$(id -u)" -eq 0 ] || die "must run as root (try: sudo $0)"
 [ -x "$SERVER_BIN" ] || die "$SERVER_BIN not found; run install-server.sh for initial installation"
-command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ] || die "systemd is required"
+if ! command -v systemctl >/dev/null 2>&1 || [ ! -d /run/systemd/system ]; then
+  die "systemd is required"
+fi
 
 TMP_DIR=""
 cleanup() {
@@ -128,16 +125,11 @@ load_answers() {
     esac
     case "$key" in
       FLEET_REPO) [ -z "$FLEET_REPO" ] && FLEET_REPO="$val" ;;
-      FLEET_INSTALL_VERSION) FLEET_INSTALL_VERSION="$val" ;;
       FLEET_PROXY_MODE) [ -n "$val" ] && FLEET_PROXY_MODE="$val" ;;
-      FLEET_PANEL_DOMAIN) FLEET_PANEL_DOMAIN="$val" ;;
-      FLEET_AUTH_DOMAIN) FLEET_AUTH_DOMAIN="$val" ;;
       FLEET_TLS_MODE) [ -n "$val" ] && FLEET_TLS_MODE="$val" ;;
       FLEET_ACME_EMAIL) FLEET_ACME_EMAIL="$val" ;;
-      FLEET_PANEL_PORT) [ -n "$val" ] && FLEET_PANEL_PORT="$val" ;;
       FLEET_SERVER_PORT) [ -n "$val" ] && FLEET_SERVER_PORT="$val" ;;
       FLEET_AGENT_PORT) [ -n "$val" ] && FLEET_AGENT_PORT="$val" ;;
-      FLEET_AUTH_PORT) [ -n "$val" ] && FLEET_AUTH_PORT="$val" ;;
       FLEET_DATA_DIR) [ -n "$val" ] && FLEET_DATA_DIR="$val" ;;
       FLEET_PROXY_DIR) [ -n "$val" ] && FLEET_PROXY_DIR="$val" ;;
       FLEET_PROXY_STATE_DIR) [ -n "$val" ] && FLEET_PROXY_STATE_DIR="$val" ;;
@@ -358,7 +350,9 @@ fi
 # Back up current binaries and config.
 cp -a "$SERVER_BIN" "$BACKUP_DIR/bin/fleet-server"
 [ -f "$AGENT_BIN" ] && cp -a "$AGENT_BIN" "$BACKUP_DIR/bin/fleet-agent"
-[ -d "$AGENT_DIR" ] && cp -a "$AGENT_DIR/." "$BACKUP_DIR/agents/" 2>/dev/null || true
+if [ -d "$AGENT_DIR" ]; then
+  cp -a "$AGENT_DIR/." "$BACKUP_DIR/agents/" 2>/dev/null || true
+fi
 [ -f "$FLEET_CONF_DIR/config.json" ] && cp -a "$FLEET_CONF_DIR/config.json" "$BACKUP_DIR/config.json"
 
 say "stopping fleet-server.service..."
@@ -377,7 +371,7 @@ rollback() {
   local reason="$1"
   warn "upgrade failed ($reason); rolling back..."
   systemctl stop fleet-server.service || true
-  cp -a "$BACKUP_DIR/bin/fleet-server" "$SERVER_BIN"
+  install -D -m 0755 "$BACKUP_DIR/bin/fleet-server" "$SERVER_BIN"
   [ -f "$BACKUP_DIR/bin/fleet-agent" ] && install -D -m 0755 "$BACKUP_DIR/bin/fleet-agent" "$AGENT_BIN"
   if [ -d "$BACKUP_DIR/agents" ]; then
     install -d -m 0755 "$AGENT_DIR"
@@ -395,7 +389,20 @@ rollback() {
 
   if [ "$WAS_ACTIVE" -eq 1 ]; then
     systemctl daemon-reload
-    systemctl start fleet-server.service || warn "rollback start of fleet-server failed; inspect journalctl -u fleet-server"
+    if systemctl start fleet-server.service; then
+      local rb_ok=0 rb_code=""
+      for _ in $(seq 1 10); do
+        rb_code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${FLEET_SERVER_PORT}/" || true)"
+        if [ "$rb_code" = "200" ]; then
+          rb_ok=1
+          break
+        fi
+        sleep 1
+      done
+      [ "$rb_ok" -eq 1 ] || warn "rollback started fleet-server, but health check did not return 200 within 10s"
+    else
+      warn "rollback start of fleet-server failed; inspect journalctl -u fleet-server"
+    fi
   fi
   die "upgrade failed and was rolled back ($reason). Backup retained at $BACKUP_DIR"
 }
@@ -493,14 +500,15 @@ if [ "$SKIP_PROXY" -eq 0 ]; then
 
     if [ ! -x /usr/local/bin/authelia ] || ! /usr/local/bin/authelia --version 2>/dev/null | grep -q "${AUTHELIA_VERSION}"; then
       auth_tgz="authelia-v${AUTHELIA_VERSION}-linux-${arch}.tar.gz"
-      auth_sum="${auth_tgz}.sha256"
+      auth_sum="checksums.sha256"
       auth_base="https://github.com/authelia/authelia/releases/download/v${AUTHELIA_VERSION}"
       curl -fsSL -L "${auth_base}/${auth_tgz}" -o "$p_dir/$auth_tgz"
       curl -fsSL -L "${auth_base}/${auth_sum}" -o "$p_dir/$auth_sum"
-      (cd "$p_dir" && sha256sum -c "$auth_sum") || die "Authelia checksum verification failed"
+      (cd "$p_dir" && sha256sum -c --ignore-missing "$auth_sum" | grep -q "^${auth_tgz}: OK$") || \
+        die "Authelia checksum verification failed"
       mkdir -p "$p_dir/authelia-extract"
       tar -xzf "$p_dir/$auth_tgz" -C "$p_dir/authelia-extract"
-      auth_bin="$(find "$p_dir/authelia-extract" -type f -name 'authelia*' | head -n1)"
+      auth_bin="$(find "$p_dir/authelia-extract" -type f -name 'authelia' | head -n1)"
       [ -n "$auth_bin" ] || die "authelia binary missing in archive"
       [ -x /usr/local/bin/authelia ] && cp -a /usr/local/bin/authelia "$BACKUP_DIR/bin/authelia"
       install -D -m 0755 "$auth_bin" /usr/local/bin/authelia
@@ -509,7 +517,7 @@ if [ "$SKIP_PROXY" -eq 0 ]; then
 
     if [ "$proxy_changed" -eq 1 ]; then
       chown -R "$PROXY_USER:$PROXY_USER" "$FLEET_PROXY_STATE_DIR" 2>/dev/null || true
-      systemctl restart fleet-authelia.service fleet-caddy.service fleet-proxy.service
+      systemctl restart fleet-proxy.service
     fi
   fi
 
