@@ -68,3 +68,26 @@ top of that fixed system.
   mock). The only thing that varies between the round-4 files is the **background pattern**.
 - Same hard rules: visual only, no change to the panel's real controls/layout; the theme toggle + nav
   browsing are demo chrome, kept minimal and unobtrusive. Keep all earlier rounds for reference.
+
+---
+
+# Round 4 review (operator feedback) → Round 5
+
+- **`round-4/05-matrix-rain.html` was good** — keep the Matrix live-rain concept. BUT in **dark mode the
+  rain was green**; try making it **grey / muted (monochrome)** instead, closer to the light-mode feel
+  and the design's graphite/bone palette. (Deliver a refined Matrix sample with grey dark-mode rain.)
+- The **plain static patterns felt too simple.** Make more samples with **more creative OR professional
+  backgrounds** — richer textures or subtle motion that feel considered, not generic. **But don't
+  overdo it:** restrained, tasteful, content stays fully legible; no loud or busy backgrounds.
+
+## Round-5 directive
+
+- Keep the fixed round-3 design system and the all-in-one format (both light+dark via toggle, browsable
+  top-nav), same as round 4 — only the background varies.
+- Deliver a **refined Matrix-rain** whose **dark-mode rain is grey/muted (not green)**, light-mode
+  consistent, reduced-motion respected.
+- Deliver a handful more backgrounds that are **creative or professional** (e.g. subtle topographic
+  contour lines, a faint blueprint, a slow constellation/particle field, a gentle signal/aurora gradient,
+  a soft isometric grid) — pick tasteful ones, keep them subtle. Avoid plain dots/grids this round.
+- Keep it modest in count and intensity ("do not make it too much"). Keep all earlier rounds for
+  reference.
