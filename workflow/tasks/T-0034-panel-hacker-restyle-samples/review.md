@@ -40,3 +40,31 @@ the two winners:
   so they read as light/dark of the same thing.
 - Keep sample-2's and sample-5's strengths; same hard rules (visual only, no UX/layout change, standalone
   mock of the same screen). Keep all earlier rounds for reference.
+
+---
+
+# Round 3 review (operator feedback) → Round 4
+
+The round-3 light/dark pair (`round-3/light.html` + `dark.html`) is the **chosen design system** — keep
+it as the baseline: same fonts (Space Mono + Red Hat Mono), same box-outlines / offset-shadow frames,
+same two palettes (warm-paper light, void-black + signal-red dark). Round 4 explores **backgrounds** on
+top of that fixed system.
+
+## Round-4 directive
+
+- **Revise the dot background pattern** — the dot texture carried from round 2/3 isn't quite right;
+  refine it (scale, spacing, contrast, alignment to the grid).
+- Make a handful of samples that differ **ONLY in the background pattern** — everything else (fonts,
+  box-outlines, components, both palettes, layout) stays identical to the round-3 system. Include:
+  - the **revised dot** pattern,
+  - a couple more **static** patterns (e.g. fine grid / graph-paper, crosshatch, hairline rules),
+  - some **hacker-style** backgrounds (faint hex-dump / ASCII / circuit-trace / terminal-noise texture,
+    kept subtle so content stays legible),
+  - **exactly one with a MATRIX-movie-style LIVE animated background** — green falling code rain (canvas
+    `requestAnimationFrame`), sitting BEHIND the content at low opacity so the panel stays fully legible.
+- **Each sample is now ALL-IN-ONE:** a single self-contained file that contains **BOTH light and dark**
+  with an in-page **theme toggle**, and makes the panel's **other sections browsable via the working
+  top-nav menus** (click the nav to switch Operate / Observe / Admin / Machines / Watchdog within the
+  mock). The only thing that varies between the round-4 files is the **background pattern**.
+- Same hard rules: visual only, no change to the panel's real controls/layout; the theme toggle + nav
+  browsing are demo chrome, kept minimal and unobtrusive. Keep all earlier rounds for reference.
