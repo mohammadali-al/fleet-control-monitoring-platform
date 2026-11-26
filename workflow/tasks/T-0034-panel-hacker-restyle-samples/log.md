@@ -11,3 +11,9 @@ wf: T-0034 done
 Created five new self-contained static HTML design spike samples under `workflow/design/panel-hacker-samples/round-2/` (`sample-1.html` through `sample-5.html`) plus `round-2/README.md`, acting on `review.md` to push for aesthetic novelty while keeping the exact Fleet panel layout, nav, controls, and mock data intact and leaving round-1 files, `web/`, and Go code untouched.
 
 wf: T-0034 done
+
+## 2026-11-26 - doer (round 3)
+
+Created a matched light + dark pair under `workflow/design/panel-hacker-samples/round-3/` (`light.html`, `dark.html`, and `README.md`) unifying the round-2 winners (`round-2/sample-2.html` and `round-2/sample-5.html`) into one design system: Space Mono + Red Hat Mono typography and sample-2's box-outline + offset block-shadow framing across both, with sample-2's warm-paper palette in `light.html` and sample-5's black/bone-white + signal-red palette in `dark.html`, keeping layout, controls, mock data, earlier rounds, `web/`, and Go code untouched.
+
+wf: T-0034 done
