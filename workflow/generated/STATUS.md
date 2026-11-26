@@ -6,6 +6,7 @@
 _none_
 ## Next (ready, in order)
 - **T-0034** panel-hacker-restyle-samples  `after: []`
+- **T-0038** deploy-verification  `after: [T-0036]`
 
 ## Waiting for the operator (merged → see CHECKS.md)
 - **T-0001** project-skeleton  `after: []`
