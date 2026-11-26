@@ -1,0 +1,2083 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Machines · Fleet panel (Round 4 / 02 Drafting Grid)</title>
+  <meta name="color-scheme" content="light dark">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Mono:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    /* ==========================================================================
+       Round 4 — Fixed Round-3 Unified Fleet Design System (Drafting Grid)
+       Fonts: Space Mono (display/headings/nav/stats) + Red Hat Mono (body/tables/code)
+       Borders: Carbon-ink / Graphite-bone structural rules + offset block-shadow frames
+       Themes: Light (Warm Paper) + Dark (Void Black, Bone-White & Signal Red)
+       ========================================================================== */
+    :root {
+      color-scheme: light;
+      --font-sans: "Red Hat Mono", ui-monospace, Consolas, monospace;
+      --font-mono: "Red Hat Mono", ui-monospace, Consolas, monospace;
+      --font-display: "Space Mono", "Red Hat Mono", ui-monospace, monospace;
+
+      --fs-xs: 0.75rem;
+      --fs-sm: 0.8125rem;
+      --fs-base: 0.875rem;
+      --fs-md: 0.95rem;
+      --fs-lg: 1.2rem;
+      --fs-xl: 1.5rem;
+      --lh: 1.5;
+      --lh-tight: 1.2;
+
+      --sp-1: 0.25rem; --sp-2: 0.5rem; --sp-3: 0.75rem;
+      --sp-4: 1rem;    --sp-5: 1.5rem; --sp-6: 2rem;
+
+      --radius-sm: 0px; --radius: 2px; --radius-lg: 2px;
+      --control-h: 2.25rem;
+      --focus-width: 2px;
+      --dur-fast: 90ms; --dur: 160ms;
+      --ease: cubic-bezier(0.2, 0, 0, 1);
+
+      --sidebar-w: 15rem;
+      --topbar-h: 3.5rem;
+      --content-max: 90rem;
+      --page-pad: var(--sp-5);
+
+      /* Light theme palette — Warm Paper & Carbon Ink (Round 3 fixed) */
+      --bg: #f3efe6;
+      /* BG_LIGHT_START */
+      --bg-pattern: linear-gradient(rgb(24 26 24 / 0.115) 1px, transparent 1px) 0 0 / 80px 80px, linear-gradient(90deg, rgb(24 26 24 / 0.115) 1px, transparent 1px) 0 0 / 80px 80px, linear-gradient(rgb(24 26 24 / 0.05) 1px, transparent 1px) 0 0 / 16px 16px, linear-gradient(90deg, rgb(24 26 24 / 0.05) 1px, transparent 1px) 0 0 / 16px 16px;
+      /* BG_LIGHT_END */
+      --head-dot: transparent;
+      --surface: #fbf9f3;
+      --surface-2: #ede8dc;
+      --surface-3: #e2dbcb;
+      --foot-bg: #ede8dc;
+      --border: #c5bdb0;
+      --border-strong: #181a18;
+      --rule: #181a18;
+      --text: #181a18;
+      --text-muted: #525049;
+      --text-faint: #7d796f;
+
+      --accent: #d9480f;
+      --accent-hover: #b83808;
+      --accent-soft: #fdebe2;
+      --on-accent: #fbf9f3;
+      --focus: #1d4ed8;
+      --link: #1d4ed8;
+
+      --ok: #146c43;     --ok-soft: #e0f2e8;     --ok-border: #146c43;
+      --warn: #a65e00;   --warn-soft: #fdf0d5;   --warn-border: #a65e00;
+      --danger: #c92a2a; --danger-soft: #fce8e8; --danger-hover-bg: #fad4d4; --danger-hover-fg: #a51d1d;
+      --info: #1d4ed8;   --info-soft: #e6eefc;   --info-fg: #1d4ed8;   --info-border: #1d4ed8;
+      --neutral: #525049; --neutral-soft: #e7e2d6;
+
+      --chip-accent-bg: #fdebe2; --chip-accent-fg: #d9480f; --chip-accent-border: #d9480f;
+      --stat-alert-value: var(--text);
+      --meter-fill: var(--ok);
+      --table-hover: var(--accent-soft);
+      --input-hover-border: var(--accent);
+      --tab-active-fg: var(--accent);
+      --nav-active-bg: var(--text);
+      --nav-active-fg: var(--surface);
+      --toast-bg: var(--text);
+      --toast-fg: var(--surface);
+
+      --series-1: #d9480f;
+      --series-2: #1d4ed8;
+      --series-3: #146c43;
+      --grid-line: rgb(24 26 24 / 0.12);
+
+      --term-bg: #121512;
+      --term-fg: #e6f4e4;
+      --term-dim: #799177;
+      --term-accent: #ff7b47;
+      --term-err: #ff6b6b;
+      --term-border: #181a18;
+      --term-bar-bg: #1b201b;
+      --term-bar-fg: #a7b8a5;
+      --term-bar-border: #283028;
+
+      --ink-shadow: 3px 3px 0 #181a18;
+      --ink-shadow-sm: 2px 2px 0 #181a18;
+      --scrim: rgb(24 26 24 / 0.52);
+      --icon-moon-display: block;
+      --icon-sun-display: none;
+    }
+
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      /* Dark theme palette — Void Black, Bone-White & Signal Red (Round 3 fixed) */
+      --bg: #09090b;
+      /* BG_DARK_START */
+      --bg-pattern: linear-gradient(rgb(244 244 240 / 0.095) 1px, transparent 1px) 0 0 / 80px 80px, linear-gradient(90deg, rgb(244 244 240 / 0.095) 1px, transparent 1px) 0 0 / 80px 80px, linear-gradient(rgb(244 244 240 / 0.04) 1px, transparent 1px) 0 0 / 16px 16px, linear-gradient(90deg, rgb(244 244 240 / 0.04) 1px, transparent 1px) 0 0 / 16px 16px;
+      /* BG_DARK_END */
+      --head-dot: rgb(244 244 240 / 0.09);
+      --surface: #101014;
+      --surface-2: #17171c;
+      --surface-3: #222229;
+      --foot-bg: #0c0c0f;
+      --border: #272730;
+      --border-strong: #858594;
+      --rule: #f4f4f0;
+      --text: #f4f4f0;
+      --text-muted: #9c9ca6;
+      --text-faint: #676773;
+
+      --accent: #ff2a3c;
+      --accent-hover: #ff5462;
+      --accent-soft: #2e0d12;
+      --on-accent: #ffffff;
+      --focus: #ff2a3c;
+      --link: #f4f4f0;
+
+      --ok: #34d399;     --ok-soft: #0c261c;     --ok-border: rgb(52 211 153 / 0.4);
+      --warn: #f59e0b;   --warn-soft: #291c06;   --warn-border: rgb(245 158 11 / 0.45);
+      --danger: #ff2a3c; --danger-soft: #2e0d12; --danger-hover-bg: #ff2a3c; --danger-hover-fg: #ffffff;
+      --info: #d4d4d8;   --info-soft: #1f1f24;   --info-fg: #f4f4f0;   --info-border: #858594;
+      --neutral: #9c9ca6; --neutral-soft: #1a1a20;
+
+      --chip-accent-bg: #222229; --chip-accent-fg: #f4f4f0; --chip-accent-border: #858594;
+      --stat-alert-value: var(--accent);
+      --meter-fill: var(--text);
+      --table-hover: #19191f;
+      --input-hover-border: var(--rule);
+      --tab-active-fg: var(--text);
+      --nav-active-bg: var(--text);
+      --nav-active-fg: var(--bg);
+      --toast-bg: var(--text);
+      --toast-fg: var(--bg);
+
+      --series-1: #ff2a3c;
+      --series-2: #f4f4f0;
+      --series-3: #34d399;
+      --grid-line: rgb(244 244 240 / 0.10);
+
+      --term-bg: #050507;
+      --term-fg: #f4f4f0;
+      --term-dim: #6c6c78;
+      --term-accent: #ff2a3c;
+      --term-err: #ff6b7a;
+      --term-border: #858594;
+      --term-bar-bg: #101014;
+      --term-bar-fg: #9c9ca6;
+      --term-bar-border: #272730;
+
+      --ink-shadow: 3px 3px 0 #383844;
+      --ink-shadow-sm: 2px 2px 0 #383844;
+      --scrim: rgb(5 5 7 / 0.82);
+      --icon-moon-display: none;
+      --icon-sun-display: block;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      background-color: var(--bg);
+      background-image: var(--bg-pattern);
+      background-attachment: fixed;
+      color: var(--text);
+      font: var(--fs-base) / var(--lh) var(--font-sans);
+      font-variant-numeric: tabular-nums;
+      -webkit-font-smoothing: antialiased;
+    }
+    /* BG_EXTRA_CSS */
+
+    h1, h2, h3, h4, p, ul, ol, dl, dd, figure { margin: 0; }
+    ul, ol { padding: 0; list-style: none; }
+    img, svg { display: block; max-width: 100%; }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    a { color: var(--link); text-underline-offset: 3px; }
+    a:hover { color: var(--accent); }
+    code, kbd, .mono { font-family: var(--font-mono); font-size: 0.92em; }
+    hr { border: 0; border-top: 1px solid var(--border); margin: var(--sp-4) 0; }
+
+    h1 {
+      font-family: var(--font-display);
+      font-size: 1.9rem;
+      line-height: 1.05;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      text-transform: uppercase;
+      color: var(--text);
+    }
+    h2 {
+      font-family: var(--font-display);
+      font-size: 0.9rem;
+      line-height: var(--lh-tight);
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    h3 { font-size: var(--fs-base); line-height: var(--lh-tight); font-weight: 700; }
+
+    :focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: 2px; }
+    :focus:not(:focus-visible) { outline: none; }
+
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+      overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+    }
+    .skip-link {
+      position: absolute; left: var(--sp-3); top: -4rem; z-index: 100;
+      background: var(--text); color: var(--surface);
+      padding: var(--sp-2) var(--sp-4); font-weight: 700;
+    }
+    .skip-link:focus { top: var(--sp-3); }
+
+    /* ---------- App shell ---------- */
+    .app { position: relative; z-index: 1; display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr); min-height: 100vh; }
+
+    .sidebar {
+      position: sticky; top: 0; height: 100vh; overflow-y: auto;
+      display: flex; flex-direction: column;
+      background: var(--surface); border-right: 2px solid var(--border-strong);
+    }
+    .brand {
+      display: flex; align-items: center; gap: var(--sp-3);
+      height: var(--topbar-h); padding: 0 var(--sp-4);
+      border-bottom: 2px solid var(--rule);
+      color: var(--text); text-decoration: none;
+      font-family: var(--font-display); font-weight: 700; font-size: 0.9rem;
+      text-transform: uppercase; letter-spacing: 0.02em;
+      background: var(--surface-2);
+    }
+    .brand__mark {
+      display: grid; place-items: center; width: 1.75rem; height: 1.75rem;
+      background: var(--accent); color: var(--on-accent);
+      border: 1.5px solid var(--border-strong);
+      box-shadow: var(--ink-shadow-sm);
+    }
+    .brand__mark svg { width: 1rem; height: 1rem; }
+    .brand small {
+      display: block; font-family: var(--font-mono); font-weight: 500;
+      font-size: 0.65rem; color: var(--text-muted); line-height: 1.1; text-transform: none; letter-spacing: 0;
+    }
+
+    .nav { padding: var(--sp-3) var(--sp-3) var(--sp-4); flex: 1; }
+    .nav__group + .nav__group { margin-top: var(--sp-4); }
+    .nav__label {
+      padding: 0 var(--sp-3) var(--sp-1);
+      font-family: var(--font-display); font-size: 0.6875rem; font-weight: 700;
+      letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-faint);
+    }
+    .nav__link {
+      display: flex; align-items: center; gap: var(--sp-3);
+      min-height: var(--control-h); padding: 0 var(--sp-3);
+      border-radius: var(--radius); color: var(--text-muted);
+      text-decoration: none; font-weight: 600; font-size: var(--fs-sm);
+      border: 1.5px solid transparent;
+      transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+    }
+    .nav__link svg { width: 1.05rem; height: 1.05rem; flex: none; }
+    .nav__link:hover { background: var(--surface-2); color: var(--text); border-color: var(--border); }
+    .nav__link[aria-current="page"] {
+      background: var(--nav-active-bg); color: var(--nav-active-fg);
+      border-color: var(--border-strong);
+      box-shadow: var(--ink-shadow-sm);
+    }
+    .nav__tag { margin-left: auto; }
+
+    .sidebar__foot {
+      padding: var(--sp-3) var(--sp-4); border-top: 2px solid var(--border-strong);
+      font-size: var(--fs-xs); color: var(--text-muted);
+      background: var(--foot-bg);
+    }
+    .sidebar__foot dl { display: grid; grid-template-columns: auto 1fr; gap: var(--sp-1) var(--sp-3); }
+    .sidebar__foot dt { color: var(--text-faint); font-weight: 600; text-transform: uppercase; }
+
+    .main { min-width: 0; display: flex; flex-direction: column; }
+
+    .topbar {
+      position: sticky; top: 0; z-index: 20;
+      display: flex; align-items: center; gap: var(--sp-3);
+      height: var(--topbar-h); padding: 0 var(--page-pad);
+      background: var(--surface);
+      border-bottom: 2px solid var(--border-strong);
+    }
+    .topbar__spacer { flex: 1; }
+    .topbar .topbar__menu { display: none; }
+
+    .content { width: 100%; max-width: var(--content-max); padding: var(--page-pad); margin: 0 auto; flex: 1; }
+
+    .page-head {
+      display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between;
+      gap: var(--sp-3) var(--sp-5); margin-bottom: var(--sp-5);
+      padding-bottom: var(--sp-4);
+      border-bottom: 2px solid var(--rule);
+    }
+    .page-head__text p { color: var(--text-muted); margin-top: var(--sp-2); max-width: 64ch; font-size: var(--fs-sm); }
+    .page-head__actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+    .crumbs { font-family: var(--font-display); font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: var(--sp-1); }
+
+    /* ---------- Grid ---------- */
+    .grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--sp-4); }
+    .col-12 { grid-column: span 12; }
+    .col-8 { grid-column: span 8; }
+    .col-6 { grid-column: span 6; }
+    .col-4 { grid-column: span 4; }
+    .col-3 { grid-column: span 3; }
+    .split { display: grid; grid-template-columns: minmax(0, 1fr) 20rem; gap: var(--sp-4); align-items: start; }
+    .split--rail-left { grid-template-columns: 17rem minmax(0, 1fr); }
+    .stack { display: flex; flex-direction: column; gap: var(--sp-4); }
+    .row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+    .row--between { justify-content: space-between; }
+    .muted { color: var(--text-muted); }
+    .faint { color: var(--text-faint); }
+    .nowrap { white-space: nowrap; }
+
+    @media (max-width: 1199px) {
+      .col-8, .col-6, .col-4, .col-3 { grid-column: span 12; }
+      .col-3--md-6 { grid-column: span 6; }
+      .split, .split--rail-left { grid-template-columns: minmax(0, 1fr); }
+    }
+    @media (max-width: 959px) {
+      :root { --page-pad: var(--sp-4); }
+      .app { grid-template-columns: minmax(0, 1fr); }
+      .sidebar {
+        position: fixed; inset: 0 auto 0 0; width: min(18rem, 86vw); z-index: 60;
+        transform: translateX(-100%); transition: transform var(--dur) var(--ease);
+        box-shadow: var(--ink-shadow);
+      }
+      body.nav-open .sidebar { transform: none; }
+      body.nav-open::after { content: ""; position: fixed; inset: 0; background: var(--scrim); z-index: 50; }
+      .topbar .topbar__menu { display: inline-grid; }
+    }
+    @media (max-width: 599px) {
+      .col-3--md-6 { grid-column: span 12; }
+      .page-head__actions .btn { flex: 1 1 auto; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+    }
+
+    /* ---------- Components (Round-3 Outlines + Offset Block-Shadow Frames) ---------- */
+    .icon { width: 1.05rem; height: 1.05rem; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .icon--sm { width: 0.95rem; height: 0.95rem; }
+
+    .card {
+      background: var(--surface);
+      border: 1.5px solid var(--border-strong);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--ink-shadow);
+      min-width: 0;
+    }
+    .card__head {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: var(--sp-2) var(--sp-4); padding: var(--sp-3) var(--sp-4);
+      border-bottom: 1.5px solid var(--rule);
+      background:
+        radial-gradient(var(--head-dot) 1px, transparent 1px) 0 0 / 6px 6px,
+        var(--surface-2);
+    }
+    .card__head p { color: var(--text-muted); font-size: var(--fs-xs); }
+    .card__body { padding: var(--sp-4); }
+    .card__body--flush { padding: 0; }
+    .card__foot {
+      padding: var(--sp-3) var(--sp-4);
+      border-top: 1px dashed var(--border);
+      color: var(--text-muted); font-size: var(--fs-xs);
+      background: var(--foot-bg);
+    }
+
+    /* Stat tile */
+    .stat { padding: var(--sp-3) var(--sp-4); border-top: 4px solid var(--rule); }
+    .stat:nth-child(3), .stat:nth-child(4) { border-top-color: var(--accent); }
+    .stat__label { font-family: var(--font-display); font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+    .stat__value {
+      font-family: var(--font-display);
+      font-size: 2rem; line-height: 1.1; font-weight: 700;
+      color: var(--text);
+      margin-top: var(--sp-1);
+      font-variant-numeric: tabular-nums;
+    }
+    .stat:nth-child(3) .stat__value,
+    .stat:nth-child(4) .stat__value { color: var(--stat-alert-value); }
+    .stat__value small { font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); }
+    .stat__note { font-size: var(--fs-xs); color: var(--text-muted); margin-top: var(--sp-1); }
+
+    /* Buttons with tactile ink-stamp press */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2);
+      min-height: var(--control-h); padding: 0 var(--sp-4);
+      border: 1.5px solid var(--border-strong); border-radius: var(--radius);
+      background: var(--surface); color: var(--text);
+      box-shadow: var(--ink-shadow-sm);
+      font-weight: 700; font-size: var(--fs-sm); text-decoration: none; cursor: pointer; white-space: nowrap;
+      transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+    }
+    .btn:hover { background: var(--surface-2); transform: translate(-1px, -1px); box-shadow: var(--ink-shadow); }
+    .btn:active { transform: translate(2px, 2px); box-shadow: none; }
+    .btn--primary { background: var(--accent); border-color: var(--border-strong); color: var(--on-accent); }
+    .btn--primary:hover { background: var(--accent-hover); color: var(--on-accent); }
+    .btn--danger { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); box-shadow: 2px 2px 0 var(--danger); }
+    .btn--danger:hover { background: var(--danger-hover-bg); color: var(--danger-hover-fg); box-shadow: 3px 3px 0 var(--danger); }
+    .btn--sm { min-height: 2rem; padding: 0 var(--sp-3); font-size: var(--fs-xs); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+    .btn:disabled:hover { transform: none; background: var(--surface); box-shadow: none; }
+
+    .icon-btn {
+      display: inline-grid; place-items: center;
+      width: var(--control-h); height: var(--control-h);
+      border: 1.5px solid transparent; border-radius: var(--radius);
+      background: transparent; color: var(--text-muted); cursor: pointer;
+      transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+    }
+    .icon-btn:hover { background: var(--surface-2); color: var(--text); border-color: var(--border-strong); }
+    .icon-btn[aria-disabled="true"], .icon-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .icon-btn[aria-disabled="true"]:hover { background: transparent; color: var(--text-muted); border-color: transparent; }
+    .icon-btn--sm { width: 2rem; height: 2rem; }
+    .icon-btn--sm .icon { width: 0.95rem; height: 0.95rem; }
+    .icon-btn--bordered { border-color: var(--border-strong); background: var(--surface); box-shadow: var(--ink-shadow-sm); }
+    .theme-toggle .icon-moon { display: var(--icon-moon-display); }
+    .theme-toggle .icon-sun { display: var(--icon-sun-display); }
+
+    /* Chips */
+    .chip {
+      display: inline-flex; align-items: center; gap: 0.35rem; max-width: 100%;
+      padding: 0.125rem 0.5rem; border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      font-size: var(--fs-xs); font-weight: 700; line-height: 1.4; white-space: nowrap;
+      background: var(--neutral-soft); color: var(--neutral);
+    }
+    .chip .icon { width: 0.8rem; height: 0.8rem; stroke-width: 2.25; }
+    .chip--ok     { background: var(--ok-soft);     color: var(--ok);     border-color: var(--ok-border); }
+    .chip--warn   { background: var(--warn-soft);   color: var(--warn);   border-color: var(--warn-border); }
+    .chip--danger { background: var(--danger-soft); color: var(--danger); border-color: var(--danger); }
+    .chip--info   { background: var(--info-soft);   color: var(--info-fg); border-color: var(--info-border); }
+    .chip--accent { background: var(--chip-accent-bg); color: var(--chip-accent-fg); border-color: var(--chip-accent-border); }
+    .chip--outline { background: var(--surface); border-color: var(--border-strong); color: var(--text); }
+    .chip--mono { font-family: var(--font-mono); font-weight: 600; }
+    .chip--live::before { content: ""; width: 0.45rem; height: 0.45rem; border-radius: 50%; background: currentColor; }
+
+    /* Forms */
+    .field { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
+    .field > label, .field > .label, legend { font-weight: 700; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.05em; color: var(--text); }
+    .field__hint { font-size: var(--fs-xs); color: var(--text-faint); }
+    .input, .select, .textarea {
+      width: 100%; min-height: var(--control-h); padding: 0 var(--sp-3);
+      background: var(--surface); color: var(--text);
+      border: 1.5px solid var(--border-strong); border-radius: var(--radius);
+      font-size: var(--fs-sm);
+    }
+    .textarea { padding: var(--sp-2) var(--sp-3); min-height: 5rem; resize: vertical; }
+    .input::placeholder { color: var(--text-faint); }
+    .input:hover, .select:hover, .textarea:hover { border-color: var(--input-hover-border); }
+    .select {
+      appearance: none; padding-right: 2rem;
+      background-image: linear-gradient(45deg, transparent 50%, var(--text) 50%), linear-gradient(135deg, var(--text) 50%, transparent 50%);
+      background-position: calc(100% - 17px) 55%, calc(100% - 12px) 55%;
+      background-size: 5px 5px; background-repeat: no-repeat;
+    }
+    .input--mono { font-family: var(--font-mono); }
+    .input-affix { position: relative; }
+    .input-affix > .icon { position: absolute; left: var(--sp-3); top: 50%; translate: 0 -50%; color: var(--text); pointer-events: none; }
+    .input-affix > .input { padding-left: 2.25rem; }
+    fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(11.5rem, 1fr)); gap: var(--sp-4); }
+    .check { display: inline-flex; align-items: center; gap: var(--sp-2); min-height: var(--control-h); cursor: pointer; font-size: var(--fs-sm); }
+    .check input { width: 1rem; height: 1rem; accent-color: var(--accent); margin: 0; }
+
+    .seg { display: inline-flex; border: 1.5px solid var(--border-strong); border-radius: var(--radius); background: var(--surface-2); padding: 2px; gap: 2px; }
+    .seg label { position: relative; }
+    .seg input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+    .seg span {
+      display: inline-flex; align-items: center; min-height: calc(var(--control-h) - 6px); padding: 0 var(--sp-3);
+      font-weight: 700; font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap;
+    }
+    .seg input:checked + span { background: var(--nav-active-bg); color: var(--nav-active-fg); }
+    .seg input:focus-visible + span { outline: var(--focus-width) solid var(--focus); outline-offset: 1px; }
+    .seg label:hover span { color: var(--text); }
+    .seg input:checked + span:hover { color: var(--nav-active-fg); }
+
+    /* Table */
+    .table-wrap { overflow-x: auto; }
+    .table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--fs-sm); }
+    .table th, .table td { padding: var(--sp-2) var(--sp-3); text-align: left; vertical-align: middle; border-bottom: 1px solid var(--border); }
+    .table thead th {
+      position: sticky; top: 0; z-index: 1; background: var(--surface-2);
+      font-family: var(--font-display); font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text);
+      white-space: nowrap; border-bottom: 1.5px solid var(--border-strong);
+    }
+    .table tbody tr:hover { background: var(--table-hover); }
+    .table tbody tr:last-child td, .table tbody tr:last-child th { border-bottom: 0; }
+    .table .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .table .actions { text-align: right; white-space: nowrap; }
+    .table .cell-primary { font-weight: 700; color: var(--text); }
+    .table .cell-sub { font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; font-weight: 400; }
+    .table--sticky-first th:first-child, .table--sticky-first td:first-child { position: sticky; left: 0; z-index: 2; background: var(--surface); }
+    .table--sticky-first thead th:first-child { background: var(--surface-2); z-index: 3; }
+    .table--sticky-first tbody tr:hover td:first-child,
+    .table--sticky-first tbody tr:hover th:first-child { background: var(--table-hover); }
+    .table tbody tr.group th { position: static; background: var(--surface-2); font-family: var(--font-display); font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); padding-block: var(--sp-1); }
+    .table tbody tr.group:hover { background: transparent; }
+    .table--sticky-first tbody tr.group th:first-child { position: static; }
+    tr[aria-selected="true"] td, tr[aria-selected="true"] th { background: var(--accent-soft); }
+    tr[aria-selected="true"] > :first-child { box-shadow: inset 3px 0 0 var(--accent); }
+    .table-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--border); background: var(--surface); }
+    .table-toolbar .input-affix { flex: 1 1 14rem; max-width: 22rem; }
+    .empty { padding: var(--sp-6) var(--sp-4); text-align: center; color: var(--text-muted); }
+
+    /* Progress / meter */
+    .meter { min-width: 10rem; }
+    .meter__bar { height: 0.5rem; background: var(--surface-2); border: 1px solid var(--border-strong); overflow: hidden; }
+    .meter__fill { height: 100%; background: var(--meter-fill); }
+    .meter--warn .meter__fill { background: var(--warn); }
+    .meter--danger .meter__fill { background: var(--danger); }
+    .meter__text { display: flex; justify-content: space-between; gap: var(--sp-2); margin-top: 3px; font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .meter__text span { white-space: nowrap; }
+
+    /* Tabs + Embedded Hardware Scope Terminal */
+    .tabs { display: flex; gap: var(--sp-1); border-bottom: 1.5px solid var(--border-strong); overflow-x: auto; overflow-y: hidden; background: var(--surface-2); padding: 0 var(--sp-3); }
+    .tab {
+      display: inline-flex; align-items: center; gap: var(--sp-2); min-height: var(--control-h);
+      padding: 0 var(--sp-4); border: 0; border-bottom: 3px solid transparent;
+      background: transparent; color: var(--text-muted); font-weight: 700; font-size: var(--fs-xs); cursor: pointer; white-space: nowrap;
+    }
+    .tab:hover { color: var(--text); background: var(--surface-3); }
+    .tab[aria-selected="true"] { color: var(--tab-active-fg); border-bottom-color: var(--accent); background: var(--surface); }
+    .tabpanel { padding-top: 0; }
+    .tabpanel[hidden] { display: none; }
+
+    .term-ph {
+      background: var(--term-bg); color: var(--term-fg);
+      border: 2px solid var(--term-border); border-radius: var(--radius);
+      box-shadow: var(--ink-shadow-sm);
+      overflow: hidden; font-family: var(--font-mono); font-size: var(--fs-sm);
+    }
+    .term-ph__bar {
+      display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+      padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--term-bar-border);
+      background: var(--term-bar-bg); color: var(--term-bar-fg); font-size: var(--fs-xs);
+    }
+    .term-ph__bar span:last-child { color: var(--term-accent); font-weight: 700; letter-spacing: 0.06em; }
+    .term-ph__body { padding: var(--sp-3) var(--sp-4); min-height: 14rem; line-height: 1.65; white-space: pre-wrap; overflow-x: auto; }
+    .term-ph--tall .term-ph__body { min-height: 20rem; }
+    .term-ph__prompt { color: var(--term-accent); font-weight: 700; }
+    .term-dim { color: var(--term-dim); }
+    .term-ph__cursor {
+      display: inline-block; width: 0.55em; height: 1.05em; vertical-align: text-bottom;
+      background: var(--term-accent);
+      animation: blink 1.05s steps(1) infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* Secondary page components (styled in the fixed Round-3 system) */
+    .alert {
+      display: flex; gap: var(--sp-3); align-items: flex-start;
+      padding: var(--sp-3) var(--sp-4); border-radius: var(--radius);
+      border: 1.5px solid var(--border-strong); background: var(--info-soft); color: var(--text);
+      box-shadow: var(--ink-shadow-sm); font-size: var(--fs-sm);
+    }
+    .alert .icon { margin-top: 0.1rem; color: var(--info-fg); }
+    .alert--warn { background: var(--warn-soft); border-color: var(--warn-border); }
+    .alert--warn .icon { color: var(--warn); }
+    .alert--danger { background: var(--danger-soft); border-color: var(--danger); }
+    .alert--danger .icon { color: var(--danger); }
+
+    .list { display: flex; flex-direction: column; }
+    .list__item { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) var(--sp-4); border-bottom: 1px solid var(--border); min-width: 0; font-size: var(--fs-sm); }
+    .list__item:last-child { border-bottom: 0; }
+    .list__main { flex: 1; min-width: 0; }
+    .list__main b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .list__main small { color: var(--text-muted); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); }
+
+    dl.kv { display: grid; grid-template-columns: auto 1fr; gap: var(--sp-2) var(--sp-4); font-size: var(--fs-sm); }
+    dl.kv dt { color: var(--text-muted); }
+    dl.kv dd { white-space: nowrap; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+
+    .sticky-rail { position: sticky; top: calc(var(--topbar-h) + var(--sp-4)); }
+    @media (max-width: 1199px) { .sticky-rail { position: static; } }
+    .truncate { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hash { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-muted); }
+
+    .codeblock {
+      margin: 0; padding: var(--sp-3) var(--sp-4);
+      background: var(--term-bg); color: var(--term-fg);
+      border: 1.5px solid var(--term-border); border-radius: var(--radius);
+      font-family: var(--font-mono); font-size: var(--fs-xs); line-height: 1.6;
+      overflow-x: auto; white-space: pre;
+    }
+    .token { font-family: var(--font-mono); padding: 0 0.3em; border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent); border: 1px solid var(--border); }
+
+    .runs { display: grid; grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr)); gap: var(--sp-3); }
+    .run { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); border: 1.5px solid var(--border-strong); border-radius: var(--radius); background: var(--surface-2); min-width: 0; }
+    .run__head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+    .steps { display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; font-size: var(--fs-xs); font-weight: 700; }
+    .step { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.1rem 0.45rem; border: 1px solid var(--border-strong); color: var(--text-muted); background: var(--surface); }
+    .step--done { color: var(--ok); border-color: var(--ok-border); background: var(--ok-soft); }
+    .step--now { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+    .steps__sep { width: 0.6rem; height: 0; border-top: 1.5px solid var(--border-strong); }
+
+    .ladder { display: inline-flex; gap: 3px; vertical-align: middle; margin-right: 4px; }
+    .ladder i { width: 0.9rem; height: 0.45rem; background: var(--surface-3); border: 1px solid var(--border-strong); }
+    .ladder i.on { background: var(--warn); border-color: var(--warn); }
+
+    .chart-ph { background: var(--surface-2); border: 1.5px solid var(--border-strong); border-radius: var(--radius); padding: var(--sp-3); }
+    .chart-ph__plot {
+      position: relative; height: 9.5rem;
+      background:
+        linear-gradient(var(--grid-line) 1px, transparent 1px) 0 0 / 100% 25%,
+        linear-gradient(90deg, var(--grid-line) 1px, transparent 1px) 0 0 / 12.5% 100%;
+    }
+    .chart-ph__plot svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .series-1 { stroke: var(--series-1); } .series-2 { stroke: var(--series-2); }
+    .legend { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); margin-top: var(--sp-2); font-size: var(--fs-xs); color: var(--text-muted); }
+    .legend__item { display: inline-flex; align-items: center; gap: 0.4rem; }
+    .legend__swatch { width: 1.4rem; height: 0; border-top: 3px solid var(--series-1); }
+    .legend__swatch--dash { border-top-style: dashed; }
+    .ovl { position: relative; height: 2rem; margin-top: var(--sp-1); border-top: 1px solid var(--border); background: var(--surface); }
+    .ovl__label { position: absolute; left: var(--sp-2); top: 50%; translate: 0 -50%; font-size: var(--fs-xs); color: var(--text-faint); font-weight: 700; pointer-events: none; }
+    .ovl__mark { position: absolute; top: 0.35rem; bottom: 0.35rem; min-width: 0.9rem; padding: 0; border: 1.5px solid var(--series-2); background: var(--accent-soft); cursor: pointer; }
+
+    .zoom__bar { position: relative; height: 3.25rem; background: var(--surface-2); border: 1.5px solid var(--border-strong); overflow: hidden; }
+    .zoom__seg { position: absolute; top: 0.4rem; bottom: 0.4rem; display: flex; align-items: center; justify-content: center; padding: 0 var(--sp-2); border: 1.5px solid var(--accent); background: var(--accent-soft); color: var(--accent); font-size: var(--fs-xs); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+    .zoom__seg--alt { border-color: var(--border-strong); background: var(--surface); color: var(--text); }
+    .zoom__seg--gap { border-style: dashed; border-color: var(--border); background: transparent; color: var(--text-muted); }
+    .zoom__axis { position: relative; height: 1.5rem; font-size: var(--fs-xs); color: var(--text-muted); }
+    .zoom__axis span { position: absolute; top: 0.2rem; transform: translateX(-50%); white-space: nowrap; }
+    .zoom__axis span:first-child { transform: none; } .zoom__axis span:last-child { transform: translateX(-100%); }
+
+    .pattern { display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); gap: var(--sp-3); }
+    .pattern__opt { position: relative; }
+    .pattern__opt input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+    .pattern__card { display: flex; flex-direction: column; gap: var(--sp-2); height: 100%; padding: var(--sp-3); border: 1.5px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); font-size: var(--fs-xs); }
+    .pattern__card svg { width: 100%; height: 2.25rem; color: var(--text-muted); }
+    .pattern__card b { display: block; font-size: var(--fs-sm); }
+    .pattern__card small { color: var(--text-muted); }
+    .pattern__opt input:checked + .pattern__card { border-color: var(--accent); background: var(--accent-soft); box-shadow: var(--ink-shadow-sm); }
+    .pattern__opt input:checked + .pattern__card svg { color: var(--accent); }
+
+    .tl { --lane-label-w: 11rem; --lane-h: 2.5rem; font-size: var(--fs-xs); }
+    .tl__scroll { overflow-x: auto; }
+    .tl__inner { min-width: 40rem; }
+    .tl__row { display: grid; grid-template-columns: var(--lane-label-w) minmax(0, 1fr); align-items: stretch; border-bottom: 1px solid var(--border); }
+    .tl__row:last-child { border-bottom: 0; }
+    .tl__label { display: flex; align-items: center; gap: var(--sp-2); padding: 0 var(--sp-3); min-height: var(--lane-h); border-right: 1.5px solid var(--border-strong); font-weight: 700; min-width: 0; background: var(--surface); position: sticky; left: 0; z-index: 2; }
+    .tl__label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tl__track { position: relative; min-height: var(--lane-h); background: linear-gradient(90deg, var(--grid-line) 1px, transparent 1px) 0 0 / 10% 100%; }
+    .tl__ruler { height: 2rem; color: var(--text-muted); background: var(--surface-2); }
+    .tl__ruler .tl__track { background: none; }
+    .tl__tick { position: absolute; top: 0; bottom: 0; padding: 0.4rem 0 0 0.3rem; border-left: 1px solid var(--border-strong); }
+    .tl__bar { position: absolute; top: 0.4rem; bottom: 0.4rem; display: flex; align-items: center; padding: 0 var(--sp-2); background: var(--accent-soft); color: var(--accent); border: 1.5px solid var(--accent); font-weight: 700; font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; cursor: pointer; }
+    .tl__bar--alt { background: var(--info-soft); color: var(--info-fg); border-color: var(--info-border); }
+    .tl__ceiling { position: absolute; inset: 0.3rem 0; display: flex; align-items: flex-end; }
+    .tl__spikes { width: 100%; height: 100%; border-bottom: 2px solid var(--border-strong); }
+    .tl__playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--danger); z-index: 1; }
+    .tl__axis { color: var(--text-faint); }
+
+    .switch { display: inline-flex; align-items: center; gap: var(--sp-3); min-height: var(--control-h); cursor: pointer; font-weight: 700; font-size: var(--fs-sm); }
+    .switch input { position: absolute; opacity: 0; width: 2.5rem; height: 1.5rem; margin: 0; cursor: pointer; }
+    .switch__track { position: relative; flex: none; width: 2.5rem; height: 1.5rem; border-radius: var(--radius); background: var(--surface-3); border: 1.5px solid var(--border-strong); }
+    .switch__track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 1rem; height: 1rem; background: var(--text-muted); transition: transform var(--dur-fast) var(--ease); }
+    .switch input:checked + .switch__track { background: var(--accent-soft); border-color: var(--accent); }
+    .switch input:checked + .switch__track::after { transform: translateX(1rem); background: var(--accent); }
+
+    .dialog { width: min(34rem, calc(100vw - 2rem)); padding: 0; border: 2px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface); color: var(--text); box-shadow: var(--ink-shadow); }
+    .dialog::backdrop { background: var(--scrim); }
+    .dialog__head { padding: var(--sp-4); border-bottom: 1.5px solid var(--rule); background: var(--surface-2); }
+    .dialog__head p { color: var(--text-muted); margin-top: var(--sp-1); font-size: var(--fs-xs); }
+    .dialog__body { padding: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-3); }
+    .dialog__foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border-top: 1px dashed var(--border); background: var(--foot-bg); }
+
+    /* Menu + Toast + Panel */
+    .panel[hidden] { display: none; }
+    [hidden] { display: none !important; }
+    .menu { display: inline-block; }
+    .menu__pop {
+      position: fixed; z-index: 70; min-width: 11rem; padding: var(--sp-1);
+      background: var(--surface); border: 1.5px solid var(--border-strong); border-radius: var(--radius); box-shadow: var(--ink-shadow);
+    }
+    .menu__item {
+      display: flex; width: 100%; align-items: center; gap: var(--sp-2); min-height: 2.1rem; padding: 0 var(--sp-3);
+      border: 0; background: transparent; color: var(--text); font-size: var(--fs-xs); font-weight: 700; text-align: left; cursor: pointer;
+    }
+    .menu__item:hover, .menu__item:focus-visible { background: var(--nav-active-bg); color: var(--nav-active-fg); }
+    .menu__item--danger { color: var(--danger); }
+    .menu__item--danger:hover { background: var(--danger); color: var(--on-accent); }
+
+    .toast-region { position: fixed; right: var(--sp-4); bottom: var(--sp-4); z-index: 80; display: flex; flex-direction: column; gap: var(--sp-2); max-width: min(26rem, calc(100vw - 2rem)); }
+    .toast {
+      display: flex; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4);
+      background: var(--toast-bg); color: var(--toast-fg);
+      border: 1.5px solid var(--border-strong); border-radius: var(--radius);
+      box-shadow: var(--ink-shadow-sm); font-size: var(--fs-xs); font-weight: 700;
+      animation: toast-in var(--dur) var(--ease);
+    }
+    @keyframes toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  </style>
+</head>
+<body data-page="machines">
+<!-- BG_BODY_PREFIX --><svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-fleet" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></symbol>
+    <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="16" rx="2"/><path d="M7 10l3 2.5L7 15M12.5 15H17"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M3 6h10M17 6h4M3 12h4M11 12h10M3 18h12M19 18h2"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></symbol>
+    <symbol id="i-evidence" viewBox="0 0 24 24"><path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5M9 14l2 2 4-4"/></symbol>
+    <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="8" ry="2.5"/><path d="M4 5.5v13c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5v-13"/><path d="M4 12c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4 6.5 6.5 0 0 0 20 14.5z"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.5-4M4 4v4h4M4 13a8 8 0 0 0 14.5 4M20 20v-4h-4"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 4 20 12 6 20 6 4"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.6L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0z"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></symbol>
+    <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></symbol>
+  </defs>
+</svg>
+
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="app">
+  <aside class="sidebar" id="sidebar" aria-label="Primary">
+    <a class="brand" href="#machines" data-goto="machines">
+      <span class="brand__mark"><svg class="icon" aria-hidden="true"><use href="#i-fleet"/></svg></span>
+      <span>Fleet panel<small>Control &amp; monitoring</small></span>
+    </a>
+    <nav class="nav" aria-label="Pages">
+      <div class="nav__group">
+        <div class="nav__label">Operate</div>
+        <a class="nav__link" href="#machines" data-page="machines" aria-current="page"><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg>Machines</a>
+        <a class="nav__link" href="#projects" data-page="projects"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg>Projects &amp; tests</a>
+        <a class="nav__link" href="#commands" data-page="commands"><svg class="icon" aria-hidden="true"><use href="#i-bolt"/></svg>Command runner</a>
+        <a class="nav__link" href="#terminal" data-page="terminal"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg>Terminal</a>
+      </div>
+      <div class="nav__group">
+        <div class="nav__label">Plan</div>
+        <a class="nav__link" href="#baseline" data-page="baseline"><svg class="icon" aria-hidden="true"><use href="#i-layers"/></svg>Baseline items</a>
+        <a class="nav__link" href="#maneuver" data-page="maneuver"><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg>Maneuver<span class="chip chip--outline nav__tag">Stub</span></a>
+      </div>
+      <div class="nav__group">
+        <div class="nav__label">Observe</div>
+        <a class="nav__link" href="#monitor" data-page="monitor"><svg class="icon" aria-hidden="true"><use href="#i-activity"/></svg>Monitor data</a>
+        <a class="nav__link" href="#watchdog" data-page="watchdog"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg>Watchdog</a>
+        <a class="nav__link" href="#evidence" data-page="evidence"><svg class="icon" aria-hidden="true"><use href="#i-evidence"/></svg>Evidence</a>
+      </div>
+      <div class="nav__group">
+        <div class="nav__label">Administer</div>
+        <a class="nav__link" href="#backup" data-page="backup"><svg class="icon" aria-hidden="true"><use href="#i-database"/></svg>Backup</a>
+      </div>
+    </nav>
+    <div class="sidebar__foot">
+      <dl>
+        <dt>Main server</dt><dd>fleet-server</dd>
+        <dt>Panel</dt><dd class="mono">:6789</dd>
+        <dt>Auth</dt><dd>via auth proxy</dd>
+      </dl>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <button class="icon-btn topbar__menu" type="button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="#i-menu"/></svg></button>
+      <span class="chip chip--outline" title="Only one test can be active system-wide"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>Active test: none</span>
+      <span class="topbar__spacer"></span>
+      <span class="chip chip--info" title="This page is a static front-end preview (Drafting Grid)"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>Mock data</span>
+      <button class="icon-btn icon-btn--bordered theme-toggle" type="button" id="theme-toggle" aria-label="Toggle light or dark theme" title="Toggle light / dark theme">
+        <svg class="icon icon-moon" aria-hidden="true"><use href="#i-moon"/></svg><svg class="icon icon-sun" aria-hidden="true"><use href="#i-sun"/></svg>
+      </button>
+    </header>
+
+    <main class="content" id="main">
+      <!-- ==================== PAGE: MACHINES ==================== -->
+      <section class="page" data-page-view="machines">
+        <div class="stack">
+          <div class="page-head" style="margin-bottom:0">
+            <div class="page-head__text">
+              <h1>Machines</h1>
+              <p>Registry of worker agents and monitor agents: online state, role, connection mode, addresses and disk. Live: the state updates as agents connect and drop.</p>
+            </div>
+            <div class="page-head__actions">
+              <button class="btn" type="button" data-stub="Mock action: Refresh public IPs queued for 5 online agents."><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Refresh public IPs</button>
+              <button class="btn" type="button" data-toggle-panel="#enroll" aria-expanded="false" aria-controls="enroll"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg>Add agent (token)</button>
+              <button class="btn btn--primary" type="button" data-toggle-panel="#onboard" aria-expanded="false" aria-controls="onboard"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Onboard machine</button>
+            </div>
+          </div>
+
+          <section class="card panel" id="onboard" hidden aria-labelledby="onboard-title">
+            <div class="card__head">
+              <div><h2 id="onboard-title">Onboard a machine</h2><p>Provisioning installs <code>fleet-agent</code>, creates its client certificate and writes the connect mode.</p></div>
+            </div>
+            <form class="card__body stack" data-stub-form="Mock preview: Provisioning form submitted (not wired).">
+              <div class="form-grid">
+                <div class="field"><label for="f-ip">Machine IP address</label><input class="input input--mono" id="f-ip" placeholder="10.20.0.30" required><span class="field__hint">Reachable from the main server.</span></div>
+                <div class="field"><label for="f-port">SSH port</label><input class="input input--mono" id="f-port" value="22"></div>
+                <div class="field"><label for="f-user">SSH username</label><input class="input" id="f-user" placeholder="provision" required></div>
+                <div class="field"><label for="f-role">Role</label><select class="select" id="f-role"><option value="worker">Worker agent</option><option value="monitor">Monitor agent</option></select></div>
+              </div>
+              <div class="row"><button class="btn btn--primary" type="submit">Start provisioning</button><button class="btn" type="button" data-toggle-panel="#onboard">Cancel</button></div>
+            </form>
+          </section>
+
+          <section class="card panel" id="enroll" hidden aria-labelledby="enroll-title">
+            <div class="card__head">
+              <div><h2 id="enroll-title">Add an agent with a token</h2><p>No SSH needed. Generate a one-time code, then run the one-liner as root on the machine.</p></div>
+            </div>
+            <form class="card__body stack" data-stub-form="Mock preview: Token generation submitted (not wired).">
+              <div class="form-grid">
+                <div class="field"><label for="e-role">Role</label><select class="select" id="e-role"><option value="worker">Worker agent (Linux)</option><option value="monitor">Monitor agent (Linux or macOS)</option></select></div>
+              </div>
+              <div class="row"><button class="btn btn--primary" type="submit">Generate token</button><button class="btn" type="button" data-toggle-panel="#enroll">Close</button></div>
+            </form>
+          </section>
+
+          <section class="grid" id="machines-tiles" aria-label="Fleet summary">
+            <div class="card stat col-3 col-3--md-6"><div class="stat__label">Worker agents</div><div class="stat__value">3 <small>/ 4 online</small></div><div class="stat__note">1 not connected</div></div>
+            <div class="card stat col-3 col-3--md-6"><div class="stat__label">Monitor agents</div><div class="stat__value">1 <small>/ 2 online</small></div><div class="stat__note">1 not connected</div></div>
+            <div class="card stat col-3 col-3--md-6"><div class="stat__label">Needs attention</div><div class="stat__value">2</div><div class="stat__note">wrk-04, mon-02</div></div>
+            <div class="card stat col-3 col-3--md-6"><div class="stat__label">Disk guard</div><div class="stat__value">2</div><div class="stat__note">warning: wrk-02; intake paused: wrk-03</div></div>
+          </section>
+
+          <section class="card" aria-labelledby="reg-title">
+            <div class="card__head"><h2 id="reg-title">Registry</h2><span class="muted" data-filter-count aria-live="polite">Showing 6 of 6 machines</span></div>
+            <div class="table-toolbar" role="search">
+              <div class="input-affix"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><input class="input" type="search" data-filter-q placeholder="Filter by ID or IP" aria-label="Filter machines by ID or IP"></div>
+              <div class="seg" role="radiogroup" aria-label="Filter by role">
+                <label><input type="radio" name="role" value="all" checked><span>All</span></label>
+                <label><input type="radio" name="role" value="worker"><span>Worker agents</span></label>
+                <label><input type="radio" name="role" value="monitor"><span>Monitor agents</span></label>
+              </div>
+              <select class="select" data-filter-state aria-label="Filter by state" style="width:auto">
+                <option value="all">Any state</option><option value="online">Online</option><option value="reconnecting">Reconnecting</option><option value="offline">Offline</option>
+              </select>
+            </div>
+            <div class="table-wrap">
+              <table class="table table--sticky-first" data-live-table>
+                <caption class="sr-only">Registered machines</caption>
+                <thead><tr>
+                  <th scope="col">Machine</th><th scope="col">Role</th><th scope="col">State</th><th scope="col">Connect mode</th>
+                  <th scope="col">Addresses</th><th scope="col">Disk</th><th scope="col">Last seen</th><th scope="col"><span class="sr-only">Actions</span></th>
+                </tr></thead>
+                <tbody id="machines-rows">
+                  <tr data-id="wrk-01" data-role="worker" data-state="online">
+                    <th scope="row" class="cell-primary mono">wrk-01<div class="cell-sub">eu-west-1a &middot; load generator</div></th>
+                    <td><span class="chip chip--accent">Worker agent</span></td>
+                    <td><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span></td>
+                    <td class="mono">server_dial</td>
+                    <td><div class="mono">10.20.0.11</div><div class="cell-sub">Public <span class="mono">198.51.100.14</span> &middot; 4m ago</div></td>
+                    <td><div class="meter"><div class="meter__bar"><div class="meter__fill" style="width:42%"></div></div><div class="meter__text"><span>210 / 500 GB</span><span>42%</span></div></div></td>
+                    <td class="nowrap">just now</td>
+                    <td class="actions">
+                      <button class="icon-btn icon-btn--sm" type="button" aria-label="Refresh public IP of wrk-01" title="Refresh public IP" data-stub="Mock action: Refreshing public IP of wrk-01."><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button>
+                      <a class="icon-btn icon-btn--sm" href="#terminal" data-goto="terminal" aria-label="Open terminal on wrk-01" title="Open terminal"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg></a>
+                      <div class="menu"><button class="icon-btn icon-btn--sm" type="button" aria-label="More actions for wrk-01" title="More" aria-haspopup="menu" aria-expanded="false" data-menu-btn><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button><div class="menu__pop" role="menu" hidden><button class="menu__item" role="menuitem" type="button" data-stub="Details for wrk-01.">Details</button><button class="menu__item" role="menuitem" type="button" data-stub="Re-provision wrk-01.">Re-provision</button><button class="menu__item menu__item--danger" role="menuitem" type="button" data-stub="Remove wrk-01.">Remove</button></div></div>
+                    </td>
+                  </tr>
+                  <tr data-id="wrk-02" data-role="worker" data-state="online">
+                    <th scope="row" class="cell-primary mono">wrk-02<div class="cell-sub">eu-west-1b &middot; packet sink</div></th>
+                    <td><span class="chip chip--accent">Worker agent</span></td>
+                    <td><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span></td>
+                    <td class="mono">server_dial</td>
+                    <td><div class="mono">10.20.0.12</div><div class="cell-sub">Public <span class="mono">198.51.100.19</span> &middot; 12m ago</div></td>
+                    <td><div class="meter meter--warn"><div class="meter__bar"><div class="meter__fill" style="width:84%"></div></div><div class="meter__text"><span>420 / 500 GB</span><span>84% &middot; warning</span></div></div></td>
+                    <td class="nowrap">8s ago</td>
+                    <td class="actions">
+                      <button class="icon-btn icon-btn--sm" type="button" aria-label="Refresh public IP of wrk-02" title="Refresh public IP" data-stub="Mock action: Refreshing public IP of wrk-02."><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button>
+                      <a class="icon-btn icon-btn--sm" href="#terminal" data-goto="terminal" aria-label="Open terminal on wrk-02" title="Open terminal"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg></a>
+                      <div class="menu"><button class="icon-btn icon-btn--sm" type="button" aria-label="More actions for wrk-02" title="More" aria-haspopup="menu" aria-expanded="false" data-menu-btn><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button><div class="menu__pop" role="menu" hidden><button class="menu__item" role="menuitem" type="button" data-stub="Details for wrk-02.">Details</button><button class="menu__item" role="menuitem" type="button" data-stub="Re-provision wrk-02.">Re-provision</button><button class="menu__item menu__item--danger" role="menuitem" type="button" data-stub="Remove wrk-02.">Remove</button></div></div>
+                    </td>
+                  </tr>
+                  <tr data-id="wrk-03" data-role="worker" data-state="online">
+                    <th scope="row" class="cell-primary mono">wrk-03<div class="cell-sub">edge-nat-03 &middot; token-enrolled</div></th>
+                    <td><span class="chip chip--accent">Worker agent</span></td>
+                    <td><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span></td>
+                    <td class="mono">agent_dial</td>
+                    <td><div class="mono">172.18.4.21</div><div class="cell-sub">Public <span class="mono">203.0.113.88</span> &middot; 2m ago</div></td>
+                    <td><div class="meter meter--danger"><div class="meter__bar"><div class="meter__fill" style="width:94%"></div></div><div class="meter__text"><span>470 / 500 GB</span><span>94% &middot; intake paused</span></div></div></td>
+                    <td class="nowrap">14s ago</td>
+                    <td class="actions">
+                      <button class="icon-btn icon-btn--sm" type="button" aria-label="Refresh public IP of wrk-03" title="Refresh public IP" data-stub="Mock action: Refreshing public IP of wrk-03."><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button>
+                      <a class="icon-btn icon-btn--sm" href="#terminal" data-goto="terminal" aria-label="Open terminal on wrk-03" title="Open terminal"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg></a>
+                      <div class="menu"><button class="icon-btn icon-btn--sm" type="button" aria-label="More actions for wrk-03" title="More" aria-haspopup="menu" aria-expanded="false" data-menu-btn><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button><div class="menu__pop" role="menu" hidden><button class="menu__item" role="menuitem" type="button" data-stub="Details for wrk-03.">Details</button><button class="menu__item" role="menuitem" type="button" data-stub="Re-provision wrk-03.">Re-provision</button><button class="menu__item menu__item--danger" role="menuitem" type="button" data-stub="Remove wrk-03.">Remove</button></div></div>
+                    </td>
+                  </tr>
+                  <tr data-id="wrk-04" data-role="worker" data-state="reconnecting">
+                    <th scope="row" class="cell-primary mono">wrk-04<div class="cell-sub">us-east-2c &middot; burst node</div></th>
+                    <td><span class="chip chip--accent">Worker agent</span></td>
+                    <td><span class="chip chip--warn"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Reconnecting</span></td>
+                    <td class="mono">agent_dial</td>
+                    <td><div class="mono">10.40.2.88</div><div class="cell-sub">Public <span class="mono">203.0.113.41</span> &middot; 1h ago</div></td>
+                    <td><div class="meter"><div class="meter__bar"><div class="meter__fill" style="width:58%"></div></div><div class="meter__text"><span>290 / 500 GB</span><span>58%</span></div></div></td>
+                    <td class="nowrap">3m ago</td>
+                    <td class="actions">
+                      <button class="icon-btn icon-btn--sm" type="button" aria-label="Refresh public IP of wrk-04" title="Refresh public IP" data-stub="Mock action: Refreshing public IP of wrk-04."><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button>
+                      <span class="icon-btn icon-btn--sm" role="link" aria-disabled="true" aria-label="Terminal unavailable: wrk-04 is reconnecting" title="Terminal unavailable: machine is reconnecting"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg></span>
+                      <div class="menu"><button class="icon-btn icon-btn--sm" type="button" aria-label="More actions for wrk-04" title="More" aria-haspopup="menu" aria-expanded="false" data-menu-btn><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button><div class="menu__pop" role="menu" hidden><button class="menu__item" role="menuitem" type="button" data-stub="Details for wrk-04.">Details</button><button class="menu__item" role="menuitem" type="button" data-stub="Re-provision wrk-04.">Re-provision</button><button class="menu__item menu__item--danger" role="menuitem" type="button" data-stub="Remove wrk-04.">Remove</button></div></div>
+                    </td>
+                  </tr>
+                  <tr data-id="mon-01" data-role="monitor" data-state="online">
+                    <th scope="row" class="cell-primary mono">mon-01<div class="cell-sub">target-ingress &middot; probe</div></th>
+                    <td><span class="chip chip--info">Monitor agent</span></td>
+                    <td><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span></td>
+                    <td class="mono">server_dial</td>
+                    <td><div class="mono">10.20.1.50</div><div class="cell-sub">Public IP not checked yet</div></td>
+                    <td><div class="meter"><div class="meter__bar"><div class="meter__fill" style="width:28%"></div></div><div class="meter__text"><span>70 / 250 GB</span><span>28%</span></div></div></td>
+                    <td class="nowrap">2s ago</td>
+                    <td class="actions">
+                      <button class="icon-btn icon-btn--sm" type="button" aria-label="Refresh public IP of mon-01" title="Refresh public IP" data-stub="Mock action: Refreshing public IP of mon-01."><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button>
+                      <span class="icon-btn icon-btn--sm" role="link" aria-disabled="true" aria-label="Terminal unavailable: monitor agents have no shell" title="Monitor agents have no shell"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg></span>
+                      <div class="menu"><button class="icon-btn icon-btn--sm" type="button" aria-label="More actions for mon-01" title="More" aria-haspopup="menu" aria-expanded="false" data-menu-btn><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button><div class="menu__pop" role="menu" hidden><button class="menu__item" role="menuitem" type="button" data-stub="Details for mon-01.">Details</button><button class="menu__item" role="menuitem" type="button" data-stub="Re-provision mon-01.">Re-provision</button><button class="menu__item menu__item--danger" role="menuitem" type="button" data-stub="Remove mon-01.">Remove</button></div></div>
+                    </td>
+                  </tr>
+                  <tr data-id="mon-02" data-role="monitor" data-state="offline">
+                    <th scope="row" class="cell-primary mono">mon-02<div class="cell-sub">db-replica &middot; probe</div></th>
+                    <td><span class="chip chip--info">Monitor agent</span></td>
+                    <td><span class="chip chip--danger"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>Offline</span></td>
+                    <td class="mono">server_dial</td>
+                    <td><div class="mono">10.20.1.51</div><div class="cell-sub">Public IP not checked yet</div></td>
+                    <td><span class="faint">Unknown</span></td>
+                    <td class="nowrap">47m ago</td>
+                    <td class="actions">
+                      <button class="icon-btn icon-btn--sm" type="button" aria-label="Refresh public IP of mon-02" title="Refresh public IP" data-stub="Mock action: Refreshing public IP of mon-02."><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button>
+                      <span class="icon-btn icon-btn--sm" role="link" aria-disabled="true" aria-label="Terminal unavailable: monitor agents have no shell" title="Monitor agents have no shell"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg></span>
+                      <div class="menu"><button class="icon-btn icon-btn--sm" type="button" aria-label="More actions for mon-02" title="More" aria-haspopup="menu" aria-expanded="false" data-menu-btn><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button><div class="menu__pop" role="menu" hidden><button class="menu__item" role="menuitem" type="button" data-stub="Details for mon-02.">Details</button><button class="menu__item" role="menuitem" type="button" data-stub="Re-provision mon-02.">Re-provision</button><button class="menu__item menu__item--danger" role="menuitem" type="button" data-stub="Remove mon-02.">Remove</button></div></div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="empty" data-filter-empty hidden>No machines match the current filter.</p>
+            <div class="card__foot">Live registry. State is derived from the control channel; <em>Reconnecting</em> means the agent was connected since the server started and dropped. Public IP is cached from the last reflector check. Disk guard: 80% raises a warning, 90% pauses capture intake (nothing is deleted).</div>
+          </section>
+
+          <section class="card" id="terminal-section" aria-label="Open terminal sessions">
+            <div class="tabs" role="tablist" aria-label="Open shells" data-tabs>
+              <button class="tab" role="tab" id="msh-t1" aria-controls="msh-p1" aria-selected="true" type="button">wrk-01 &middot; s-0042</button>
+              <button class="tab" role="tab" id="msh-t2" aria-controls="msh-p2" aria-selected="false" type="button" tabindex="-1">wrk-02 &middot; s-0043</button>
+            </div>
+            <div class="card__body">
+              <div class="tabpanel" role="tabpanel" id="msh-p1" aria-labelledby="msh-t1">
+                <div class="row row--between" style="margin-bottom:var(--sp-3)">
+                  <div class="row">
+                    <span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span>
+                    <span class="chip chip--outline chip--mono">120x34</span>
+                  </div>
+                  <div class="row">
+                    <button class="btn btn--sm" type="button" data-stub="Copied terminal buffer to clipboard."><svg class="icon icon--sm" aria-hidden="true"><use href="#i-copy"/></svg>Copy</button>
+                    <button class="btn btn--sm btn--danger" type="button" data-stub="Mock action: Terminate session s-0042."><svg class="icon icon--sm" aria-hidden="true"><use href="#i-stop"/></svg>Terminate session</button>
+                  </div>
+                </div>
+                <div class="term-ph" role="img" aria-label="Terminal session wrk-01">
+                  <div class="term-ph__bar"><span>wrk-01 &middot; session s-0042 &middot; mTLS control channel</span><span>EVIDENCE RECORDING</span></div>
+                  <div class="term-ph__body"><span class="term-ph__prompt">operator@wrk-01:~$</span> uptime
+ 14:02:11 up 12 days,  3:41,  1 user,  load average: 0.12, 0.09, 0.05
+<span class="term-ph__prompt">operator@wrk-01:~$</span> systemctl is-active fleet-agent &amp;&amp; df -h /var/lib/fleet
+active
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/nvme0n1p1  500G  210G  290G  42% /var/lib/fleet
+<span class="term-ph__prompt">operator@wrk-01:~$</span> ss -tnp | head -n 3
+<span class="term-dim">State      Recv-Q Send-Q Local Address:Port   Peer Address:Port</span>
+ESTAB      0      0      10.20.0.11:44892     10.20.0.1:6789    users:(("fleet-agent",pid=1842,fd=7))
+<span class="term-ph__prompt">operator@wrk-01:~$</span> <span class="term-ph__cursor"></span></div>
+                </div>
+              </div>
+              <div class="tabpanel" role="tabpanel" id="msh-p2" aria-labelledby="msh-t2" hidden>
+                <div class="row row--between" style="margin-bottom:var(--sp-3)">
+                  <div class="row">
+                    <span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span>
+                    <span class="chip chip--outline chip--mono">120x34</span>
+                  </div>
+                  <div class="row">
+                    <button class="btn btn--sm" type="button" data-stub="Copied terminal buffer to clipboard."><svg class="icon icon--sm" aria-hidden="true"><use href="#i-copy"/></svg>Copy</button>
+                    <button class="btn btn--sm btn--danger" type="button" data-stub="Mock action: Terminate session s-0043."><svg class="icon icon--sm" aria-hidden="true"><use href="#i-stop"/></svg>Terminate session</button>
+                  </div>
+                </div>
+                <div class="term-ph" role="img" aria-label="Terminal session wrk-02">
+                  <div class="term-ph__bar"><span>wrk-02 &middot; session s-0043 &middot; mTLS control channel</span><span>EVIDENCE RECORDING</span></div>
+                  <div class="term-ph__body"><span class="term-ph__prompt">operator@wrk-02:~$</span> df -h /var/lib/fleet
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/nvme0n1p1  500G  420G   80G  84% /var/lib/fleet
+<span class="term-ph__prompt">operator@wrk-02:~$</span> journalctl -u fleet-agent -n 2 --no-pager
+Nov 26 14:01:55 wrk-02 fleet-agent[1420]: disk guard: 84% used (warning threshold 80%)
+Nov 26 14:02:04 wrk-02 fleet-agent[1420]: segment wrk02-seg-0084.bin flushed (18.4 MB)
+<span class="term-ph__prompt">operator@wrk-02:~$</span> <span class="term-ph__cursor"></span></div>
+                </div>
+              </div>
+            </div>
+            <div class="card__foot">The agent enforces the dangerous-command gate on every line, including pasted ones: a refused line is discarded and you are asked to confirm it here.</div>
+          </section>
+        </div>
+      </section>
+
+      <!-- ==================== PAGE: PROJECTS & TESTS ==================== -->
+      <section class="page" data-page-view="projects" hidden>
+        <div class="page-head">
+          <div class="page-head__text">
+            <h1>Projects &amp; tests</h1>
+            <p>A project groups tests, their Maneuvers, evidence and monitor data by customer or engagement. Completed tests are listed by date.</p>
+          </div>
+          <div class="page-head__actions">
+            <button class="btn" type="button" data-stub="Mock preview: creating a project is not wired."><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>New project</button>
+            <button class="btn btn--primary" type="button" data-dialog-open="#dlg-start"><svg class="icon" aria-hidden="true"><use href="#i-play"/></svg>Start test</button>
+          </div>
+        </div>
+
+        <div class="alert" role="status" style="margin-bottom: var(--sp-4)">
+          <svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>
+          <div><strong>No test is running.</strong> Only one test can be active across the whole system at a time; while one runs, its progress and a link to it appear here and in the top bar.</div>
+        </div>
+
+        <div class="split split--rail-left">
+          <section class="card" aria-labelledby="pl-title">
+            <div class="card__head"><h2 id="pl-title">Projects</h2><span class="muted">3 projects</span></div>
+            <div class="card__body" style="padding-bottom:var(--sp-2)"><div class="input-affix"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><input class="input" type="search" placeholder="Search projects" aria-label="Search projects"></div></div>
+            <ul class="list">
+              <li><a class="list__item" href="#projects" aria-current="true" style="text-decoration:none;color:inherit;background:var(--accent-soft)">
+                <div class="list__main"><b>Acme engagement (example)</b><small>Acme Corp (example) &middot; 6 tests &middot; last 2026-11-21</small></div><span class="chip chip--accent">Selected</span></a></li>
+              <li><a class="list__item" href="#projects" data-stub="Mock preview: Internal range selected." style="text-decoration:none;color:inherit">
+                <div class="list__main"><b>Internal range</b><small>Self-test &middot; 14 tests &middot; last 2026-11-19</small></div></a></li>
+              <li><a class="list__item" href="#projects" data-stub="Mock preview: Northwind retest selected." style="text-decoration:none;color:inherit">
+                <div class="list__main"><b>Northwind retest (example)</b><small>Northwind Ltd (example) &middot; 2 tests &middot; last 2026-10-30</small></div></a></li>
+            </ul>
+          </section>
+
+          <div class="stack">
+            <section class="grid" aria-label="Project summary">
+              <div class="card stat col-4"><div class="stat__label">Tests</div><div class="stat__value">6</div><div class="stat__note">5 completed, 1 aborted</div></div>
+              <div class="card stat col-4"><div class="stat__label">Monitor jobs</div><div class="stat__value">2</div><div class="stat__note">Watching 2 targets</div></div>
+              <div class="card stat col-4"><div class="stat__label">Evidence</div><div class="stat__value">6.2 <small>GB</small></div><div class="stat__note">All sessions synced</div></div>
+            </section>
+
+            <section class="card" aria-labelledby="tests-title">
+              <div class="card__head"><div><h2 id="tests-title">Acme engagement (example): completed tests</h2><p>Newest first, grouped by date.</p></div>
+                <div class="seg" role="radiogroup" aria-label="Filter by result"><label><input type="radio" name="res" checked><span>All</span></label><label><input type="radio" name="res"><span>Completed</span></label><label><input type="radio" name="res"><span>Aborted</span></label></div></div>
+              <div class="table-wrap">
+                <table class="table table--sticky-first">
+                  <caption class="sr-only">Tests of the selected project grouped by date</caption>
+                  <thead><tr><th scope="col">Test</th><th scope="col">Target (ip, origin)</th><th scope="col">Run</th><th scope="col">Monitor</th><th scope="col">Result</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+                  <tbody>
+                    <tr class="group"><th colspan="6" scope="colgroup">2026-11-21</th></tr>
+                    <tr><th scope="row" class="cell-primary">Web tier spike probe #3<div class="cell-sub">Maneuver: Web tier spike probe</div></th>
+                      <td><div class="mono">198.51.100.10</div><div class="cell-sub mono">https://shop.example.test</div></td>
+                      <td class="nowrap">5 agents &middot; <span class="mono">05:00</span></td>
+                      <td><span class="chip chip--ok"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-check"/></svg>Attached</span></td>
+                      <td><span class="chip chip--warn"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-alert"/></svg>Completed, 1 missed</span></td>
+                      <td class="actions"><a class="btn btn--sm" href="#evidence" data-goto="evidence">Evidence</a> <button class="btn btn--sm" type="button" data-stub="Mock preview: interactive HTML test report.">Report</button></td></tr>
+                    <tr><th scope="row" class="cell-primary">Web tier spike probe #2<div class="cell-sub">Maneuver: Web tier spike probe</div></th>
+                      <td><div class="mono">198.51.100.10</div><div class="cell-sub mono">https://shop.example.test</div></td>
+                      <td class="nowrap">5 agents &middot; <span class="mono">05:00</span></td>
+                      <td><span class="chip chip--ok"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-check"/></svg>Attached</span></td>
+                      <td><span class="chip chip--ok"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-check"/></svg>Completed</span></td>
+                      <td class="actions"><a class="btn btn--sm" href="#evidence" data-goto="evidence">Evidence</a> <button class="btn btn--sm" type="button" data-stub="Mock preview: interactive HTML test report.">Report</button></td></tr>
+                    <tr class="group"><th colspan="6" scope="colgroup">2026-11-18</th></tr>
+                    <tr><th scope="row" class="cell-primary">DNS saturation ramp #1<div class="cell-sub">Maneuver: DNS saturation ramp</div></th>
+                      <td><div class="mono">198.51.100.12</div><div class="cell-sub mono">dns.example.test:53</div></td>
+                      <td class="nowrap">4 agents &middot; <span class="mono">10:00</span></td>
+                      <td><span class="chip chip--ok"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-check"/></svg>Attached</span></td>
+                      <td><span class="chip chip--danger"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-x"/></svg>Aborted by operator</span></td>
+                      <td class="actions"><a class="btn btn--sm" href="#evidence" data-goto="evidence">Evidence</a> <button class="btn btn--sm" type="button" data-stub="Mock preview: interactive HTML test report.">Report</button></td></tr>
+                    <tr class="group"><th colspan="6" scope="colgroup">2026-11-12</th></tr>
+                    <tr><th scope="row" class="cell-primary">Baseline probe #1<div class="cell-sub">Maneuver: Web tier spike probe</div></th>
+                      <td><div class="mono">198.51.100.10</div><div class="cell-sub mono">https://shop.example.test</div></td>
+                      <td class="nowrap">2 agents &middot; <span class="mono">02:00</span></td>
+                      <td><span class="chip chip--ok"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-check"/></svg>Attached</span></td>
+                      <td><span class="chip chip--ok"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-check"/></svg>Completed</span></td>
+                      <td class="actions"><a class="btn btn--sm" href="#evidence" data-goto="evidence">Evidence</a> <button class="btn btn--sm" type="button" data-stub="Mock preview: interactive HTML test report.">Report</button></td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="card__foot">Mock data. A test is one execution of a Maneuver against a concrete target inside a project.</div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== PAGE: COMMAND RUNNER ==================== -->
+      <section class="page" data-page-view="commands" hidden>
+        <div class="page-head">
+          <div class="page-head__text">
+            <h1>Command runner</h1>
+            <p>Mode A: run a one-shot command on one or more worker agents and watch the output live. Manual commands run strictly one at a time per worker agent; extra runs queue.</p>
+          </div>
+          <div class="page-head__actions">
+            <a class="btn" href="#terminal" data-goto="terminal"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg>Interactive shell (Mode B)</a>
+          </div>
+        </div>
+
+        <div class="grid">
+          <section class="card col-4" aria-labelledby="run-title">
+            <div class="card__head"><h2 id="run-title">New run</h2></div>
+            <form class="card__body stack" id="run-form" data-stub-form="Mock preview: Command queued on selected worker agents.">
+              <fieldset class="field">
+                <legend>Target worker agents</legend>
+                <div class="row" style="margin-bottom:var(--sp-1)">
+                  <button class="btn btn--sm" type="button" data-cmd-select="online">Select all online</button>
+                  <button class="btn btn--sm" type="button" data-cmd-select="none">Clear</button>
+                </div>
+                <ul class="list" id="cmd-targets" style="border:1.5px solid var(--border-strong);border-radius:var(--radius)">
+                  <li class="list__item"><label class="check"><input type="checkbox" value="wrk-01" checked><span><b class="mono">wrk-01</b> <small class="muted">idle</small></span></label><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span></li>
+                  <li class="list__item"><label class="check"><input type="checkbox" value="wrk-02" checked><span><b class="mono">wrk-02</b> <small class="muted">idle</small></span></label><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span></li>
+                  <li class="list__item"><label class="check"><input type="checkbox" value="wrk-03"><span><b class="mono">wrk-03</b> <small class="muted">idle</small></span></label><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span></li>
+                  <li class="list__item"><label class="check"><input type="checkbox" value="wrk-04" disabled><span><b class="mono">wrk-04</b> <small class="muted">reconnecting</small></span></label><span class="chip chip--warn"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Reconnecting</span></li>
+                </ul>
+                <span class="field__hint">Monitor agents never appear here: they have no command role.</span>
+              </fieldset>
+              <div class="field"><label for="cmd">Command</label><textarea class="textarea input--mono" id="cmd" rows="3" spellcheck="false" placeholder="uname -a &amp;&amp; uptime">hey -z 15s -q 100 https://shop.example.test/health</textarea>
+                <span class="field__hint">Runs as the agent's service user on each selected worker agent.</span></div>
+              <div class="field"><label for="to">Timeout (seconds)</label><input class="input input--mono" id="to" value="300" inputmode="numeric"><span class="field__hint">Default 300 s. A hung command ends at the timeout and the queue advances.</span></div>
+              <div class="alert"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><div>Traffic produced by this command is captured as <strong>evidence</strong> under its session id.</div></div>
+              <div class="row">
+                <button class="btn btn--primary" type="submit"><svg class="icon" aria-hidden="true"><use href="#i-play"/></svg><span id="cmd-run-label">Run on 2 worker agents</span></button>
+              </div>
+            </form>
+          </section>
+
+          <div class="col-8 stack">
+            <section class="card" aria-labelledby="live-title">
+              <div class="card__head">
+                <div><h2 id="live-title">Live runs</h2><p class="mono">hey -z 15s -q 100 https://shop.example.test/health</p></div>
+                <span class="chip chip--accent chip--live">2 active</span>
+              </div>
+              <div class="card__body stack">
+                <div class="runs">
+                  <article class="run">
+                    <div class="run__head"><b class="mono">wrk-01</b><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Exited 0</span></div>
+                    <div class="steps" aria-label="Run lifecycle"><span class="step step--done">Queued</span><span class="steps__sep"></span><span class="step step--done">Running</span><span class="steps__sep"></span><span class="step step--done">Exited</span></div>
+                    <div class="term-ph" role="log"><div class="term-ph__body" style="min-height:6rem">Summary: Total: 15.0124 secs · Slowest: 0.0841 secs · Fastest: 0.0042 secs
+Requests/sec: 99.92 · [200] 1500 responses</div></div>
+                    <div class="row row--between"><span class="muted mono">cmd-0194 · 15.0s</span><a class="btn btn--sm" href="#evidence" data-goto="evidence">Evidence</a></div>
+                  </article>
+                  <article class="run">
+                    <div class="run__head"><b class="mono">wrk-02</b><span class="chip chip--accent chip--live">Running</span></div>
+                    <div class="steps" aria-label="Run lifecycle"><span class="step step--done">Queued</span><span class="steps__sep"></span><span class="step step--now">Running</span><span class="steps__sep"></span><span class="step">Exited</span></div>
+                    <div class="term-ph" role="log"><div class="term-ph__body" style="min-height:6rem">Probing https://shop.example.test/health (100 req/s)...
+[00:11] 1100 requests sent, 0 errors <span class="term-ph__cursor"></span></div></div>
+                    <div class="row row--between"><span class="muted mono">cmd-0195 · 11.2s</span><button class="btn btn--sm btn--danger" type="button" data-stub="Mock action: Terminate cmd-0195.">Terminate</button></div>
+                  </article>
+                </div>
+              </div>
+              <div class="card__foot">Output is streamed from the agent as it is produced. Evidence (packets, drops) arrives with the evidence pipeline; open the session in <a href="#evidence" data-goto="evidence">Evidence</a> for the records.</div>
+            </section>
+
+            <section class="card" aria-labelledby="hist-title">
+              <div class="card__head"><h2 id="hist-title">History</h2><div class="input-affix" style="min-width:14rem"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><input class="input" type="search" placeholder="Filter commands" aria-label="Filter command history"></div></div>
+              <div class="table-wrap">
+                <table class="table">
+                  <caption class="sr-only">Manual command history, including the serial queue</caption>
+                  <thead><tr><th scope="col">Session</th><th scope="col">Command</th><th scope="col">Machine</th><th scope="col">Queued</th><th scope="col" class="num">Duration</th><th scope="col">Result</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+                  <tbody>
+                    <tr><th scope="row" class="mono">cmd-0194</th><td class="mono truncate">hey -z 15s -q 100 https://shop.example.test/health</td><td class="mono">wrk-01</td><td class="nowrap">1m ago</td><td class="num">15.0s</td><td><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Exit 0</span></td><td class="actions"><a class="btn btn--sm" href="#evidence" data-goto="evidence">Evidence</a></td></tr>
+                    <tr><th scope="row" class="mono">cmd-0193</th><td class="mono truncate">ss -s &amp;&amp; ip -s link show eth0</td><td class="mono">wrk-03</td><td class="nowrap">9m ago</td><td class="num">0.4s</td><td><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Exit 0</span></td><td class="actions"><a class="btn btn--sm" href="#evidence" data-goto="evidence">Evidence</a></td></tr>
+                    <tr><th scope="row" class="mono">cmd-0192</th><td class="mono truncate">rm -rf /var/lib/fleet/*</td><td class="mono">wrk-01</td><td class="nowrap">22m ago</td><td class="num">&mdash;</td><td><span class="chip chip--danger"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>Refused (gate)</span></td><td class="actions"><button class="btn btn--sm" type="button" data-stub="Refusal log entry for cmd-0192.">Log</button></td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="card__foot">Refusals are logged and shown here, like every other action. History is kept in memory by the main server and is lost on restart.</div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== PAGE: TERMINAL ==================== -->
+      <section class="page" data-page-view="terminal" hidden>
+        <div class="page-head">
+          <div class="page-head__text">
+            <h1>Terminal</h1>
+            <p>Mode B: interactive shells on worker agents. Shells are opt-in; everything they send is captured as evidence under the session id. A shell shares the machine's serial queue with one-shot commands: it starts when the machine is free.</p>
+          </div>
+          <div class="page-head__actions">
+            <a class="btn" href="#commands" data-goto="commands"><svg class="icon" aria-hidden="true"><use href="#i-bolt"/></svg>One-shot runner (Mode A)</a>
+          </div>
+        </div>
+
+        <div class="split">
+          <section class="card" aria-label="Open terminal sessions">
+            <div class="tabs" role="tablist" aria-label="Open shells" data-tabs>
+              <button class="tab" role="tab" id="ttab-1" aria-controls="tp-1" aria-selected="true" type="button">wrk-01 &middot; s-0042</button>
+              <button class="tab" role="tab" id="ttab-2" aria-controls="tp-2" aria-selected="false" type="button" tabindex="-1">wrk-02 &middot; s-0043</button>
+            </div>
+            <div class="card__body">
+              <div class="tabpanel" role="tabpanel" id="tp-1" aria-labelledby="ttab-1">
+                <div class="row row--between" style="margin-bottom:var(--sp-3)">
+                  <div class="row"><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span><span class="chip chip--outline chip--mono">120x34</span></div>
+                  <div class="row"><button class="btn btn--sm" type="button" data-stub="Copied terminal buffer to clipboard."><svg class="icon icon--sm" aria-hidden="true"><use href="#i-copy"/></svg>Copy</button><button class="btn btn--sm btn--danger" type="button" data-stub="Mock action: Terminate session s-0042."><svg class="icon icon--sm" aria-hidden="true"><use href="#i-stop"/></svg>Terminate session</button></div>
+                </div>
+                <div class="term-ph term-ph--tall">
+                  <div class="term-ph__bar"><span>wrk-01 &middot; session s-0042 &middot; mTLS control channel</span><span>EVIDENCE RECORDING</span></div>
+                  <div class="term-ph__body"><span class="term-ph__prompt">operator@wrk-01:~$</span> uptime
+ 14:02:11 up 12 days,  3:41,  1 user,  load average: 0.12, 0.09, 0.05
+<span class="term-ph__prompt">operator@wrk-01:~$</span> systemctl is-active fleet-agent &amp;&amp; df -h /var/lib/fleet
+active
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/nvme0n1p1  500G  210G  290G  42% /var/lib/fleet
+<span class="term-ph__prompt">operator@wrk-01:~$</span> ss -tnp | head -n 3
+<span class="term-dim">State      Recv-Q Send-Q Local Address:Port   Peer Address:Port</span>
+ESTAB      0      0      10.20.0.11:44892     10.20.0.1:6789    users:(("fleet-agent",pid=1842,fd=7))
+<span class="term-ph__prompt">operator@wrk-01:~$</span> <span class="term-ph__cursor"></span></div>
+                </div>
+              </div>
+              <div class="tabpanel" role="tabpanel" id="tp-2" aria-labelledby="ttab-2" hidden>
+                <div class="row row--between" style="margin-bottom:var(--sp-3)">
+                  <div class="row"><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span><span class="chip chip--outline chip--mono">120x34</span></div>
+                  <div class="row"><button class="btn btn--sm" type="button" data-stub="Copied terminal buffer to clipboard."><svg class="icon icon--sm" aria-hidden="true"><use href="#i-copy"/></svg>Copy</button><button class="btn btn--sm btn--danger" type="button" data-stub="Mock action: Terminate session s-0043."><svg class="icon icon--sm" aria-hidden="true"><use href="#i-stop"/></svg>Terminate session</button></div>
+                </div>
+                <div class="term-ph term-ph--tall">
+                  <div class="term-ph__bar"><span>wrk-02 &middot; session s-0043 &middot; mTLS control channel</span><span>EVIDENCE RECORDING</span></div>
+                  <div class="term-ph__body"><span class="term-ph__prompt">operator@wrk-02:~$</span> df -h /var/lib/fleet
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/nvme0n1p1  500G  420G   80G  84% /var/lib/fleet
+<span class="term-ph__prompt">operator@wrk-02:~$</span> <span class="term-ph__cursor"></span></div>
+                </div>
+              </div>
+            </div>
+            <div class="card__foot">The agent enforces the dangerous-command gate on every line, including pasted ones: a refused line is discarded and you are asked to confirm it here.</div>
+          </section>
+
+          <div class="stack">
+            <section class="card" aria-labelledby="ns-title">
+              <div class="card__head"><h2 id="ns-title">New shell</h2></div>
+              <form class="card__body stack" data-stub-form="Mock preview: Shell request queued for selected worker agent.">
+                <div class="field"><label for="ns-host">Worker agent</label>
+                  <select class="select" id="ns-host"><option value="wrk-01">wrk-01</option><option value="wrk-02">wrk-02</option><option value="wrk-03">wrk-03</option><option value="wrk-04" disabled>wrk-04 (reconnecting)</option></select>
+                  <span class="field__hint">Monitor agents are not listed: they have no shell.</span></div>
+                <button class="btn btn--primary" type="submit"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg>Open shell</button>
+              </form>
+            </section>
+
+            <section class="card" aria-labelledby="ss-title">
+              <div class="card__head"><div><h2 id="ss-title">Sessions</h2><p>Every open or waiting shell, with terminate.</p></div><span class="muted">2 open</span></div>
+              <ul class="list">
+                <li class="list__item"><div class="list__main"><b class="mono">wrk-01 &middot; s-0042</b><small>active &middot; 12m</small></div><button class="btn btn--sm btn--danger" type="button" data-stub="Mock action: Terminate s-0042.">Stop</button></li>
+                <li class="list__item"><div class="list__main"><b class="mono">wrk-02 &middot; s-0043</b><small>active &middot; 4m</small></div><button class="btn btn--sm btn--danger" type="button" data-stub="Mock action: Terminate s-0043.">Stop</button></li>
+              </ul>
+              <div class="card__foot">Closed shells stay in <a href="#evidence" data-goto="evidence">Evidence</a>.</div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== PAGE: BASELINE ITEMS ==================== -->
+      <section class="page" data-page-view="baseline" hidden>
+        <div class="page-head">
+          <div class="page-head__text">
+            <h1>Baseline items</h1>
+            <p>The global library of reusable command presets. Every project can place these items into a Maneuver; target fields are filled when an item is placed.</p>
+          </div>
+          <div class="page-head__actions">
+            <button class="btn btn--primary" type="button" data-stub="Mock preview: New baseline item editor reset."><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>New item</button>
+          </div>
+        </div>
+
+        <div class="split">
+          <section class="card" aria-labelledby="lib-title">
+            <div class="card__head"><h2 id="lib-title">Library</h2><span class="muted">5 items</span></div>
+            <div class="table-toolbar" role="search"><div class="input-affix"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><input class="input" type="search" placeholder="Search by name or command" aria-label="Search baseline items"></div></div>
+            <div class="table-wrap">
+              <table class="table table--sticky-first">
+                <caption class="sr-only">Baseline item library</caption>
+                <thead><tr><th scope="col">Name</th><th scope="col">Command template</th><th scope="col">Defaults (rate, duration)</th><th scope="col">Used in</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+                <tbody>
+                  <tr aria-selected="true"><th scope="row" class="cell-primary">HTTP GET flood</th>
+                    <td class="mono truncate">hey -z {duration}s -q {rate} {url}</td><td class="nowrap">200 /s &middot; 60 s</td><td class="nowrap">3 Maneuvers</td>
+                    <td class="actions"><button class="icon-btn icon-btn--sm" type="button" aria-label="Edit HTTP GET flood" data-stub="Item open in edit form."><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg></button><button class="icon-btn icon-btn--sm" type="button" aria-label="Duplicate HTTP GET flood" data-stub="Mock action: Duplicate HTTP GET flood."><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg></button><button class="icon-btn icon-btn--sm" type="button" aria-label="Delete HTTP GET flood" data-stub="Mock action: Delete HTTP GET flood."><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg></button></td></tr>
+                  <tr><th scope="row" class="cell-primary">TCP SYN burst</th>
+                    <td class="mono truncate">nping --tcp --flags syn -p 443 --rate {rate} -c 0 {ip}</td><td class="nowrap">5000 /s &middot; 30 s</td><td class="nowrap">2 Maneuvers</td>
+                    <td class="actions"><button class="icon-btn icon-btn--sm" type="button" aria-label="Edit TCP SYN burst" data-stub="Mock action: Edit TCP SYN burst."><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg></button><button class="icon-btn icon-btn--sm" type="button" aria-label="Duplicate TCP SYN burst" data-stub="Mock action: Duplicate TCP SYN burst."><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg></button><button class="icon-btn icon-btn--sm" type="button" aria-label="Delete TCP SYN burst" data-stub="Mock action: Delete TCP SYN burst."><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg></button></td></tr>
+                  <tr><th scope="row" class="cell-primary">DNS query load</th>
+                    <td class="mono truncate">dnsperf -s {ip} -d names.txt -Q {rate} -l {duration}</td><td class="nowrap">1000 /s &middot; 120 s</td><td class="nowrap">1 Maneuver</td>
+                    <td class="actions"><button class="icon-btn icon-btn--sm" type="button" aria-label="Edit DNS query load" data-stub="Mock action: Edit DNS query load."><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg></button><button class="icon-btn icon-btn--sm" type="button" aria-label="Duplicate DNS query load" data-stub="Mock action: Duplicate DNS query load."><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg></button><button class="icon-btn icon-btn--sm" type="button" aria-label="Delete DNS query load" data-stub="Mock action: Delete DNS query load."><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg></button></td></tr>
+                  <tr><th scope="row" class="cell-primary">Slow-read connections</th>
+                    <td class="mono truncate">slowhttptest -c {rate} -H -u {url} -l {duration}</td><td class="nowrap">50 /s &middot; 90 s</td><td class="nowrap">1 Maneuver</td>
+                    <td class="actions"><button class="icon-btn icon-btn--sm" type="button" aria-label="Edit Slow-read connections" data-stub="Mock action: Edit Slow-read connections."><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg></button><button class="icon-btn icon-btn--sm" type="button" aria-label="Duplicate Slow-read connections" data-stub="Mock action: Duplicate Slow-read connections."><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg></button><button class="icon-btn icon-btn--sm" type="button" aria-label="Delete Slow-read connections" data-stub="Mock action: Delete Slow-read connections."><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg></button></td></tr>
+                  <tr><th scope="row" class="cell-primary">Ping sweep</th>
+                    <td class="mono truncate">ping -c 20 {ip}</td><td class="nowrap"><span class="faint">none set</span></td><td class="nowrap">0 Maneuvers</td>
+                    <td class="actions"><button class="icon-btn icon-btn--sm" type="button" aria-label="Edit Ping sweep" data-stub="Mock action: Edit Ping sweep."><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg></button><button class="icon-btn icon-btn--sm" type="button" aria-label="Duplicate Ping sweep" data-stub="Mock action: Duplicate Ping sweep."><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg></button><button class="icon-btn icon-btn--sm" type="button" aria-label="Delete Ping sweep" data-stub="Mock action: Delete Ping sweep."><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg></button></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="card__foot">Mock data. Editing an item <em>inside a Maneuver</em> asks whether to overwrite these defaults or apply the change to that Maneuver only.</div>
+          </section>
+
+          <section class="card sticky-rail" aria-labelledby="ed-title">
+            <div class="card__head"><div><h2 id="ed-title">Edit item</h2><p>HTTP GET flood</p></div></div>
+            <form class="card__body stack" data-stub-form="Mock preview: Baseline item changes saved.">
+              <div class="field"><label for="b-name">Name <span class="faint">(required)</span></label><input class="input" id="b-name" value="HTTP GET flood"></div>
+              <div class="field"><label for="b-tpl">Command template <span class="faint">(required)</span></label>
+                <textarea class="textarea input--mono" id="b-tpl" rows="3" spellcheck="false">hey -z {duration}s -q {rate} {url}</textarea>
+                <span class="field__hint">Placeholders: <span class="token">{rate}</span> <span class="token">{duration}</span> <span class="token">{ip}</span> <span class="token">{domain}</span> <span class="token">{url}</span>.</span></div>
+              <div class="field"><label for="b-desc">Description</label><input class="input" id="b-desc" value="Sustained GET requests at a fixed rate"></div>
+              <div class="form-grid" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+                <div class="field"><label for="b-rate">Rate (default)</label><input class="input input--mono" id="b-rate" value="200"></div>
+                <div class="field"><label for="b-dur">Duration (default, s)</label><input class="input input--mono" id="b-dur" value="60"></div>
+              </div>
+              <div class="field"><span class="label">Rendered with example values</span><pre class="codeblock">hey -z 60s -q 200 https://shop.example.test</pre></div>
+              <div class="row"><button class="btn btn--primary" type="submit"><svg class="icon" aria-hidden="true"><use href="#i-save"/></svg>Save changes</button><button class="btn" type="button" data-stub="Mock preview: Changes discarded.">Discard</button></div>
+            </form>
+          </section>
+        </div>
+      </section>
+
+      <!-- ==================== PAGE: MANEUVER ==================== -->
+      <section class="page" data-page-view="maneuver" hidden>
+        <div class="page-head">
+          <div class="page-head__text">
+            <div class="crumbs">Plan</div>
+            <h1>Maneuver editor &amp; Load Controller</h1>
+            <p>Compose baseline items on a timeline, paint a load pattern, choose the worker agents, and watch resource use during a test.</p>
+          </div>
+          <div class="page-head__actions">
+            <button class="btn" type="button" data-stub="Layout preview: saving Maneuvers is not available yet."><svg class="icon" aria-hidden="true"><use href="#i-save"/></svg>Save Maneuver</button>
+            <button class="btn" type="button" data-stub="Layout preview: duplicating is not available yet."><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg>Duplicate</button>
+            <button class="btn btn--primary" type="button" data-stub="Layout preview: Maneuver execution is deferred."><svg class="icon" aria-hidden="true"><use href="#i-play"/></svg>Start test</button>
+          </div>
+        </div>
+
+        <div class="alert alert--warn" role="note" style="margin-bottom: var(--sp-4)">
+          <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+          <div><strong>Layout preview &mdash; execution is not available.</strong> The Load Controller is deferred. Every control on this page is shown so the layout can be reviewed.</div>
+        </div>
+
+        <div class="split">
+          <div class="stack">
+            <section class="card" aria-labelledby="plan-title">
+              <div class="card__head"><div><h2 id="plan-title">Maneuver</h2><p>A reusable plan. A test is one run of it against a target, inside a project.</p></div><span class="chip chip--outline">Draft</span></div>
+              <div class="card__body stack">
+                <div class="form-grid">
+                  <div class="field"><label for="m-name">Maneuver name</label><input class="input" id="m-name" value="Web tier probe"></div>
+                  <div class="field"><label for="m-lib">Library</label><select class="select" id="m-lib"><option>Web tier probe</option><option>DNS saturation ramp</option><option>New Maneuver&hellip;</option></select></div>
+                  <div class="field"><label for="m-proj">Project</label><select class="select" id="m-proj"><option>Acme engagement (example)</option><option>Internal range</option></select></div>
+                  <div class="field"><label for="m-total">Total time</label><input class="input input--mono" id="m-total" value="05:00"><span class="field__hint">mm:ss</span></div>
+                </div>
+                <hr style="margin:0">
+                <div class="form-grid">
+                  <div class="field"><label for="m-ip">Target IP</label><input class="input input--mono" id="m-ip" value="198.51.100.10"></div>
+                  <div class="field"><label for="m-origin">Origin / URL (optional)</label><input class="input input--mono" id="m-origin" value="https://shop.example.test"></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="card" aria-labelledby="pat-title">
+              <div class="card__head"><div><h2 id="pat-title">Load pattern</h2><p>The pattern sets the <em>ceiling</em> of CPU and RAM per worker agent at each instant, not a target.</p></div></div>
+              <div class="card__body stack">
+                <fieldset>
+                  <legend class="sr-only">Pattern</legend>
+                  <div class="pattern">
+                    <label class="pattern__opt"><input type="radio" name="pattern" value="all" checked><span class="pattern__card"><svg viewBox="0 0 80 32" preserveAspectRatio="none" aria-hidden="true"><path d="M2 6h76" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M2 30h76" stroke="currentColor" stroke-width="1" opacity=".4"/></svg><span><b>All-in-one</b><small>Ceiling at max from start to end.</small></span></span></label>
+                    <label class="pattern__opt"><input type="radio" name="pattern" value="linear"><span class="pattern__card"><svg viewBox="0 0 80 32" preserveAspectRatio="none" aria-hidden="true"><path d="M2 30h6v-6h6v-6h6v-6h6V6l0 24M28 30h6v-6h6v-6h6v-6h6V6l0 24M54 30h6v-6h6v-6h6v-6h6V6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg><span><b>Linear (sawtooth)</b><small>Ramps 0 to max over a window.</small></span></span></label>
+                    <label class="pattern__opt"><input type="radio" name="pattern" value="spikes" disabled><span class="pattern__card" style="opacity:.55;filter:grayscale(1);cursor:not-allowed"><svg viewBox="0 0 80 32" preserveAspectRatio="none" aria-hidden="true"><path d="M2 30h8V6h8v24h12V6h8v24h12V6h8v24h8" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg><span><b>Spikes</b><small>Disabled: Load Controller deferred.</small></span></span></label>
+                  </div>
+                </fieldset>
+                <div class="form-grid">
+                  <div class="field"><label for="p-cpu">Max CPU / worker</label><input class="input input--mono" id="p-cpu" value="4.0 cores"></div>
+                  <div class="field"><label for="p-ram">Max RAM / worker</label><input class="input input--mono" id="p-ram" value="6.0 GB"></div>
+                  <div class="field"><label for="p-win">Window length</label><input class="input input--mono" id="p-win" value="60 s"></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="card" aria-labelledby="tl-title">
+              <div class="card__head">
+                <div><h2 id="tl-title">Timeline</h2><p>Drag items to place them; paint the load ceiling on the first lane.</p></div>
+                <div class="row">
+                  <button class="icon-btn icon-btn--sm icon-btn--bordered" type="button" aria-label="Zoom out" data-stub="Layout preview: timeline zoom."><svg class="icon" aria-hidden="true"><use href="#i-minus"/></svg></button>
+                  <button class="icon-btn icon-btn--sm icon-btn--bordered" type="button" aria-label="Zoom in" data-stub="Layout preview: timeline zoom."><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button>
+                  <label class="check"><input type="checkbox" checked> Snap to grid</label>
+                </div>
+              </div>
+              <div class="card__body--flush tl">
+                <div class="tl__scroll"><div class="tl__inner">
+                  <div class="tl__row tl__ruler">
+                    <div class="tl__label" style="background:var(--surface-2)"><span class="tl__axis">Time (mm:ss)</span></div>
+                    <div class="tl__track">
+                      <span class="tl__tick" style="left:0">0:00</span><span class="tl__tick" style="left:20%">1:00</span><span class="tl__tick" style="left:40%">2:00</span><span class="tl__tick" style="left:60%">3:00</span><span class="tl__tick" style="left:80%">4:00</span>
+                    </div>
+                  </div>
+                  <div class="tl__row" style="--lane-h:3.5rem">
+                    <div class="tl__label"><svg class="icon" aria-hidden="true"><use href="#i-activity"/></svg><span>Load ceiling</span></div>
+                    <div class="tl__track"><div class="tl__ceiling"><div class="tl__spikes" style="background:var(--series-2);opacity:.35"></div></div><div class="tl__playhead" style="left:0"></div></div>
+                  </div>
+                  <div class="tl__row">
+                    <div class="tl__label"><svg class="icon" aria-hidden="true"><use href="#i-layers"/></svg><span>HTTP GET flood</span></div>
+                    <div class="tl__track"><button class="tl__bar" type="button" style="left:0;width:100%" data-stub="Layout preview: item editing.">0:00 &ndash; 5:00</button></div>
+                  </div>
+                  <div class="tl__row">
+                    <div class="tl__label"><svg class="icon" aria-hidden="true"><use href="#i-layers"/></svg><span>TCP SYN burst</span></div>
+                    <div class="tl__track"><button class="tl__bar tl__bar--alt" type="button" style="left:10%;width:60%" data-stub="Layout preview: item editing.">0:30 &ndash; 3:30</button></div>
+                  </div>
+                  <div class="tl__row">
+                    <div class="tl__label"><svg class="icon" aria-hidden="true"><use href="#i-layers"/></svg><span>DNS query load</span></div>
+                    <div class="tl__track"><button class="tl__bar" type="button" style="left:30%;width:70%" data-stub="Layout preview: item editing.">1:30 &ndash; 5:00</button></div>
+                  </div>
+                </div></div>
+              </div>
+              <div class="card__foot">Playhead is idle. Total time <strong>05:00</strong> &middot; 3 items &middot; all-in-one pattern.</div>
+            </section>
+          </div>
+
+          <div class="stack">
+            <section class="card" aria-labelledby="lc-title">
+              <div class="card__head"><h2 id="lc-title">Load Controller</h2><span class="chip chip--neutral"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>Not running</span></div>
+              <div class="card__body stack">
+                <dl class="kv">
+                  <dt>Policy profile</dt><dd>default</dd>
+                  <dt>Sample interval</dt><dd>1 s</dd>
+                  <dt>Ceiling / agent</dt><dd>4.0 c / 6.0 GB</dd>
+                  <dt>Worker agents</dt><dd>3 selected</dd>
+                  <dt>Aggregate ceiling</dt><dd>12 c / 18 GB</dd>
+                </dl>
+                <div class="row">
+                  <button class="btn btn--sm btn--primary" type="button" data-stub="Layout preview: Load Controller deferred."><svg class="icon icon--sm" aria-hidden="true"><use href="#i-play"/></svg>Start</button>
+                  <button class="btn btn--sm btn--danger" type="button" data-stub="Layout preview: nothing is running."><svg class="icon icon--sm" aria-hidden="true"><use href="#i-stop"/></svg>Stop</button>
+                </div>
+              </div>
+              <div class="card__foot">Start is aligned across worker agents; any agent that misses the start is reported.</div>
+            </section>
+
+            <section class="card" aria-labelledby="wa-title">
+              <div class="card__head"><div><h2 id="wa-title">Worker agents</h2><p>The Maneuver is mirrored on each selected agent.</p></div></div>
+              <ul class="list">
+                <li class="list__item"><label class="check"><input type="checkbox" checked aria-label="wrk-01"></label><div class="list__main"><b>wrk-01</b><small>10.20.0.11</small></div><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span></li>
+                <li class="list__item"><label class="check"><input type="checkbox" checked aria-label="wrk-02"></label><div class="list__main"><b>wrk-02</b><small>10.20.0.12</small></div><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span></li>
+                <li class="list__item"><label class="check"><input type="checkbox" checked aria-label="wrk-03"></label><div class="list__main"><b>wrk-03</b><small>172.18.4.21</small></div><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span></li>
+                <li class="list__item"><label class="check"><input type="checkbox" aria-label="wrk-04"></label><div class="list__main"><b>wrk-04</b><small>10.40.2.88</small></div><span class="chip chip--warn"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Reconnecting</span></li>
+              </ul>
+              <div class="card__foot"><a href="#baseline" data-goto="baseline">Manage Baseline items library</a></div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== PAGE: MONITOR DATA ==================== -->
+      <section class="page" data-page-view="monitor" hidden>
+        <div class="page-head">
+          <div class="page-head__text">
+            <h1>Monitor data</h1>
+            <p>Availability and response time of the targets, probed continuously by the monitor agents. This is <strong>monitor data</strong>: it is stored and shown separately from worker evidence logs.</p>
+          </div>
+          <div class="page-head__actions">
+            <span class="chip chip--warn"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-alert"/></svg>1 of 2 monitor agents online</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="tabs" role="tablist" aria-label="Monitor data views" data-tabs>
+            <button class="tab" role="tab" id="mtab-live" aria-controls="mp-live" aria-selected="true" type="button"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-activity"/></svg>Live</button>
+            <button class="tab" role="tab" id="mtab-hist" aria-controls="mp-hist" aria-selected="false" type="button" tabindex="-1"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-history"/></svg>History</button>
+            <button class="tab" role="tab" id="mtab-cfg" aria-controls="mp-cfg" aria-selected="false" type="button" tabindex="-1"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-sliders"/></svg>Probe config</button>
+          </div>
+
+          <div class="card__body tabpanel" role="tabpanel" id="mp-live" aria-labelledby="mtab-live">
+            <div class="stack">
+              <div class="row row--between">
+                <div class="row">
+                  <div class="seg" role="radiogroup" aria-label="Chart view">
+                    <label><input type="radio" name="mview" value="merged" checked><span>All monitors merged</span></label>
+                    <label><input type="radio" name="mview" value="machine"><span>Per machine</span></label>
+                    <label><input type="radio" name="mview" value="target"><span>Per target</span></label>
+                  </div>
+                  <select class="select" style="width:auto" aria-label="Target"><option>All targets</option><option>shop.example.test (198.51.100.10)</option></select>
+                </div>
+                <div class="row">
+                  <select class="select" style="width:auto" aria-label="Live window"><option>Last 60 s (default)</option><option>Last 2 min</option><option>Last 5 min</option></select>
+                  <button class="btn" type="button" data-stub="Mock action: Live monitor stream paused."><svg class="icon" aria-hidden="true"><use href="#i-pause"/></svg>Pause</button>
+                </div>
+              </div>
+
+              <section class="grid" aria-label="Current values">
+                <div class="card stat col-3 col-3--md-6"><div class="stat__label">Availability</div><div class="stat__value">99.4<small>%</small></div><div class="stat__note">179 / 180 probes OK</div></div>
+                <div class="card stat col-3 col-3--md-6"><div class="stat__label">Response median</div><div class="stat__value">28 <small>ms</small></div><div class="stat__note">p95: 74 ms</div></div>
+                <div class="card stat col-3 col-3--md-6"><div class="stat__label">Last result</div><div class="stat__value">2s <small>ago</small></div><div class="stat__note">Monitors flush every 2-3 s</div></div>
+                <div class="card stat col-3 col-3--md-6"><div class="stat__label">Probe types</div><div class="stat__value">3</div><div class="stat__note">HTTPS, TCP, ICMP</div></div>
+              </section>
+
+              <figure class="chart-ph" style="border-style:solid">
+                <figcaption class="row row--between" style="margin-bottom:var(--sp-2)"><b>Response time (ms)</b><span class="muted">Live from mon-01</span></figcaption>
+                <div class="chart-ph__plot plot" style="height:12rem">
+                  <svg viewBox="0 0 200 60" preserveAspectRatio="none" role="img" aria-label="Response time chart">
+                    <polyline class="series-1" fill="none" stroke-width="1.8" vector-effect="non-scaling-stroke" points="0,42 20,40 35,44 50,36 65,16 80,22 95,38 115,41 135,34 150,24 165,39 185,40 200,37"/>
+                    <polyline class="series-2" fill="none" stroke-width="1.5" stroke-dasharray="4 3" vector-effect="non-scaling-stroke" points="0,48 40,46 80,45 120,46 160,44 200,45"/>
+                  </svg>
+                </div>
+                <div class="ovl" role="group" aria-label="Command overlay">
+                  <span class="ovl__label">Commands</span>
+                  <button class="ovl__mark" type="button" style="left:32%;width:14%" title="cmd-0194 on wrk-01" data-stub="cmd-0194 (hey 100/s) overlapped spike at +22s."></button>
+                </div>
+                <div class="legend">
+                  <span class="legend__item"><span class="legend__swatch"></span>HTTPS latency (ms)</span>
+                  <span class="legend__item"><span class="legend__swatch legend__swatch--dash" style="border-top-color:var(--series-2)"></span>TCP connect baseline</span>
+                </div>
+              </figure>
+
+              <div class="table-wrap"><table class="table">
+                <caption class="sr-only">Latest samples per monitor agent</caption>
+                <thead><tr><th scope="col">Monitor agent</th><th scope="col">State</th><th scope="col">Probe</th><th scope="col" class="num">Last response</th><th scope="col" class="num">Success (window)</th><th scope="col">Last result</th></tr></thead>
+                <tbody>
+                  <tr><th scope="row" class="mono">mon-01</th><td><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Online</span></td><td>HTTPS /health</td><td class="num mono">27 ms</td><td class="num mono">99.4%</td><td class="nowrap">2s ago</td></tr>
+                  <tr><th scope="row" class="mono">mon-02</th><td><span class="chip chip--danger"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>Offline</span></td><td>TCP :5432</td><td class="num faint">&mdash;</td><td class="num faint">&mdash;</td><td class="nowrap">47m ago</td></tr>
+                </tbody>
+              </table></div>
+            </div>
+          </div>
+
+          <div class="card__body tabpanel" role="tabpanel" id="mp-hist" aria-labelledby="mtab-hist" hidden>
+            <div class="stack">
+              <div class="row row--between">
+                <div class="row">
+                  <select class="select" style="width:auto" aria-label="History target"><option>shop.example.test &middot; 198.51.100.10</option><option>dns.example.test &middot; 198.51.100.12</option></select>
+                  <div class="seg" role="radiogroup" aria-label="Zoom level" data-zoom="#zoom-scope">
+                    <label><input type="radio" name="zl" value="Overview" checked><span>Overview</span></label>
+                    <label><input type="radio" name="zl" value="Day"><span>Day</span></label>
+                    <label><input type="radio" name="zl" value="Hour"><span>Hour</span></label>
+                  </div>
+                </div>
+                <span class="muted" id="zoom-label">Zoom level: Overview</span>
+              </div>
+              <div id="zoom-scope" class="zoom">
+                <div class="zoom__panel" data-level="Overview">
+                  <div class="zoom__bar">
+                    <button class="zoom__seg" type="button" style="left:0;width:8%" data-stub="2026-11-12: 1 test (2 min)">1 test</button>
+                    <button class="zoom__seg zoom__seg--gap" type="button" style="left:9%;width:34%" data-stub="2026-11-13 to 11-17: No tests">No tests</button>
+                    <button class="zoom__seg zoom__seg--alt" type="button" style="left:44%;width:14%" data-stub="2026-11-18: 1 test, 38 commands (aborted)">1 test, 38 cmds</button>
+                    <button class="zoom__seg zoom__seg--gap" type="button" style="left:59%;width:13%" data-stub="2026-11-19 to 11-20: No tests">No tests</button>
+                    <button class="zoom__seg" type="button" style="left:73%;width:26%" data-stub="2026-11-21 to 11-24: 2 tests, 80 commands">2 tests, 80 cmds</button>
+                  </div>
+                  <div class="zoom__axis"><span>11-12</span><span style="left:25%">11-15</span><span style="left:50%">11-18</span><span style="left:75%">11-21</span><span style="left:100%">11-24</span></div>
+                </div>
+                <div class="zoom__panel" data-level="Day" hidden>
+                  <div class="zoom__bar">
+                    <button class="zoom__seg" type="button" style="left:57%;width:10%" data-stub="13:40-14:00: Web tier spike probe #2">Test #2</button>
+                    <button class="zoom__seg zoom__seg--alt" type="button" style="left:68%;width:14%" data-stub="14:00-14:30: Web tier spike probe #3">Test #3</button>
+                  </div>
+                  <div class="zoom__axis"><span>00:00</span><span style="left:25%">06:00</span><span style="left:50%">12:00</span><span style="left:75%">18:00</span><span style="left:100%">24:00</span></div>
+                </div>
+                <div class="zoom__panel" data-level="Hour" hidden>
+                  <div class="zoom__bar">
+                    <button class="zoom__seg" type="button" style="left:4%;width:22%" data-stub="14:01-14:13: HTTP GET flood">HTTP GET flood</button>
+                    <button class="zoom__seg zoom__seg--alt" type="button" style="left:28%;width:20%" data-stub="14:15-14:26: TCP SYN burst">TCP SYN burst</button>
+                  </div>
+                  <div class="zoom__axis"><span>14:00</span><span style="left:25%">14:15</span><span style="left:50%">14:30</span><span style="left:75%">14:45</span><span style="left:100%">15:00</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card__body tabpanel" role="tabpanel" id="mp-cfg" aria-labelledby="mtab-cfg" hidden>
+            <div class="stack">
+              <section class="card">
+                <div class="card__head"><div><h2>Global defaults</h2><p>Pushed to every monitor agent; a target can override frequency.</p></div></div>
+                <form class="card__body stack" data-stub-form="Mock preview: Monitor defaults pushed.">
+                  <div class="form-grid">
+                    <div class="field"><label for="d-freq">Probe frequency (ms)</label><input class="input input--mono" id="d-freq" value="1000"></div>
+                    <div class="field"><label for="d-to-http">HTTP(S) timeout (ms)</label><input class="input input--mono" id="d-to-http" value="3000"></div>
+                    <div class="field"><label for="d-to-tcp">TCP connect timeout (ms)</label><input class="input input--mono" id="d-to-tcp" value="1500"></div>
+                    <div class="field"><label for="d-to-icmp">ICMP timeout (ms)</label><input class="input input--mono" id="d-to-icmp" value="1000"></div>
+                  </div>
+                  <div class="row"><button class="btn btn--primary" type="submit">Save defaults and push</button></div>
+                </form>
+              </section>
+              <section class="card">
+                <div class="card__head"><div><h2>Monitor jobs</h2><p>One job per <code>(ip, origin)</code>.</p></div></div>
+                <div class="table-wrap"><table class="table">
+                  <thead><tr><th scope="col">Origin</th><th scope="col">IP</th><th scope="col">Paths</th><th scope="col">Probes</th><th scope="col">Frequency</th><th scope="col">Monitor agents</th></tr></thead>
+                  <tbody>
+                    <tr><td class="mono">https://shop.example.test</td><td class="mono">198.51.100.10</td><td class="mono">/, /health</td><td>HTTPS, TCP, ICMP</td><td class="mono">1000 ms</td><td class="mono">mon-01</td></tr>
+                    <tr><td class="mono">dns.example.test:53</td><td class="mono">198.51.100.12</td><td class="faint">&mdash;</td><td>DNS, ICMP</td><td class="mono">2000 ms</td><td class="mono">mon-01, mon-02</td></tr>
+                  </tbody>
+                </table></div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== PAGE: WATCHDOG ==================== -->
+      <section class="page" data-page-view="watchdog" hidden>
+        <div class="page-head">
+          <div class="page-head__text">
+            <h1>Watchdog</h1>
+            <p>Keeps a machine from hitting maximum resource use and becoming unreachable. It is a load safety net, not a tamper-proof supervisor.</p>
+          </div>
+          <div class="page-head__actions">
+            <button class="btn" type="button" data-stub="Mock action: Watchdog counters reset on 3 connected workers."><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Reset all counters</button>
+          </div>
+        </div>
+
+        <section class="grid" aria-label="Fleet watchdog summary" style="margin-bottom:var(--sp-4)">
+          <div class="card stat col-3 col-3--md-6"><div class="stat__label">Normal</div><div class="stat__value">2 <small>hosts</small></div><div class="stat__note">Below every threshold</div></div>
+          <div class="card stat col-3 col-3--md-6"><div class="stat__label">Acting</div><div class="stat__value">1</div><div class="stat__note">Breaching or throttled</div></div>
+          <div class="card stat col-3 col-3--md-6"><div class="stat__label">Alert-only</div><div class="stat__value">0</div><div class="stat__note">Daily caps used up</div></div>
+          <div class="card stat col-3 col-3--md-6"><div class="stat__label">Not reporting</div><div class="stat__value">1</div><div class="stat__note">Offline worker agents</div></div>
+        </section>
+
+        <div class="stack">
+          <section class="card" aria-labelledby="ph-title">
+            <div class="card__head"><div><h2 id="ph-title">Hosts</h2><p>Escalation stage, guard counters and policy state per worker agent.</p></div></div>
+            <div class="table-wrap">
+              <table class="table table--sticky-first">
+                <caption class="sr-only">Per-host watchdog state</caption>
+                <thead><tr><th scope="col">Host</th><th scope="col">Stage</th><th scope="col">Policy</th><th scope="col" class="num">Restarts today</th><th scope="col" class="num">Reboots today</th><th scope="col">Last event</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+                <tbody>
+                  <tr><th scope="row" class="cell-primary mono">wrk-01</th><td><span class="ladder" title="Stage 0: Normal"><i></i><i></i><i></i><i></i></span> Normal</td><td class="mono">v14 (synced)</td><td class="num mono">0 / 3</td><td class="num mono">0 / 1</td><td class="faint">none</td><td class="actions"><button class="btn btn--sm" type="button" data-stub="Counters reset for wrk-01.">Reset</button></td></tr>
+                  <tr><th scope="row" class="cell-primary mono">wrk-02</th><td><span class="ladder" title="Stage 2: Throttling"><i></i><i class="on"></i><i></i><i></i></span> Throttle</td><td class="mono">v14 (synced)</td><td class="num mono">1 / 3</td><td class="num mono">0 / 1</td><td class="nowrap">12m ago (CPU 93%)</td><td class="actions"><button class="btn btn--sm" type="button" data-stub="Counters reset for wrk-02.">Reset</button></td></tr>
+                  <tr><th scope="row" class="cell-primary mono">wrk-03</th><td><span class="ladder" title="Stage 0: Normal"><i></i><i></i><i></i><i></i></span> Normal</td><td class="mono">v14 (synced)</td><td class="num mono">0 / 3</td><td class="num mono">0 / 1</td><td class="faint">none</td><td class="actions"><button class="btn btn--sm" type="button" data-stub="Counters reset for wrk-03.">Reset</button></td></tr>
+                  <tr><th scope="row" class="cell-primary mono">wrk-04</th><td><span class="chip chip--warn"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Stale</span></td><td class="mono">v13 (pending)</td><td class="num faint">&mdash;</td><td class="num faint">&mdash;</td><td class="nowrap">3m ago (missed hb)</td><td class="actions"><button class="btn btn--sm" type="button" disabled>Reset</button></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="card__foot">The watchdog runs as its own service on each host (<code>Restart=always</code>, liveness check every 45 s).</div>
+          </section>
+
+          <section class="card" aria-labelledby="pol-title">
+            <div class="card__head">
+              <div><h2 id="pol-title">Policy profile</h2><p>Version-stamped YAML, stored on the main server, pushed over the control channel.</p></div>
+              <div class="row"><span class="chip chip--outline chip--mono">v14</span><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>In force</span></div>
+            </div>
+            <div class="tabs" role="tablist" aria-label="Policy editor view" data-tabs>
+              <button class="tab" role="tab" id="ptab-yaml" aria-controls="pp-yaml" aria-selected="true" type="button">YAML</button>
+              <button class="tab" role="tab" id="ptab-form" aria-controls="pp-form" aria-selected="false" type="button" tabindex="-1">Effective values</button>
+            </div>
+            <form data-stub-form="Mock preview: Policy profile v15 validated and pushed.">
+              <div class="card__body tabpanel" role="tabpanel" id="pp-yaml" aria-labelledby="ptab-yaml">
+                <div class="field"><label for="wd-yaml">Policy profile (YAML)</label>
+                  <textarea class="textarea input--mono" id="wd-yaml" rows="10" spellcheck="false" style="min-height:14rem">version: 14
+cpu_warn_pct: 88
+cpu_act_pct: 94
+ram_act_pct: 92
+daily_restart_cap: 3
+daily_reboot_cap: 1
+heartbeat_write: 5s
+heartbeat_threshold: 60s
+overrides:
+  wrk-04:
+    cpu_act_pct: 90</textarea>
+                  <span class="field__hint">Raise <code>version</code> on every save. Profiles failing validation are refused.</span></div>
+              </div>
+              <div class="card__body tabpanel" role="tabpanel" id="pp-form" aria-labelledby="ptab-form" hidden>
+                <dl class="kv">
+                  <dt>Version</dt><dd class="mono">14</dd>
+                  <dt>CPU act threshold</dt><dd class="mono">94%</dd>
+                  <dt>RAM act threshold</dt><dd class="mono">92%</dd>
+                  <dt>Heartbeat write / threshold</dt><dd class="mono">5s / 60s</dd>
+                  <dt>Daily restart / reboot cap</dt><dd class="mono">3 / 1</dd>
+                </dl>
+              </div>
+              <div class="card__foot row row--between"><span>Saving pushes the new version to every connected worker agent.</span>
+                <span class="row"><button class="btn" type="button" data-stub="Reverted YAML editor to v14.">Revert</button><button class="btn btn--primary" type="submit">Save and push</button></span></div>
+            </form>
+          </section>
+        </div>
+      </section>
+
+      <!-- ==================== PAGE: EVIDENCE ==================== -->
+      <section class="page" data-page-view="evidence" hidden>
+        <div class="page-head">
+          <div class="page-head__text">
+            <h1>Evidence</h1>
+            <p>Evidence logs recorded by worker agents: what each agent sent while running panel commands. Evidence stays on the agent until you pull it; it is separate from monitor data.</p>
+          </div>
+          <div class="page-head__actions">
+            <button class="btn" type="button" data-stub="Mock action: Pulling missing segments from 3 online workers."><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>Pull from all online</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="tabs" role="tablist" aria-label="Evidence views" data-tabs>
+            <button class="tab" role="tab" id="etab-s" aria-controls="ep-s" aria-selected="true" type="button"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-evidence"/></svg>Sessions</button>
+            <button class="tab" role="tab" id="etab-y" aria-controls="ep-y" aria-selected="false" type="button" tabindex="-1"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-refresh"/></svg>Sync (pull)</button>
+            <button class="tab" role="tab" id="etab-x" aria-controls="ep-x" aria-selected="false" type="button" tabindex="-1"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-download"/></svg>Export</button>
+          </div>
+
+          <div class="card__body tabpanel" role="tabpanel" id="ep-s" aria-labelledby="etab-s">
+            <div class="stack">
+              <div class="card">
+                <div class="table-wrap"><table class="table table--sticky-first">
+                  <thead><tr><th scope="col">Session</th><th scope="col">Worker agent</th><th scope="col">Kind</th><th scope="col">Command</th><th scope="col">Started</th><th scope="col" class="num">Packets</th><th scope="col" class="num">Dropped</th><th scope="col">Archive</th></tr></thead>
+                  <tbody>
+                    <tr aria-selected="true"><th scope="row" class="mono">cmd-0194</th><td class="mono">wrk-01</td><td>One-shot</td><td class="mono truncate">hey -z 15s -q 100 https://shop.example.test/health</td><td class="nowrap">1m ago</td><td class="num mono">1,500</td><td class="num mono">0</td><td><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Verified</span></td></tr>
+                    <tr><th scope="row" class="mono">s-0042</th><td class="mono">wrk-01</td><td>Shell</td><td class="mono truncate">uptime; systemctl is-active fleet-agent; ss -tnp</td><td class="nowrap">12m ago</td><td class="num mono">48</td><td class="num mono">0</td><td><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Verified</span></td></tr>
+                    <tr><th scope="row" class="mono">cmd-0193</th><td class="mono">wrk-03</td><td>One-shot</td><td class="mono truncate">ss -s &amp;&amp; ip -s link show eth0</td><td class="nowrap">9m ago</td><td class="num mono">14</td><td class="num mono">0</td><td><span class="chip chip--warn"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>On agent</span></td></tr>
+                  </tbody>
+                </table></div>
+                <div class="card__foot">Capture is outbound-only: it proves what the agent sent, including its own half of the TCP handshake.</div>
+              </div>
+
+              <section class="card">
+                <div class="card__head"><div><h2>Session <span class="mono">cmd-0194</span>: packet records</h2><p>Each row is one outbound packet.</p></div>
+                  <div class="row"><span class="chip chip--ok"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-check"/></svg>All segments verified (SHA-256)</span><span class="chip chip--outline">0 dropped</span></div></div>
+                <div class="table-wrap"><table class="table">
+                  <thead><tr><th scope="col">Timestamp</th><th scope="col">Proto</th><th scope="col">Source</th><th scope="col">Destination</th><th scope="col">Flags</th><th scope="col" class="num">Seq / Ack</th><th scope="col">Payload SHA-256</th></tr></thead>
+                  <tbody>
+                    <tr><td class="mono nowrap">14:01:12.004</td><td class="mono">TCP</td><td class="mono">10.20.0.11:51842</td><td class="mono">198.51.100.10:443</td><td class="mono">SYN</td><td class="num mono">3918401 / 0</td><td class="hash">e3b0c442&hellip;b855</td></tr>
+                    <tr><td class="mono nowrap">14:01:12.008</td><td class="mono">TCP</td><td class="mono">10.20.0.11:51842</td><td class="mono">198.51.100.10:443</td><td class="mono">PSH,ACK</td><td class="num mono">3918402 / 1</td><td class="hash">9f4a8c10&hellip;d4e2</td></tr>
+                  </tbody>
+                </table></div>
+              </section>
+            </div>
+          </div>
+
+          <div class="card__body tabpanel" role="tabpanel" id="ep-y" aria-labelledby="etab-y" hidden>
+            <div class="stack">
+              <div class="alert"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><div><strong>Pull</strong> compares the manifest on the main server with the agent's, downloads missing segments and checks each one's SHA-256.</div></div>
+              <section class="card">
+                <div class="card__head"><h2>Per worker agent</h2><span class="muted">Segments rotate every 5 minutes or 50 MB</span></div>
+                <div class="table-wrap"><table class="table">
+                  <thead><tr><th scope="col">Worker agent</th><th scope="col">Archived on main</th><th scope="col">Last sync</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+                  <tbody>
+                    <tr><th scope="row" class="mono">wrk-01</th><td class="mono">2.8 GB (42 segs)</td><td>1m ago</td><td><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>In sync</span></td><td class="actions"><button class="btn btn--sm" type="button" data-stub="Pulling wrk-01.">Pull</button></td></tr>
+                    <tr><th scope="row" class="mono">wrk-02</th><td class="mono">2.1 GB (34 segs)</td><td>4m ago</td><td><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>In sync</span></td><td class="actions"><button class="btn btn--sm" type="button" data-stub="Pulling wrk-02.">Pull</button></td></tr>
+                    <tr><th scope="row" class="mono">wrk-03</th><td class="mono">1.3 GB (19 segs)</td><td>18m ago</td><td><span class="chip chip--warn"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>1 pending</span></td><td class="actions"><button class="btn btn--sm btn--primary" type="button" data-stub="Pulling 1 pending segment from wrk-03.">Pull</button></td></tr>
+                  </tbody>
+                </table></div>
+              </section>
+            </div>
+          </div>
+
+          <div class="card__body tabpanel" role="tabpanel" id="ep-x" aria-labelledby="etab-x" hidden>
+            <div class="grid">
+              <form class="col-6 stack" data-stub-form="Mock preview: pcapng export generated.">
+                <div class="field"><label for="x-sess">Session</label><select class="select" id="x-sess"><option>cmd-0194 (wrk-01 &middot; 1,500 pkts)</option><option>s-0042 (wrk-01 &middot; 48 pkts)</option></select></div>
+                <fieldset class="field"><legend>Format</legend>
+                  <div class="seg" role="radiogroup" aria-label="Export format"><label><input type="radio" name="xfmt" value="pcapng" checked><span>pcapng</span></label><label><input type="radio" name="xfmt" value="csv"><span>CSV</span></label><label><input type="radio" name="xfmt" value="json"><span>JSON</span></label></div>
+                </fieldset>
+                <div class="row"><button class="btn btn--primary" type="submit"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>Export</button></div>
+              </form>
+              <section class="card col-6">
+                <div class="card__head"><h2>Exports from this page</h2></div>
+                <ul class="list"><li class="list__item"><div class="list__main"><b>cmd-0194.pcapng</b><small>1,500 packets &middot; SHA-256 verified</small></div><span class="chip chip--ok">Ready</span></li></ul>
+              </section>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== PAGE: BACKUP ==================== -->
+      <section class="page" data-page-view="backup" hidden>
+        <div class="page-head">
+          <div class="page-head__text">
+            <h1>Backup</h1>
+            <p>A storage-only replica of the main server's archive. It is not a standby control plane. Replication is additive: nothing is ever deleted on the backup server.</p>
+          </div>
+          <div class="page-head__actions">
+            <button class="btn" type="button" data-dialog-open="#dlg-import"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg>Import from backup</button>
+            <button class="btn btn--primary" type="button" data-stub="Mock action: Additive backup run started."><svg class="icon" aria-hidden="true"><use href="#i-database"/></svg>Back up now</button>
+          </div>
+        </div>
+
+        <div class="grid">
+          <div class="col-8 stack">
+            <section class="card">
+              <div class="card__head"><div><h2>Backup server</h2><p>The main server owns the connection and the destination path.</p></div><span class="chip chip--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Reachable</span></div>
+              <div class="card__body stack">
+                <dl class="kv">
+                  <dt>Address</dt><dd class="mono">10.20.0.50:22</dd>
+                  <dt>User</dt><dd class="mono">fleet-bk</dd>
+                  <dt>Destination path</dt><dd class="mono">/srv/fleet-backup/main-01</dd>
+                  <dt>Authentication</dt><dd>Ed25519 key installed</dd>
+                  <dt>Host key (pinned)</dt><dd class="mono">SHA256:k8vL2pQ9x7rM4wT1zN...</dd>
+                  <dt>Last backup</dt><dd>Today at 02:30 (214 files, 6.2 GB)</dd>
+                </dl>
+              </div>
+            </section>
+
+            <section class="card">
+              <div class="card__head"><div><h2>What is not on the backup yet</h2><p>Difference between the main server and the backup server.</p></div>
+                <button class="btn btn--sm" type="button" data-stub="Mock action: Backup diff recomputed."><svg class="icon icon--sm" aria-hidden="true"><use href="#i-refresh"/></svg>Recompute</button></div>
+              <div class="table-wrap"><table class="table">
+                <thead><tr><th scope="col">Content</th><th scope="col" class="num">New on main</th><th scope="col" class="num">Changed on main</th><th scope="col" class="num">To send</th><th scope="col" class="num">Only on backup</th><th scope="col">Status</th></tr></thead>
+                <tbody>
+                  <tr><th scope="row">Evidence segments</th><td class="num mono">3</td><td class="num mono">0</td><td class="num mono">3</td><td class="num mono">12</td><td><span class="chip chip--warn">Pending</span></td></tr>
+                  <tr><th scope="row">Monitor archive</th><td class="num mono">1</td><td class="num mono">0</td><td class="num mono">1</td><td class="num mono">4</td><td><span class="chip chip--warn">Pending</span></td></tr>
+                  <tr><th scope="row">Internal CA &amp; manifests</th><td class="num mono">0</td><td class="num mono">0</td><td class="num mono">0</td><td class="num mono">0</td><td><span class="chip chip--ok">Synced</span></td></tr>
+                </tbody>
+              </table></div>
+              <div class="card__foot">CA keys are part of the backup set: key material is never shown in this panel.</div>
+            </section>
+          </div>
+
+          <div class="col-4 stack">
+            <section class="card">
+              <div class="card__head"><h2>Schedule</h2></div>
+              <div class="card__body stack">
+                <div class="alert"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><div><strong>Suggested: every night at 02:30.</strong> Around the middle of the night, when the archive is quiet.</div></div>
+                <form class="stack" data-stub-form="Mock preview: Nightly schedule saved (02:30).">
+                  <label class="switch"><input type="checkbox" role="switch" checked><span class="switch__track"></span><span>Enabled</span></label>
+                  <div class="field"><label for="sch-time">Time (server local time)</label><input class="input input--mono" id="sch-time" type="time" value="02:30"></div>
+                  <div class="row"><button class="btn btn--primary" type="submit">Save schedule</button></div>
+                </form>
+              </div>
+            </section>
+
+            <section class="card">
+              <div class="card__head"><h2>Add or replace backup server</h2></div>
+              <form class="card__body stack" data-stub-form="Mock preview: Backup server verified &amp; key installed.">
+                <div class="field"><label for="bk-ip">IP address</label><input class="input input--mono" id="bk-ip" placeholder="10.20.0.50"></div>
+                <div class="field"><label for="bk-port">SSH port</label><input class="input input--mono" id="bk-port" value="22"></div>
+                <div class="field"><label for="bk-user">Username</label><input class="input" id="bk-user" value="fleet-bk"></div>
+                <div class="row"><button class="btn btn--primary" type="submit"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Update server</button></div>
+              </form>
+            </section>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<dialog class="dialog" id="dlg-start" aria-labelledby="dlg-start-title">
+  <form method="dialog" data-stub-form="Mock preview: Test would start with monitor attached.">
+    <div class="dialog__head"><h2 id="dlg-start-title">This test has no monitor</h2><p>A test must have a monitor watching its target. Attach one before starting.</p></div>
+    <div class="dialog__body">
+      <div class="field"><label for="st-maneuver">Maneuver</label><select class="select" id="st-maneuver"><option>Web tier spike probe</option><option>DNS saturation ramp</option></select></div>
+      <div class="field"><label for="st-mon">Monitor job for 198.51.100.10</label><select class="select" id="st-mon"><option>Attach existing: shop.example.test (HTTPS, 1 s)</option><option>Create a new monitor job&hellip;</option></select></div>
+    </div>
+    <div class="dialog__foot">
+      <button class="btn" type="button" data-dialog-close>Cancel</button>
+      <button class="btn btn--primary" type="submit">Create monitor and start</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="dialog" id="dlg-import" aria-labelledby="dlg-import-title">
+  <form method="dialog" data-stub-form="Mock preview: Backup import queued.">
+    <div class="dialog__head"><h2 id="dlg-import-title">Import from the backup server?</h2><p>Reads data from the fixed backup path and restores it on this main server.</p></div>
+    <div class="dialog__body">
+      <div class="alert alert--warn"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><div>Local files differing from the backup are kept unless overwrite is checked.</div></div>
+      <label class="check"><input type="checkbox" checked> I understand this restores data from the backup server.</label>
+    </div>
+    <div class="dialog__foot">
+      <button class="btn" type="button" data-dialog-close>Cancel</button>
+      <button class="btn btn--primary" type="submit"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg>Import</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast-region" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  /* ---- Theme toggle (Light <-> Dark) ---- */
+  var root = document.documentElement;
+  var themeBtn = document.getElementById('theme-toggle');
+  if (themeBtn) {
+    themeBtn.addEventListener('click', function () {
+      var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      root.setAttribute('data-theme', next);
+      themeBtn.setAttribute('aria-pressed', String(next === 'dark'));
+    });
+  }
+
+  /* ---- Mobile drawer ---- */
+  var menuBtn = document.querySelector('.topbar__menu');
+  function setNav(open) {
+    document.body.classList.toggle('nav-open', open);
+    if (menuBtn) menuBtn.setAttribute('aria-expanded', String(open));
+  }
+  if (menuBtn) {
+    menuBtn.addEventListener('click', function () { setNav(!document.body.classList.contains('nav-open')); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') setNav(false); });
+    document.addEventListener('click', function (e) {
+      if (document.body.classList.contains('nav-open') && !e.target.closest('.sidebar') && !e.target.closest('.topbar__menu')) setNav(false);
+    });
+  }
+
+  /* ---- Browsable nav pages ---- */
+  var pageLinks = document.querySelectorAll('.nav__link[data-page]');
+  var pageViews = document.querySelectorAll('.page[data-page-view]');
+  var pageTitles = {
+    machines: 'Machines',
+    projects: 'Projects & tests',
+    commands: 'Command runner',
+    terminal: 'Terminal',
+    baseline: 'Baseline items',
+    maneuver: 'Maneuver',
+    monitor: 'Monitor data',
+    watchdog: 'Watchdog',
+    evidence: 'Evidence',
+    backup: 'Backup'
+  };
+  function showPage(id) {
+    if (!pageTitles[id]) return;
+    document.body.setAttribute('data-page', id);
+    pageViews.forEach(function (sec) {
+      sec.hidden = sec.getAttribute('data-page-view') !== id;
+    });
+    pageLinks.forEach(function (a) {
+      if (a.getAttribute('data-page') === id) a.setAttribute('aria-current', 'page');
+      else a.removeAttribute('aria-current');
+    });
+    document.title = pageTitles[id] + ' · Fleet panel (Round 4 / 02 Drafting Grid)';
+    setNav(false);
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }
+  document.addEventListener('click', function (e) {
+    var link = e.target.closest('[data-page], [data-goto]');
+    if (!link) return;
+    e.preventDefault();
+    showPage(link.getAttribute('data-page') || link.getAttribute('data-goto'));
+  });
+
+  /* ---- Toasts & stub feedback ---- */
+  var region = document.querySelector('.toast-region');
+  function toast(msg) {
+    if (!region) return;
+    var t = document.createElement('div');
+    t.className = 'toast';
+    t.textContent = msg;
+    region.appendChild(t);
+    setTimeout(function () { t.remove(); }, 3800);
+  }
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest('[data-stub]');
+    if (!el) return;
+    e.preventDefault();
+    toast(el.getAttribute('data-stub'));
+  });
+  document.addEventListener('submit', function (e) {
+    var f = e.target.closest('form[data-stub-form]');
+    if (!f) return;
+    e.preventDefault();
+    var dlg = f.closest('dialog');
+    if (dlg && dlg.open) dlg.close();
+    toast(f.getAttribute('data-stub-form'));
+  });
+
+  /* ---- Dialogs & disclosure panels ---- */
+  document.querySelectorAll('[data-dialog-open]').forEach(function (btn) {
+    var dlg = document.querySelector(btn.getAttribute('data-dialog-open'));
+    if (dlg && dlg.showModal) btn.addEventListener('click', function () { dlg.showModal(); });
+  });
+  document.querySelectorAll('[data-dialog-close]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var dlg = btn.closest('dialog');
+      if (dlg) dlg.close();
+    });
+  });
+  document.querySelectorAll('[data-toggle-panel]').forEach(function (btn) {
+    var panel = document.querySelector(btn.getAttribute('data-toggle-panel'));
+    if (!panel) return;
+    btn.addEventListener('click', function () {
+      var open = panel.hidden;
+      panel.hidden = !open;
+      btn.setAttribute('aria-expanded', String(open));
+    });
+  });
+
+  /* ---- Tabs ---- */
+  document.querySelectorAll('[data-tabs]').forEach(function (tablist) {
+    var tabs = Array.prototype.slice.call(tablist.querySelectorAll('[role="tab"]'));
+    tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        tabs.forEach(function (t) {
+          var active = t === tab;
+          t.setAttribute('aria-selected', String(active));
+          t.tabIndex = active ? 0 : -1;
+          var panel = document.getElementById(t.getAttribute('aria-controls'));
+          if (panel) panel.hidden = !active;
+        });
+      });
+    });
+  });
+
+  /* ---- History semantic zoom ---- */
+  var zoomRadios = document.querySelectorAll('input[name="zl"]');
+  var zoomLabel = document.getElementById('zoom-label');
+  var zoomPanels = document.querySelectorAll('#zoom-scope .zoom__panel');
+  zoomRadios.forEach(function (r) {
+    r.addEventListener('change', function () {
+      var lvl = r.value;
+      if (zoomLabel) zoomLabel.textContent = 'Zoom level: ' + lvl;
+      zoomPanels.forEach(function (p) { p.hidden = p.getAttribute('data-level') !== lvl; });
+    });
+  });
+
+  /* ---- Command runner target selection counter ---- */
+  var cmdList = document.getElementById('cmd-targets');
+  var cmdRunLabel = document.getElementById('cmd-run-label');
+  function updateCmdCount() {
+    if (!cmdList || !cmdRunLabel) return;
+    var n = cmdList.querySelectorAll('input[type="checkbox"]:checked:not(:disabled)').length;
+    cmdRunLabel.textContent = 'Run on ' + n + ' worker agent' + (n === 1 ? '' : 's');
+  }
+  if (cmdList) {
+    cmdList.addEventListener('change', updateCmdCount);
+    document.querySelectorAll('[data-cmd-select]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var on = btn.getAttribute('data-cmd-select') === 'online';
+        cmdList.querySelectorAll('input[type="checkbox"]:not(:disabled)').forEach(function (cb) { cb.checked = on; });
+        updateCmdCount();
+      });
+    });
+  }
+
+  /* ---- Row action menus ---- */
+  function closeMenus(except) {
+    document.querySelectorAll('.menu__pop:not([hidden])').forEach(function (p) {
+      if (p === except) return;
+      p.hidden = true;
+      var b = p.parentNode.querySelector('[data-menu-btn]');
+      if (b) b.setAttribute('aria-expanded', 'false');
+    });
+  }
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-menu-btn]');
+    if (btn) {
+      var pop = btn.parentNode.querySelector('.menu__pop');
+      var open = pop.hidden;
+      closeMenus(open ? pop : null);
+      pop.hidden = !open;
+      btn.setAttribute('aria-expanded', String(open));
+      if (open) {
+        var r = btn.getBoundingClientRect();
+        pop.style.top = Math.min(r.bottom + 4, window.innerHeight - pop.offsetHeight - 8) + 'px';
+        pop.style.left = Math.max(8, r.right - pop.offsetWidth) + 'px';
+      }
+      return;
+    }
+    if (!e.target.closest('.menu__pop') || e.target.closest('[role="menuitem"]')) closeMenus(null);
+  });
+
+  /* ---- Machines table filter ---- */
+  var qInput = document.querySelector('[data-filter-q]');
+  var roleRadios = document.querySelectorAll('input[name="role"]');
+  var stateSelect = document.querySelector('[data-filter-state]');
+  var rows = Array.prototype.slice.call(document.querySelectorAll('#machines-rows tr[data-id]'));
+  var countEl = document.querySelector('[data-filter-count]');
+  var emptyEl = document.querySelector('[data-filter-empty]');
+  function applyFilter() {
+    var q = (qInput.value || '').trim().toLowerCase();
+    var role = (document.querySelector('input[name="role"]:checked') || {}).value || 'all';
+    var st = stateSelect.value || 'all';
+    var shown = 0;
+    rows.forEach(function (tr) {
+      var okQ = !q || tr.textContent.toLowerCase().indexOf(q) !== -1;
+      var okR = role === 'all' || tr.getAttribute('data-role') === role;
+      var okS = st === 'all' || tr.getAttribute('data-state') === st;
+      var vis = okQ && okR && okS;
+      tr.hidden = !vis;
+      if (vis) shown++;
+    });
+    if (countEl) countEl.textContent = 'Showing ' + shown + ' of ' + rows.length + ' machines';
+    if (emptyEl) emptyEl.hidden = shown > 0;
+  }
+  if (qInput) qInput.addEventListener('input', applyFilter);
+  roleRadios.forEach(function (r) { r.addEventListener('change', applyFilter); });
+  if (stateSelect) stateSelect.addEventListener('change', applyFilter);
+  /* BG_EXTRA_JS */
+})();
+</script>
+</body>
+</html>
