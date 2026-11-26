@@ -220,7 +220,7 @@ import json, sys
 d = json.load(sys.stdin)
 print("TAG=" + d.get("tag_name", ""))
 for a in d.get("assets", []):
-    print(f"ASSET\t{a.get(\"name\",\"\")}\t{a.get(\"url\",\"\")}\t{a.get(\"browser_download_url\",\"\")}")
+    print("ASSET\t" + a.get("name", "") + "\t" + a.get("url", "") + "\t" + a.get("browser_download_url", ""))
 '
   else
     printf '%s' "$json" | tr ',' '\n' | awk -F'"' '
