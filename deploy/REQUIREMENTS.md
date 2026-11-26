@@ -39,7 +39,7 @@ Both `--proxy=docker` and `--proxy=native` pin identical Caddy and Authelia vers
 | Component | Pinned Version | Docker Image (`deploy/proxy/compose.yml`) | Native Release Asset & Checksum |
 |---|---|---|---|
 | Caddy | `2.10.0` | `caddy:2.10.0` | `https://github.com/caddyserver/caddy/releases/download/v2.10.0/caddy_2.10.0_linux_<arch>.tar.gz` (`caddy_2.10.0_checksums.txt`, SHA-512) |
-| Authelia | `4.39.27` | `authelia/authelia:4.39.27` | `https://github.com/authelia/authelia/releases/download/v4.39.27/authelia-v4.39.27-linux-<arch>.tar.gz` (`.sha256`, SHA-256) |
+| Authelia | `4.39.27` | `authelia/authelia:4.39.27` | `https://github.com/authelia/authelia/releases/download/v4.39.27/authelia-v4.39.27-linux-<arch>.tar.gz` (`checksums.sha256`, SHA-256) |
 
 ## Package Managers Supported for Auto-Install
 

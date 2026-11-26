@@ -52,10 +52,6 @@ SCRIPT_DIR=""
 if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fi
-REPO_ROOT=""
-if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/../VERSION" ] && [ -d "$SCRIPT_DIR/proxy" ]; then
-  REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-fi
 
 MODE_CHECK=0
 MODE_UPGRADE=0
@@ -146,7 +142,7 @@ need_val() {
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --check) MODE_CHECK=1; shift ;;
+    --check) MODE_CHECK=1; UPGRADE_ARGS+=("--check"); shift ;;
     --upgrade) MODE_UPGRADE=1; shift ;;
     --proxy) need_val "$@"; FLEET_PROXY_MODE="$2"; shift 2 ;;
     --proxy=*) FLEET_PROXY_MODE="${1#--proxy=}"; shift ;;
@@ -759,17 +755,18 @@ install_native_proxy_binaries() {
 
   # Authelia v4.39.27
   local auth_tgz="authelia-v${AUTHELIA_VERSION}-linux-${arch}.tar.gz"
-  local auth_sum="${auth_tgz}.sha256"
+  local auth_sum="checksums.sha256"
   local auth_base="https://github.com/authelia/authelia/releases/download/v${AUTHELIA_VERSION}"
   if [ ! -x /usr/local/bin/authelia ] || ! /usr/local/bin/authelia --version 2>/dev/null | grep -q "${AUTHELIA_VERSION}"; then
     say "downloading Authelia v${AUTHELIA_VERSION} (${arch})..."
     curl -fsSL -L "${auth_base}/${auth_tgz}" -o "$p_dir/$auth_tgz"
     curl -fsSL -L "${auth_base}/${auth_sum}" -o "$p_dir/$auth_sum"
-    (cd "$p_dir" && sha256sum -c "$auth_sum") || die "checksum verification failed for $auth_tgz"
+    (cd "$p_dir" && sha256sum -c --ignore-missing "$auth_sum" | grep -q "^${auth_tgz}: OK$") || \
+      die "checksum verification failed for $auth_tgz"
     mkdir -p "$p_dir/authelia-extract"
     tar -xzf "$p_dir/$auth_tgz" -C "$p_dir/authelia-extract"
     local auth_bin
-    auth_bin="$(find "$p_dir/authelia-extract" -type f -name 'authelia*' | head -n1)"
+    auth_bin="$(find "$p_dir/authelia-extract" -type f -name 'authelia' | head -n1)"
     [ -n "$auth_bin" ] || die "authelia binary not found inside $auth_tgz"
     install -D -m 0755 "$auth_bin" /usr/local/bin/authelia
     say "installed /usr/local/bin/authelia v${AUTHELIA_VERSION}"
@@ -1082,6 +1079,7 @@ EOF
     cat >"$DESTDIR/etc/systemd/system/fleet-authelia.service" <<EOF
 [Unit]
 Description=Authelia forward-auth portal for Fleet
+PartOf=fleet-proxy.service
 After=network-online.target
 Wants=network-online.target
 
@@ -1108,6 +1106,7 @@ EOF
     cat >"$DESTDIR/etc/systemd/system/fleet-caddy.service" <<EOF
 [Unit]
 Description=Caddy reverse proxy for Fleet
+PartOf=fleet-proxy.service
 After=network-online.target fleet-authelia.service fleet-server.service
 Wants=network-online.target fleet-authelia.service fleet-server.service
 
@@ -1143,7 +1142,6 @@ After=fleet-authelia.service fleet-caddy.service fleet-server.service
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/bin/true
-ExecStop=/bin/systemctl stop fleet-caddy.service fleet-authelia.service
 
 [Install]
 WantedBy=multi-user.target
@@ -1207,12 +1205,15 @@ generate_authelia_users() {
 
   local hash_out="" hash=""
   if [ "$FLEET_PROXY_MODE" = "docker" ]; then
-    hash_out="$(docker run --rm "authelia/authelia:${AUTHELIA_VERSION}" authelia crypto hash generate argon2 --password "$ADMIN_PASSWORD" 2>/dev/null || true)"
+    hash_out="$(docker run --rm "authelia/authelia:${AUTHELIA_VERSION}" authelia crypto hash generate argon2 --password "$ADMIN_PASSWORD" 2>&1 || true)"
   else
-    hash_out="$(/usr/local/bin/authelia crypto hash generate argon2 --password "$ADMIN_PASSWORD" 2>/dev/null || true)"
+    hash_out="$(/usr/local/bin/authelia crypto hash generate argon2 --password "$ADMIN_PASSWORD" 2>&1 || true)"
   fi
-  hash="$(printf '%s\n' "$hash_out" | grep -oE '\$argon2id\$[^[:space:]]+' | head -n1 || true)"
-  [ -n "$hash" ] || die "failed to generate argon2id password hash via Authelia"
+  hash="$(printf '%s\n' "$hash_out" | grep -oE '[$]argon2id[$][^[:space:]]+' | head -n1 || true)"
+  if [ -z "$hash" ]; then
+    [ -n "$hash_out" ] && printf '%s\n' "$hash_out" >&2
+    die "failed to generate argon2id password hash via Authelia"
+  fi
 
   cat >"$users_file" <<EOF
 users:
@@ -1419,10 +1420,8 @@ done
 systemctl enable fleet-proxy.service >/dev/null 2>&1
 if [ "$FLEET_PROXY_MODE" = "native" ]; then
   systemctl enable fleet-authelia.service fleet-caddy.service >/dev/null 2>&1
-  systemctl restart fleet-authelia.service fleet-caddy.service fleet-proxy.service
-else
-  systemctl restart fleet-proxy.service
 fi
+systemctl restart fleet-proxy.service
 
 port_hint=""
 if [ "$FLEET_PANEL_PORT" != "443" ]; then
