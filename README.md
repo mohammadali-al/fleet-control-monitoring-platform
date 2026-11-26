@@ -18,7 +18,7 @@ curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
   https://raw.githubusercontent.com/mohammadali-al/fleet-control-monitoring-platform/main/deploy/install-server.sh \
   | sudo -E bash -s -- --check
 
-# 2. Interactive install (Docker Compose proxy by default; add --proxy=native for no-Docker hosts)
+# 2. Interactive install (native Caddy+Authelia proxy by default; add --proxy=docker for the container stack)
 curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
   https://raw.githubusercontent.com/mohammadali-al/fleet-control-monitoring-platform/main/deploy/install-server.sh \
   | sudo -E bash
@@ -28,7 +28,7 @@ Non-interactive installs accept `--answers answers.env --non-interactive` (or CL
 
 ## First Deploy Flow
 
-1. **Preflight:** Verifies root, Linux `5.4+`, `systemd`, unified `cgroup v2`, `nftables`, `openssl`, Docker + Compose (unless `--proxy=native`), free ports, and disk space. Offers to install missing OS packages (consent `y/N`, `--yes`, or `--no-install`).
+1. **Preflight:** Verifies root, Linux `5.4+`, `systemd`, unified `cgroup v2`, `nftables`, `openssl`, Docker + Compose (only with `--proxy=docker`), free ports, and disk space. Offers to install missing OS packages (consent `y/N`, `--yes`, or `--no-install`).
 2. **Prompts & Generation:** Prompts for panel/auth domains, TLS mode (`internal` self-signed SAN cert or `acme` Let's Encrypt), and initial admin user/password; auto-generates proxy secrets (`jwt`, `session`, `storage`), Argon2id user hash, and `fleet-server`'s internal mTLS CA.
 3. **Services Up:** Installs `fleet-server` + `fleet-proxy` systemd units and verifies loopback health (`127.0.0.1:6789`) + proxy readiness.
 4. **DNS & Login:** Point your panel and auth DNS names (or `/etc/hosts`) to the server IP, open `https://<panel-domain>/`, read the first-time TOTP verification code via `sudo cat /var/lib/fleet-proxy/authelia/notification.txt`, and enroll 2FA.
@@ -48,7 +48,7 @@ Upgrades query the GitHub Releases API, verify `SHA256SUMS`, stop `fleet-server`
 | Requirement / Port | Value | Purpose |
 |---|---|---|
 | Host OS / Kernel | Linux `5.4+` (`5.15+` recommended), `amd64`/`arm64` | `systemd`, unified `cgroup v2`, `nftables`, `openssl`, `>= 2 GiB` disk |
-| Proxy runtime | Docker + Compose v2 (`--proxy=docker`) or native binaries (`--proxy=native`) | Pinned Caddy `2.10.0` + Authelia `4.39.27` |
+| Proxy runtime | Native `caddy` + `authelia` binaries (`--proxy=native`, default) or Docker + Compose v2 (`--proxy=docker`) | Pinned Caddy `2.10.0` + Authelia `4.39.27` |
 | `443/tcp` | Public / LAN | Caddy HTTPS panel + Authelia login portal |
 | `6789/tcp` | `127.0.0.1` loopback | `fleet-server` panel HTTP (proxied only) |
 | `9091/tcp` | `127.0.0.1` loopback | Authelia forward-auth endpoint |

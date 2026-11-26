@@ -14,8 +14,8 @@
 | nftables | `nft` CLI + kernel `nf_tables` support | `command -v nft` + kernel check | Yes (`nftables`) |
 | OpenSSL | `openssl` CLI | `command -v openssl` | Yes (`openssl`) |
 | Fetch / Verify tools | `curl`, `tar`, `sha256sum`, `ss` | `command -v` | Yes (`curl`, `tar`, `coreutils`, `iproute2`) |
-| Proxy runtime (`--proxy=docker`, default) | Docker Engine + Compose v2 (`docker compose`) | `docker info` + `docker compose version` | Yes (`docker.io` / `docker-ce` + compose plugin) |
-| Proxy runtime (`--proxy=native`) | Standalone `caddy` + `authelia` binaries (no Docker) | Installed & verified by installer | Downloaded with checksum verification |
+| Proxy runtime (`--proxy=native`, default) | Standalone `caddy` + `authelia` binaries (no Docker) | Installed & verified by installer | Downloaded with checksum verification |
+| Proxy runtime (`--proxy=docker`) | Docker Engine + Compose v2 (`docker compose`) | `docker info` + `docker compose version` | Yes (`docker.io` / `docker-ce` + compose plugin) |
 | Disk space | `>= 2 GiB` free on `/var/lib`, `>= 500 MiB` on `/usr/local` & `/opt` | `df -Pm` | No |
 
 ## Ports

@@ -46,7 +46,7 @@ YES=0
 NON_INTERACTIVE=0
 
 # Saved answer defaults (populated from install-answers.env).
-FLEET_PROXY_MODE="docker"
+FLEET_PROXY_MODE="native"
 FLEET_TLS_MODE="internal"
 FLEET_ACME_EMAIL=""
 FLEET_SERVER_PORT="6789"
@@ -147,13 +147,13 @@ ensure_new_keys() {
   local updated=0
   if [ -z "$FLEET_PROXY_MODE" ]; then
     if [ "$YES" -eq 1 ] || [ "$NON_INTERACTIVE" -eq 1 ]; then
-      FLEET_PROXY_MODE="docker"
+      FLEET_PROXY_MODE="native"
     elif [ -r /dev/tty ] && [ -w /dev/tty ]; then
-      printf "New setting FLEET_PROXY_MODE (docker|native) [docker]: " >/dev/tty
+      printf "New setting FLEET_PROXY_MODE (native|docker) [native]: " >/dev/tty
       IFS= read -r FLEET_PROXY_MODE </dev/tty || true
-      FLEET_PROXY_MODE="${FLEET_PROXY_MODE:-docker}"
+      FLEET_PROXY_MODE="${FLEET_PROXY_MODE:-native}"
     else
-      FLEET_PROXY_MODE="docker"
+      FLEET_PROXY_MODE="native"
     fi
     updated=1
   fi

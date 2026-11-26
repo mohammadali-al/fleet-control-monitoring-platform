@@ -21,7 +21,7 @@ fleet-server --SSH, onboarding only-----------> new machine :22
 | `fleet-agent` binaries | `/usr/local/share/fleet/agents/fleet-agent-<os>-<arch>` & `/usr/local/share/fleet/fleet-agent` | Multi-platform (`server.agent_binary_dir`) + host fallback |
 | Proxy home | `/opt/fleet/proxy/` | `compose.yml`, `Caddyfile`, `authelia/configuration.yml` (+ `*.example`) |
 | Proxy mutable state | `/var/lib/fleet-proxy/` | `certs/`, `secrets/`, `authelia/` (`users.yml`, `db.sqlite3`), `caddy/` |
-| Proxy systemd unit(s) | `/etc/systemd/system/fleet-proxy.service` | Docker Compose (`--proxy=docker`) or native `fleet-caddy` + `fleet-authelia` (`--proxy=native`) |
+| Proxy systemd unit(s) | `/etc/systemd/system/fleet-proxy.service` | Native `fleet-caddy` + `fleet-authelia` (`--proxy=native`, default) or Docker Compose (`--proxy=docker`) |
 | Upgrade helper | `/usr/local/lib/fleet/upgrade-server.sh` | Invoked by `install-server.sh --upgrade` or directly |
 
 ## Prerequisites
@@ -29,7 +29,7 @@ fleet-server --SSH, onboarding only-----------> new machine :22
 See [`deploy/REQUIREMENTS.md`](REQUIREMENTS.md) for the full host matrix, ports, and pinned Caddy (`2.10.0`) / Authelia (`4.39.27`) versions.
 
 - Linux host with `systemd`, root access, unified **cgroup v2**, **nftables**, `openssl`, and at least 2 GiB free on `/var/lib`.
-- Docker + Compose v2 plugin for the default `--proxy=docker` mode, or use `--proxy=native` for standalone Caddy + Authelia binaries with no Docker dependency.
+- No Docker needed for the default `--proxy=native` mode (standalone Caddy + Authelia binaries). Use `--proxy=docker` for the Compose container stack, which then needs Docker + Compose v2.
 - DNS names (e.g. `fleet.internal` and `auth.fleet.internal`, or public domains) pointing to the main server. Authelia requires a DNS-style cookie domain; an IP address alone will not work.
 
 ## 1. Install from GitHub Release (recommended)
@@ -50,7 +50,7 @@ curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
 
 Options:
 - `--check`: run preflight checks only.
-- `--proxy=docker|native`: Docker Compose proxy (default) or native Caddy+Authelia binaries (`--proxy=native`).
+- `--proxy=native|docker`: native Caddy+Authelia binaries (default) or the Docker Compose proxy stack (`--proxy=docker`).
 - `--yes` / `--no-install`: auto-approve or skip OS package installation.
 - `--answers FILE` / `--non-interactive`: supply answers from an env file without prompting. Non-secret answers are saved to `/etc/fleet-server/install-answers.env` for future upgrades.
 - `--tls-mode internal|acme`: generate an internal self-signed SAN cert (`internal`) or obtain public Let's Encrypt certs via Caddy (`acme`).

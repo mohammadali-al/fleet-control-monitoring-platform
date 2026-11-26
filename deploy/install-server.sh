@@ -8,7 +8,7 @@
 # Modes:
 #   --check                  Run preflight checks only and exit
 #   --upgrade                Upgrade an existing installation (delegates to upgrade-server.sh)
-#   --proxy docker|native    Auth proxy mode: docker (Caddy+Authelia containers, default)
+#   --proxy native|docker    Auth proxy mode: native (standalone binaries, default) or docker (containers)
 #                            or native (standalone Caddy+Authelia binaries + systemd units)
 #   --yes, -y                Auto-approve installing missing OS packages
 #   --no-install             Do not install missing OS packages; fail if any are missing
@@ -100,7 +100,7 @@ Usage: sudo deploy/install-server.sh [OPTIONS]
 Modes:
   --check                  Run preflight checks only and exit
   --upgrade                Upgrade an existing installation (delegates to upgrade-server.sh)
-  --proxy docker|native    Auth proxy mode: docker (default) or native (no Docker)
+  --proxy native|docker    Auth proxy mode: native (default, no Docker) or docker (containers)
   --yes, -y                Auto-approve installing missing OS packages
   --no-install             Do not install missing OS packages; fail if any are missing
   --answers FILE           Load answers from env file (non-interactive capable)
@@ -284,7 +284,7 @@ for a in d.get("assets", []):
 fi
 
 DESTDIR="${DESTDIR:-}"
-FLEET_PROXY_MODE="${FLEET_PROXY_MODE:-docker}"
+FLEET_PROXY_MODE="${FLEET_PROXY_MODE:-native}"
 case "$FLEET_PROXY_MODE" in
   docker|native) ;;
   *) die "invalid --proxy mode '$FLEET_PROXY_MODE' (want: docker or native)" ;;
