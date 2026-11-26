@@ -4,25 +4,21 @@ Fleet orchestration, monitoring, and load-generation platform: a **main server**
 
 ## Quickstart (Main Server Install)
 
-> **Private / rate-limited repository auth:** If the repository is private (or you hit GitHub API rate limits), create a scoped GitHub token (`repo` read access) and export it before running the installer or upgrader:
->
-> ```bash
-> export GH_TOKEN="<your-github-token>"
-> ```
->
-> Never commit or embed tokens in scripts or `install-answers.env`. For public repos, omit the `Authorization` header and `GH_TOKEN`.
+This repository is **public** — no token or auth header is needed.
 
 ```bash
 # 1. Optional: run preflight checks first
-curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
-  https://raw.githubusercontent.com/mohammadali-al/fleet-control-monitoring-platform/main/deploy/install-server.sh \
-  | sudo -E bash -s -- --check
+curl -fsSL https://raw.githubusercontent.com/mohammadali-al/fleet-control-monitoring-platform/main/deploy/install-server.sh \
+  | sudo bash -s -- --check
 
 # 2. Interactive install (native Caddy+Authelia proxy by default; add --proxy=docker for the container stack)
-curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
-  https://raw.githubusercontent.com/mohammadali-al/fleet-control-monitoring-platform/main/deploy/install-server.sh \
-  | sudo -E bash
+curl -fsSL https://raw.githubusercontent.com/mohammadali-al/fleet-control-monitoring-platform/main/deploy/install-server.sh \
+  | sudo bash
 ```
+
+> **Only if you hit GitHub API rate limits** (or run from a private fork): export a scoped token and
+> pass it through — `export GH_TOKEN="<token>"`, add `-H "Authorization: Bearer $GH_TOKEN"` to the `curl`
+> and use `sudo -E bash`. Never commit or embed tokens in scripts or `install-answers.env`.
 
 Non-interactive installs accept `--answers answers.env --non-interactive` (or CLI flags like `--panel-domain`, `--tls-mode`, `--admin-user`, `--admin-password-file`). Non-secret answers are saved to `/etc/fleet-server/install-answers.env`.
 

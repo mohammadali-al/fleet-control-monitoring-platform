@@ -34,19 +34,14 @@ See [`deploy/REQUIREMENTS.md`](REQUIREMENTS.md) for the full host matrix, ports,
 
 ## 1. Install from GitHub Release (recommended)
 
-For a private repository (or to avoid GitHub API rate limits), export a scoped token first:
+The repository is **public** — no token or auth header is needed. Run the bootstrap installer (checks prerequisites, offers to install missing OS packages, downloads + SHA256-verifies binaries, prompts for domains/admin/TLS, generates secrets + CA, and starts `fleet-server` + `fleet-proxy`):
 
 ```bash
-export GH_TOKEN="<github-token-with-repo-read>"
+curl -fsSL https://raw.githubusercontent.com/mohammadali-al/fleet-control-monitoring-platform/main/deploy/install-server.sh \
+  | sudo bash
 ```
 
-Run the bootstrap installer (checks prerequisites, offers to install missing OS packages, downloads + SHA256-verifies binaries, prompts for domains/admin/TLS, generates secrets + CA, and starts `fleet-server` + `fleet-proxy`):
-
-```bash
-curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
-  https://raw.githubusercontent.com/mohammadali-al/fleet-control-monitoring-platform/main/deploy/install-server.sh \
-  | sudo -E bash
-```
+> Only if you hit GitHub API rate limits (or run from a private fork): `export GH_TOKEN="<github-token-with-repo-read>"`, add `-H "Authorization: Bearer $GH_TOKEN"` to the `curl`, and use `sudo -E bash`.
 
 Options:
 - `--check`: run preflight checks only.
