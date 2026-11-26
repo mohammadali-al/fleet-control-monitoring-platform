@@ -6,7 +6,6 @@
 _none_
 ## Next (ready, in order)
 - **T-0034** panel-hacker-restyle-samples  `after: []`
-- **T-0038** deploy-verification  `after: [T-0036]`
 
 ## Waiting for the operator (merged → see CHECKS.md)
 - **T-0001** project-skeleton  `after: []`
@@ -45,6 +44,7 @@ _none_
 - **T-0035** server-state-versioning-migrate  `after: [T-0006, T-0024]`
 - **T-0036** github-release-and-installer  `after: [T-0024, T-0032, T-0035]`
 - **T-0037** secret-scan-history  `after: []`
+- **T-0038** deploy-verification  `after: [T-0036]`
 
 ## Blocked
 _none_

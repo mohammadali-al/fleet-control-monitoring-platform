@@ -1,7 +1,7 @@
 ---
 id: T-0038
 title: deploy-verification
-state: ready
+state: merged
 touches: [deploy/install-server.sh, deploy/upgrade-server.sh, deploy/proxy/compose.yml,
           deploy/proxy/fleet-proxy.service, deploy/REQUIREMENTS.md, deploy/verification-report.md]
 tests: []
