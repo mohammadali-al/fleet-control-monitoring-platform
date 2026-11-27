@@ -37,6 +37,8 @@ const (
 	MonitorDirName  = "monitor"
 	// WatchdogDirName holds the watchdog's last-known policy and guard counters.
 	WatchdogDirName = "watchdog"
+	// BaselineDirName holds the global library of reusable baseline items.
+	BaselineDirName = "baseline"
 	// ProjectsDirName holds Maneuver/project metadata (part of the backup set,
 	// T-0013).
 	ProjectsDirName = "projects"
