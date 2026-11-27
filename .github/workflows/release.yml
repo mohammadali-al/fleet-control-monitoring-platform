@@ -63,6 +63,7 @@ jobs:
           cp bin/agents/fleet-agent-* dist/
           cp deploy/install-server.sh dist/install-server.sh
           cp deploy/upgrade-server.sh dist/upgrade-server.sh
+          cp deploy/uninstall-server.sh dist/uninstall-server.sh
           chmod 0755 dist/fleet-server* dist/fleet-agent-* dist/*.sh
           (cd dist && sha256sum * > SHA256SUMS)
           ls -lh dist/

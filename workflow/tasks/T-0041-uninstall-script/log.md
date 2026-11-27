@@ -1,0 +1,18 @@
+# T-0041 Log
+
+## 2026-11-27 — `deploy/uninstall-server.sh`, docs, and release asset
+
+- Ran `./scripts/wf start T-0041` to switch to `task/T-0041` with `.githooks` wired.
+- `deploy/uninstall-server.sh`:
+  - Reverses `deploy/install-server.sh` and `deploy/upgrade-server.sh` cleanly and idempotently (`#!/usr/bin/env bash`, `set -euo pipefail`).
+  - Reads `/etc/fleet-server/install-answers.env` (safe line-by-line KEY=VALUE parser, no `source`/`eval`) to discover `FLEET_PROXY_MODE`, `FLEET_PANEL_DOMAIN`, and configured paths, with `--proxy`, `--conf-dir`, `--data-dir`, `--proxy-dir`, and `--proxy-state-dir` overrides.
+  - Stops, disables, and removes the explicit fixed list of systemd units (`fleet-agent-liveness.timer`, `fleet-watchdog-liveness.timer`, `fleet-agent-liveness.service`, `fleet-watchdog-liveness.service`, `fleet-watchdog.service`, `fleet-proxy.service`, `fleet-caddy.service`, `fleet-authelia.service`, `fleet-server.service`) plus target wants symlinks, then runs `systemctl daemon-reload` and `systemctl reset-failed`. For `--proxy=docker`, runs `docker compose -f <proxy-dir>/compose.yml down --remove-orphans` (adding `--volumes` only when `--purge-data` is set).
+  - Removes Fleet-owned binaries and config: `/usr/local/bin/fleet-server`, `/usr/local/bin/fleet-agent` wrapper, native proxy binaries `/usr/local/bin/caddy` and `/usr/local/bin/authelia` (in native mode), `/usr/local/share/fleet/`, `/usr/local/lib/fleet/`, `/etc/fleet-server/` (`$FLEET_CONF_DIR`), and `/opt/fleet/proxy/` (`$FLEET_PROXY_DIR`, plus empty `/opt/fleet` via `rmdir`).
+  - Preserves persistent data and backups (`/var/lib/fleet-server/`, migration/rollback sibling backups, `/var/lib/fleet-proxy/`, `/var/backups/fleet-server/`, and `fleet`/`fleet-proxy` system users) by default (`--keep-data` is the explicit default) and prints a loud preservation notice. Deleting them requires `--purge-data` (plus typing the panel hostname interactively when `--yes` is not set). Shared OS packages and remote agents are never touched.
+  - Guarded every deletion through `safe_rm()` + `validate_path_under()` + `expected_prefix_for_dir()`, refusing empty paths, non-absolute paths, `..` traversal, globs, protected OS directories (`/`, `/usr`, `/var`, `/etc`, `/opt`, `/var/lib`, etc.), `$HOME`, `$DESTDIR`, and paths outside the expected prefix.
+  - Supports `--dry-run`, `-y`/`--yes`, `--non-interactive`, `--purge-data`, `--keep-data`, and `DESTDIR` staging.
+- `deploy/README.md` & `deploy/REQUIREMENTS.md`: added Section 6 (`Uninstalling`) with `curl | sudo bash` forms (`--dry-run`, interactive, `--purge-data`) and documented that shared OS packages are not uninstalled.
+- `.github/workflows/release.yml`: staged `deploy/uninstall-server.sh` into `dist/uninstall-server.sh` (`0755`) so it is included in `SHA256SUMS` and published on GitHub Releases.
+- Verification: `shellcheck` (`0.11.0` extracted into `/tmp/t0041-tools`, removed afterward) exited 0 with zero warnings on `deploy/uninstall-server.sh`; `bash -n deploy/uninstall-server.sh` clean; `yaml.safe_load` valid on `.github/workflows/release.yml`; `DESTDIR`-staged tests verified `--dry-run` (no mutations), non-interactive refusal without `--yes`, `--yes` keep-data removal in both `native` and `docker` modes, idempotent second run, `--yes --purge-data` removal of data + `.bak-*` siblings, conflicting `--purge-data --keep-data` refusal, and `safe_rm()` / CLI path-guard refusals for empty, `/`, `/usr`, `/var`, `/etc`, `/opt`, `$HOME`, traversal, glob, and wrong-prefix inputs. No live disposable box was available here; live systemd/docker teardown remains for supervisor verification.
+
+wf: T-0041 done
