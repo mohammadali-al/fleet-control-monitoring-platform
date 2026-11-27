@@ -38,7 +38,10 @@
 #   --server-port PORT       Loopback fleet-server port (default: 6789)
 #   --agent-port PORT        Agent control channel port (default: 7443)
 #   --auth-port PORT         Loopback Authelia port (default: 9091)
+#   --tsdb-port PORT         Loopback VictoriaMetrics port (default: 8428)
 #   --data-dir DIR           fleet-server data directory (default: /var/lib/fleet-server)
+#   --tsdb-dir DIR           VictoriaMetrics data directory (default: /var/lib/fleet-victoriametrics)
+#   --tsdb-retention PERIOD  VictoriaMetrics retention period (default: 90d)
 #   --proxy-dir DIR          Proxy configuration directory (default: /opt/fleet/proxy)
 #   --proxy-state-dir DIR    Proxy mutable state directory (default: /var/lib/fleet-proxy)
 #
@@ -49,6 +52,9 @@ set -euo pipefail
 DEFAULT_REPO="mohammadali-al/fleet-control-monitoring-platform"
 CADDY_VERSION="2.10.0"
 AUTHELIA_VERSION="4.39.27"
+VICTORIAMETRICS_VERSION="1.157.0"
+VICTORIAMETRICS_SHA256_AMD64="7b31192da6cf805b8b9244a904b022948e8022a067a822c30cb9f94600d0c387"
+VICTORIAMETRICS_SHA256_ARM64="e5368dec72d212dcb2b994345ab872245299000d37197f723123e63a50e573b5"
 
 SCRIPT_DIR=""
 if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
@@ -86,7 +92,10 @@ FLEET_AGENT_PORT="${FLEET_AGENT_PORT:-}"
 FLEET_AGENT_DIAL_PORT="${FLEET_AGENT_DIAL_PORT:-}"
 FLEET_ENROLL_PORT="${FLEET_ENROLL_PORT:-}"
 FLEET_AUTH_PORT="${FLEET_AUTH_PORT:-}"
+FLEET_TSDB_PORT="${FLEET_TSDB_PORT:-}"
 FLEET_DATA_DIR="${FLEET_DATA_DIR:-}"
+FLEET_TSDB_DIR="${FLEET_TSDB_DIR:-}"
+FLEET_TSDB_RETENTION="${FLEET_TSDB_RETENTION:-}"
 FLEET_PROXY_DIR="${FLEET_PROXY_DIR:-}"
 FLEET_PROXY_STATE_DIR="${FLEET_PROXY_STATE_DIR:-}"
 FLEET_CONF_DIR="${FLEET_CONF_DIR:-/etc/fleet-server}"
@@ -134,7 +143,10 @@ Configuration overrides (also settable in --answers FILE):
   --server-port PORT       Loopback fleet-server port (default: 6789)
   --agent-port PORT        Agent control channel port (default: 7443)
   --auth-port PORT         Loopback Authelia port (default: 9091)
+  --tsdb-port PORT         Loopback VictoriaMetrics port (default: 8428)
   --data-dir DIR           fleet-server data directory (default: /var/lib/fleet-server)
+  --tsdb-dir DIR           VictoriaMetrics data directory (default: /var/lib/fleet-victoriametrics)
+  --tsdb-retention PERIOD  VictoriaMetrics retention period (default: 90d)
   --proxy-dir DIR          Proxy configuration directory (default: /opt/fleet/proxy)
   --proxy-state-dir DIR    Proxy mutable state directory (default: /var/lib/fleet-proxy)
 
@@ -177,7 +189,10 @@ while [ "$#" -gt 0 ]; do
     --server-port) need_val "$@"; FLEET_SERVER_PORT="$2"; shift 2 ;;
     --agent-port) need_val "$@"; FLEET_AGENT_PORT="$2"; shift 2 ;;
     --auth-port) need_val "$@"; FLEET_AUTH_PORT="$2"; shift 2 ;;
+    --tsdb-port) need_val "$@"; FLEET_TSDB_PORT="$2"; shift 2 ;;
     --data-dir) need_val "$@"; FLEET_DATA_DIR="$2"; shift 2 ;;
+    --tsdb-dir) need_val "$@"; FLEET_TSDB_DIR="$2"; shift 2 ;;
+    --tsdb-retention) need_val "$@"; FLEET_TSDB_RETENTION="$2"; shift 2 ;;
     --proxy-dir) need_val "$@"; FLEET_PROXY_DIR="$2"; shift 2 ;;
     --proxy-state-dir) need_val "$@"; FLEET_PROXY_STATE_DIR="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -235,7 +250,10 @@ load_answers_file() {
       FLEET_AGENT_DIAL_PORT) [ -z "$FLEET_AGENT_DIAL_PORT" ] && FLEET_AGENT_DIAL_PORT="$val" ;;
       FLEET_ENROLL_PORT) [ -z "$FLEET_ENROLL_PORT" ] && FLEET_ENROLL_PORT="$val" ;;
       FLEET_AUTH_PORT) [ -z "$FLEET_AUTH_PORT" ] && FLEET_AUTH_PORT="$val" ;;
+      FLEET_TSDB_PORT) [ -z "$FLEET_TSDB_PORT" ] && FLEET_TSDB_PORT="$val" ;;
       FLEET_DATA_DIR) [ -z "$FLEET_DATA_DIR" ] && FLEET_DATA_DIR="$val" ;;
+      FLEET_TSDB_DIR) [ -z "$FLEET_TSDB_DIR" ] && FLEET_TSDB_DIR="$val" ;;
+      FLEET_TSDB_RETENTION) [ -z "$FLEET_TSDB_RETENTION" ] && FLEET_TSDB_RETENTION="$val" ;;
       FLEET_PROXY_DIR) [ -z "$FLEET_PROXY_DIR" ] && FLEET_PROXY_DIR="$val" ;;
       FLEET_PROXY_STATE_DIR) [ -z "$FLEET_PROXY_STATE_DIR" ] && FLEET_PROXY_STATE_DIR="$val" ;;
       FLEET_ADMIN_PASSWORD) [ -z "$ADMIN_PASSWORD" ] && ADMIN_PASSWORD="$val" ;;
@@ -323,12 +341,16 @@ FLEET_AGENT_PORT="${FLEET_AGENT_PORT:-7443}"
 FLEET_AGENT_DIAL_PORT="${FLEET_AGENT_DIAL_PORT:-7444}"
 FLEET_ENROLL_PORT="${FLEET_ENROLL_PORT:-7445}"
 FLEET_AUTH_PORT="${FLEET_AUTH_PORT:-9091}"
+FLEET_TSDB_PORT="${FLEET_TSDB_PORT:-8428}"
 FLEET_DATA_DIR="${FLEET_DATA_DIR:-/var/lib/fleet-server}"
+FLEET_TSDB_DIR="${FLEET_TSDB_DIR:-/var/lib/fleet-victoriametrics}"
+FLEET_TSDB_RETENTION="${FLEET_TSDB_RETENTION:-90d}"
 FLEET_PROXY_DIR="${FLEET_PROXY_DIR:-/opt/fleet/proxy}"
 FLEET_PROXY_STATE_DIR="${FLEET_PROXY_STATE_DIR:-/var/lib/fleet-proxy}"
 
 SVC_USER="fleet"
 PROXY_USER="fleet-proxy"
+TSDB_USER="fleet-tsdb"
 
 has_tty() {
   [ "$NON_INTERACTIVE" -eq 0 ] && [ -r /dev/tty ] && [ -w /dev/tty ]
@@ -417,7 +439,7 @@ check_port_state() {
     return 0
   fi
   # Allow existing Fleet components on re-run.
-  if printf '%s' "$proc_info" | grep -qiE 'fleet-server|caddy|authelia|docker-proxy'; then
+  if printf '%s' "$proc_info" | grep -qiE 'fleet-server|caddy|authelia|docker-proxy|victoria-metrics'; then
     say "preflight: port $port/tcp is already held by a Fleet/proxy process (re-run OK)"
     return 0
   fi
@@ -618,6 +640,7 @@ run_preflight() {
     check_port_state "$FLEET_AGENT_DIAL_PORT" "service" || p_fail=1
     check_port_state "$FLEET_ENROLL_PORT" "service" || p_fail=1
     check_port_state "$FLEET_AUTH_PORT" "service" || p_fail=1
+    check_port_state "$FLEET_TSDB_PORT" "service" || p_fail=1
     check_port_state 22 "ssh" || p_fail=1
     [ "$p_fail" -eq 0 ] || die "one or more required ports are already occupied"
   fi
@@ -804,6 +827,40 @@ install_native_proxy_binaries() {
   fi
 }
 
+install_victoriametrics_binary() {
+  [ -z "$DESTDIR" ] || return 0
+  make_tmp_dir
+  local arch; arch="$(host_arch)"
+  local vm_dir="$TMP_DIR/victoriametrics"
+  mkdir -p "$vm_dir"
+
+  local vm_tgz="victoria-metrics-linux-${arch}-v${VICTORIAMETRICS_VERSION}.tar.gz"
+  local vm_sums="victoria-metrics-linux-${arch}-v${VICTORIAMETRICS_VERSION}_checksums.txt"
+  local vm_base="https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/v${VICTORIAMETRICS_VERSION}"
+  local expected_sha=""
+  case "$arch" in
+    amd64) expected_sha="$VICTORIAMETRICS_SHA256_AMD64" ;;
+    arm64) expected_sha="$VICTORIAMETRICS_SHA256_ARM64" ;;
+    *) die "unsupported arch for VictoriaMetrics: $arch" ;;
+  esac
+
+  if [ ! -x /usr/local/bin/victoria-metrics ] || ! /usr/local/bin/victoria-metrics --version 2>&1 | grep -q "v${VICTORIAMETRICS_VERSION}"; then
+    say "downloading VictoriaMetrics v${VICTORIAMETRICS_VERSION} (${arch})..."
+    curl -fsSL -L "${vm_base}/${vm_tgz}" -o "$vm_dir/$vm_tgz"
+    curl -fsSL -L "${vm_base}/${vm_sums}" -o "$vm_dir/$vm_sums"
+    local actual_sha
+    actual_sha="$(sha256sum "$vm_dir/$vm_tgz" | awk '{print $1}')"
+    [ "$actual_sha" = "$expected_sha" ] || \
+      die "pinned SHA256 mismatch for $vm_tgz (got $actual_sha, want $expected_sha)"
+    (cd "$vm_dir" && sha256sum -c --ignore-missing "$vm_sums" | grep -q "^${vm_tgz}: OK$") || \
+      die "checksum verification failed for $vm_tgz"
+    tar -xzf "$vm_dir/$vm_tgz" -C "$vm_dir" victoria-metrics-prod
+    install -D -m 0755 "$vm_dir/victoria-metrics-prod" /usr/local/bin/victoria-metrics
+    CHANGED=1
+    say "installed /usr/local/bin/victoria-metrics v${VICTORIAMETRICS_VERSION}"
+  fi
+}
+
 # ---- Interactive / Non-interactive Configuration Collection ----
 
 collect_answers() {
@@ -880,7 +937,7 @@ collect_answers() {
 
   if [ "$NON_INTERACTIVE" -eq 0 ] && has_tty; then
     local custom_ports=""
-    printf "Customize default ports/paths (443, 6789, 7443, 7444, 7445, 9091, %s)? [y/N]: " "$FLEET_DATA_DIR" >/dev/tty
+    printf "Customize default ports/paths (443, 6789, 7443, 7444, 7445, 8428, 9091, %s)? [y/N]: " "$FLEET_DATA_DIR" >/dev/tty
     IFS= read -r custom_ports </dev/tty || true
     case "$custom_ports" in
       y|Y|yes|YES)
@@ -890,7 +947,10 @@ collect_answers() {
         prompt_val "Agent dial mTLS port" "$FLEET_AGENT_DIAL_PORT" FLEET_AGENT_DIAL_PORT
         prompt_val "Token enrollment HTTPS port" "$FLEET_ENROLL_PORT" FLEET_ENROLL_PORT
         prompt_val "Loopback Authelia port" "$FLEET_AUTH_PORT" FLEET_AUTH_PORT
+        prompt_val "Loopback VictoriaMetrics port" "$FLEET_TSDB_PORT" FLEET_TSDB_PORT
         prompt_val "Server data directory" "$FLEET_DATA_DIR" FLEET_DATA_DIR
+        prompt_val "VictoriaMetrics data directory" "$FLEET_TSDB_DIR" FLEET_TSDB_DIR
+        prompt_val "VictoriaMetrics retention period" "$FLEET_TSDB_RETENTION" FLEET_TSDB_RETENTION
         prompt_val "Proxy config directory" "$FLEET_PROXY_DIR" FLEET_PROXY_DIR
         prompt_val "Proxy mutable state directory" "$FLEET_PROXY_STATE_DIR" FLEET_PROXY_STATE_DIR
         ;;
@@ -921,7 +981,10 @@ FLEET_AGENT_PORT=$FLEET_AGENT_PORT
 FLEET_AGENT_DIAL_PORT=$FLEET_AGENT_DIAL_PORT
 FLEET_ENROLL_PORT=$FLEET_ENROLL_PORT
 FLEET_AUTH_PORT=$FLEET_AUTH_PORT
+FLEET_TSDB_PORT=$FLEET_TSDB_PORT
 FLEET_DATA_DIR=$FLEET_DATA_DIR
+FLEET_TSDB_DIR=$FLEET_TSDB_DIR
+FLEET_TSDB_RETENTION=$FLEET_TSDB_RETENTION
 FLEET_PROXY_DIR=$FLEET_PROXY_DIR
 FLEET_PROXY_STATE_DIR=$FLEET_PROXY_STATE_DIR
 FLEET_CONF_DIR=$FLEET_CONF_DIR
@@ -945,6 +1008,10 @@ render_server_config_example() {
     "agent_dial_addr": ":${FLEET_AGENT_DIAL_PORT}",
     "enroll_addr": ":${FLEET_ENROLL_PORT}",
     "enroll_host": "${FLEET_PANEL_DOMAIN}",
+    "monitor_store": {
+      "addr": "http://127.0.0.1:${FLEET_TSDB_PORT}",
+      "retention": "${FLEET_TSDB_RETENTION}"
+    },
     "log": { "level": "info", "format": "text" }
   }
 }
@@ -1123,13 +1190,48 @@ services:
 EOF
 }
 
+render_victoriametrics_service() {
+  cat <<EOF
+# VictoriaMetrics time-series store systemd unit (installed by deploy/install-server.sh).
+[Unit]
+Description=VictoriaMetrics monitor time-series store for Fleet
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=${TSDB_USER}
+Group=${TSDB_USER}
+ExecStart=/usr/local/bin/victoria-metrics -httpListenAddr=127.0.0.1:${FLEET_TSDB_PORT} -storageDataPath=${FLEET_TSDB_DIR} -retentionPeriod=${FLEET_TSDB_RETENTION}
+StateDirectory=fleet-victoriametrics
+StateDirectoryMode=0750
+ReadWritePaths=${FLEET_TSDB_DIR}
+UMask=0077
+Restart=on-failure
+RestartSec=3
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
 render_fleet_server_service() {
   cat <<EOF
 # Fleet main server systemd unit (installed by deploy/install-server.sh).
 [Unit]
 Description=Fleet main server (panel and agent control channel)
-After=network-online.target
-Wants=network-online.target
+After=network-online.target fleet-victoriametrics.service
+Wants=network-online.target fleet-victoriametrics.service
 
 [Service]
 Type=simple
@@ -1137,6 +1239,7 @@ User=${SVC_USER}
 Group=${SVC_USER}
 Environment=FLEET_LISTEN_ADDR=127.0.0.1:${FLEET_SERVER_PORT}
 Environment=FLEET_DATA_DIR=${FLEET_DATA_DIR}
+Environment=FLEET_MONITOR_STORE_ADDR=http://127.0.0.1:${FLEET_TSDB_PORT}
 EnvironmentFile=-${FLEET_CONF_DIR}/fleet-server.env
 ExecStart=${FLEET_SERVER_BIN} --config ${FLEET_CONF_DIR}/config.json
 StateDirectory=fleet-server
@@ -1345,7 +1448,6 @@ EOF
   say "created initial Authelia admin user '$FLEET_ADMIN_USER' in $FLEET_PROXY_STATE_DIR/authelia/users.yml"
 }
 
-CHANGED=0
 put_file() {
   local mode="$1" src="$2" dest="$DESTDIR$3"
   if [ -f "$dest" ] && cmp -s "$src" "$dest"; then
@@ -1380,6 +1482,8 @@ else
   local_ag="$BIN_DIR/fleet-agent-bin"
 fi
 
+CHANGED=0
+install_victoriametrics_binary
 if [ "$FLEET_PROXY_MODE" = "native" ]; then
   install_native_proxy_binaries
 fi
@@ -1391,6 +1495,10 @@ if [ -z "$DESTDIR" ]; then
   if ! id -u "$SVC_USER" >/dev/null 2>&1; then
     useradd --system --user-group --home-dir "$FLEET_DATA_DIR" --no-create-home --shell /usr/sbin/nologin "$SVC_USER"
     say "created system user $SVC_USER"
+  fi
+  if ! id -u "$TSDB_USER" >/dev/null 2>&1; then
+    useradd --system --user-group --home-dir "$FLEET_TSDB_DIR" --no-create-home --shell /usr/sbin/nologin "$TSDB_USER"
+    say "created system user $TSDB_USER"
   fi
   if [ "$FLEET_PROXY_MODE" = "native" ] && ! id -u "$PROXY_USER" >/dev/null 2>&1; then
     useradd --system --user-group --home-dir "$FLEET_PROXY_STATE_DIR" --no-create-home --shell /usr/sbin/nologin "$PROXY_USER"
@@ -1432,19 +1540,24 @@ if [ ! -e "$DESTDIR$FLEET_CONF_DIR/fleet-server.env" ]; then
   cat >"$DESTDIR$FLEET_CONF_DIR/fleet-server.env" <<EOF
 FLEET_LISTEN_ADDR=127.0.0.1:${FLEET_SERVER_PORT}
 FLEET_DATA_DIR=${FLEET_DATA_DIR}
+FLEET_MONITOR_STORE_ADDR=http://127.0.0.1:${FLEET_TSDB_PORT}
 EOF
   chmod 0640 "$DESTDIR$FLEET_CONF_DIR/fleet-server.env"
 fi
 
 write_install_answers
 
-# 4. Data dir & systemd unit for fleet-server.
+# 4. Data dirs & systemd units for fleet-victoriametrics and fleet-server.
 install -d -m 0750 "$DESTDIR$FLEET_DATA_DIR"
+install -d -m 0750 "$DESTDIR$FLEET_TSDB_DIR"
 if [ -z "$DESTDIR" ]; then
   chown "$SVC_USER:$SVC_USER" "$FLEET_DATA_DIR"
+  chown "$TSDB_USER:$TSDB_USER" "$FLEET_TSDB_DIR"
 fi
 
 install -d -m 0755 "$DESTDIR/etc/systemd/system"
+render_victoriametrics_service > "$DESTDIR/etc/systemd/system/fleet-victoriametrics.service"
+chmod 0644 "$DESTDIR/etc/systemd/system/fleet-victoriametrics.service"
 render_fleet_server_service > "$DESTDIR/etc/systemd/system/fleet-server.service"
 chmod 0644 "$DESTDIR/etc/systemd/system/fleet-server.service"
 
@@ -1494,12 +1607,33 @@ if [ -n "$DESTDIR" ]; then
 fi
 
 if [ "$START" -eq 0 ]; then
-  say "installed (--no-start). Start with: systemctl enable --now fleet-server fleet-proxy"
+  say "installed (--no-start). Start with: systemctl enable --now fleet-victoriametrics fleet-server fleet-proxy"
   exit 0
 fi
 
-# 6. Enable & start fleet-server, wait for internal CA, then bring up proxy.
+# 6. Enable & start VictoriaMetrics, then fleet-server, wait for internal CA, then bring up proxy.
 systemctl daemon-reload
+systemctl enable fleet-victoriametrics.service >/dev/null 2>&1
+if systemctl is-active --quiet fleet-victoriametrics.service; then
+  if [ "$CHANGED" -eq 1 ]; then
+    systemctl restart fleet-victoriametrics.service
+    say "restarted fleet-victoriametrics"
+  fi
+else
+  systemctl start fleet-victoriametrics.service
+  say "started fleet-victoriametrics"
+fi
+vm_ok=0
+for _ in $(seq 1 15); do
+  if curl -fsS "http://127.0.0.1:${FLEET_TSDB_PORT}/health" >/dev/null 2>&1; then
+    vm_ok=1
+    break
+  fi
+  sleep 1
+done
+[ "$vm_ok" -eq 1 ] || die "fleet-victoriametrics health check failed on http://127.0.0.1:${FLEET_TSDB_PORT}/health"
+say "VictoriaMetrics ready on 127.0.0.1:${FLEET_TSDB_PORT} (state: $FLEET_TSDB_DIR)"
+
 systemctl enable fleet-server.service >/dev/null 2>&1
 if systemctl is-active --quiet fleet-server.service; then
   if [ "$CHANGED" -eq 1 ]; then

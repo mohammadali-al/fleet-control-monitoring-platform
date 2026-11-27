@@ -139,3 +139,30 @@ func TestAgentValidate(t *testing.T) {
 		}
 	}
 }
+
+func TestMonitorStoreConfigAndEnvOverride(t *testing.T) {
+	t.Setenv(EnvMonitorStoreAddr, "")
+	p := filepath.Join(t.TempDir(), "c.json")
+	if err := os.WriteFile(p, []byte(`{"server":{"monitor_store":{"addr":"http://127.0.0.1:8428","retention":"30d"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Server.MonitorStore.Addr != "http://127.0.0.1:8428" || got.Server.MonitorStore.RetentionOrDefault() != "30d" {
+		t.Fatalf("monitor_store = %+v", got.Server.MonitorStore)
+	}
+	if def := (MonitorStoreConfig{}).RetentionOrDefault(); def != DefaultMonitorStoreRetention {
+		t.Errorf("default retention = %q, want %q", def, DefaultMonitorStoreRetention)
+	}
+
+	t.Setenv(EnvMonitorStoreAddr, "http://127.0.0.1:18428")
+	got, err = Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Server.MonitorStore.Addr != "http://127.0.0.1:18428" {
+		t.Errorf("env did not override monitor_store.addr: %+v", got.Server.MonitorStore)
+	}
+}

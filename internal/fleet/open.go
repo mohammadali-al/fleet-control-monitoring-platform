@@ -77,11 +77,12 @@ func Open(o Options) (*Manager, error) {
 			AgentBinaryDir:  o.Config.AgentBinaryDir,
 			AgentBinaryPath: o.Config.AgentBinaryPath,
 		},
-		Gate:       gate,
-		GateSecret: key,
-		Capture:    o.Config.AgentCapture,
-		NewLink:    links,
-		Logger:     o.Logger,
+		Gate:         gate,
+		GateSecret:   key,
+		Capture:      o.Config.AgentCapture,
+		MonitorStore: o.Config.MonitorStore,
+		NewLink:      links,
+		Logger:       o.Logger,
 	})
 }
 
