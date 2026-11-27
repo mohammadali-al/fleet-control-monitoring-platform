@@ -1,7 +1,7 @@
 ---
 id: T-0043
 title: enroll-addr-default
-state: ready
+state: merged
 touches: [deploy/install-server.sh, deploy/README.md, deploy/REQUIREMENTS.md]
 tests: []
 after: [T-0036]
