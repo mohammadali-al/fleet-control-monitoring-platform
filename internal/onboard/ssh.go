@@ -126,6 +126,8 @@ type Target struct {
 	// amd64|arm64). When empty, Provision detects them over SSH via uname -sm.
 	OS   string
 	Arch string
+	// Groups are optional watchdog policy-override groups assigned at onboarding.
+	Groups []string
 }
 
 func (t Target) addr() string {
@@ -353,6 +355,9 @@ func validateTarget(t *Target) error {
 	if t.Password == "" && len(t.PrivateKeyPEM) == 0 {
 		return errors.New("onboard: no SSH credentials (need a password or a private key)")
 	}
+	if err := registry.ValidateGroups(t.Groups); err != nil {
+		return fmt.Errorf("onboard: %w", err)
+	}
 	return nil
 }
 
@@ -485,7 +490,7 @@ func (p *Provisioner) resolveMachine(t Target) (registry.Machine, bool, error) {
 
 	if _, ok := p.Registry.Get(id); !ok {
 		err := p.Registry.Add(registry.Machine{
-			ID: id, Role: t.Role, ConnectMode: t.ConnectMode, PrivateIPs: []string{t.Host},
+			ID: id, Role: t.Role, ConnectMode: t.ConnectMode, PrivateIPs: []string{t.Host}, Groups: t.Groups,
 		})
 		if err != nil {
 			return registry.Machine{}, false, err
@@ -497,6 +502,9 @@ func (p *Provisioner) resolveMachine(t Target) (registry.Machine, bool, error) {
 		m.Role = t.Role
 		if t.ConnectMode != "" {
 			m.ConnectMode = t.ConnectMode
+		}
+		if t.Groups != nil {
+			m.Groups = append([]string(nil), t.Groups...)
 		}
 		if !containsIP(m.PrivateIPs, t.Host) {
 			m.PrivateIPs = append(m.PrivateIPs, t.Host)
@@ -732,6 +740,9 @@ func renderAgentConfig(m registry.Machine, l Layout, serverAddr, serverID string
 		CAFile:      l.caFile(),
 		CertFile:    l.certFile(),
 		KeyFile:     l.keyFile(),
+	}
+	if len(m.Groups) > 0 {
+		cfg.Watchdog.Groups = append([]string(nil), m.Groups...)
 	}
 	if m.ConnectMode == config.ConnectModeAgentDial {
 		serverAddr = strings.TrimSpace(serverAddr)

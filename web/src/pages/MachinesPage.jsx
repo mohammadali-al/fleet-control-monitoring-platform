@@ -176,13 +176,107 @@ function DetailDiskSection({ disk }) {
   );
 }
 
-function MachineDetailsDrawer({ machineId, machine, watchdog, loading, error, notFound, closeBtnRef, onClose }) {
+function sameStringList(a, b) {
+  const xs = Array.isArray(a) ? a : [];
+  const ys = Array.isArray(b) ? b : [];
+  if (xs.length !== ys.length) return false;
+  for (let i = 0; i < xs.length; i += 1) {
+    if (xs[i] !== ys[i]) return false;
+  }
+  return true;
+}
+
+function MachineDetailsDrawer({ machineId, machine, watchdog, loading, error, notFound, closeBtnRef, onClose, onGroupsSaved }) {
+  const [groupDraft, setGroupDraft] = useState([]);
+  const [groupInput, setGroupInput] = useState('');
+  const [groupDirty, setGroupDirty] = useState(false);
+  const [groupBusy, setGroupBusy] = useState(false);
+  const [groupStatus, setGroupStatus] = useState(null);
+  const [policyGroups, setPolicyGroups] = useState([]);
+
+  const machineGroupsKey = Array.isArray(machine?.groups) ? machine.groups.join('\0') : '';
+
+  useEffect(() => {
+    setGroupDraft(Array.isArray(machine?.groups) ? machine.groups : []);
+    setGroupInput('');
+    setGroupDirty(false);
+    setGroupStatus(null);
+  }, [machineId]);
+
+  useEffect(() => {
+    if (!groupDirty) {
+      setGroupDraft(Array.isArray(machine?.groups) ? machine.groups : []);
+    }
+  }, [machineGroupsKey, groupDirty]);
+
+  useEffect(() => {
+    if (!machineId) return undefined;
+    let active = true;
+    api('GET', '/api/watchdog/policy').then((r) => {
+      if (!active || !r.ok) return;
+      setPolicyGroups(Array.isArray(r.data.groups) ? r.data.groups : []);
+    });
+    return () => {
+      active = false;
+    };
+  }, [machineId]);
+
   if (!machineId) return null;
 
   const privateIPs = machine?.private_ips || [];
   const wdCond = watchdog ? WATCHDOG_COND_CHIPS[watchdog.condition] || WATCHDOG_COND_CHIPS['not-reporting'] : null;
   const wdStageLabel = watchdog ? WATCHDOG_STAGE_LABELS[watchdog.stage] || watchdog.stage || 'None' : '';
   const wdHref = routeHref('watchdog');
+  const savedGroups = Array.isArray(machine?.groups) ? machine.groups : [];
+  const groupsChanged = !sameStringList(groupDraft, savedGroups);
+  const availablePolicyGroups = policyGroups.filter((g) => !groupDraft.includes(g));
+
+  const addGroupName = (raw) => {
+    const name = raw.trim();
+    if (!name) return;
+    if (groupDraft.includes(name)) {
+      setGroupInput('');
+      return;
+    }
+    setGroupDraft((prev) => [...prev, name]);
+    setGroupDirty(true);
+    setGroupStatus(null);
+    setGroupInput('');
+  };
+
+  const removeGroupName = (name) => {
+    setGroupDraft((prev) => prev.filter((g) => g !== name));
+    setGroupDirty(true);
+    setGroupStatus(null);
+  };
+
+  const resetGroupsDraft = () => {
+    setGroupDraft(savedGroups);
+    setGroupInput('');
+    setGroupDirty(false);
+    setGroupStatus(null);
+  };
+
+  const saveGroups = async (e) => {
+    e.preventDefault();
+    if (!machine) return;
+    const pending = groupInput.trim();
+    const nextGroups = pending && !groupDraft.includes(pending) ? [...groupDraft, pending] : groupDraft;
+    setGroupBusy(true);
+    setGroupStatus({ kind: 'info', msg: 'Saving watchdog groups...' });
+    const r = await api('POST', `/api/machines/${encodeURIComponent(machine.id)}/groups`, { groups: nextGroups });
+    setGroupBusy(false);
+    if (!r.ok) {
+      setGroupStatus({ kind: 'danger', msg: r.data.error || `Could not save groups (${r.status})` });
+      return;
+    }
+    const persisted = Array.isArray(r.data.machine?.groups) ? r.data.machine.groups : [];
+    setGroupDraft(persisted);
+    setGroupInput('');
+    setGroupDirty(false);
+    setGroupStatus({ kind: 'ok', msg: persisted.length ? `Assigned groups: ${persisted.join(', ')}.` : 'Cleared watchdog groups.' });
+    if (onGroupsSaved) onGroupsSaved(persisted);
+  };
 
   return (
     <div
@@ -390,6 +484,118 @@ function MachineDetailsDrawer({ machineId, machine, watchdog, loading, error, no
                       {loading ? 'Loading watchdog state...' : 'Watchdog state unavailable.'}
                     </div>
                   )}
+
+                  <form
+                    data-machine-groups-form
+                    className="stack"
+                    style={{ gap: 'var(--sp-2)', paddingTop: 'var(--sp-3)', borderTop: '1px solid var(--rule)' }}
+                    onSubmit={saveGroups}
+                  >
+                    <div className="row row--between">
+                      <strong style={{ fontSize: 'var(--fs-sm)' }}>Watchdog groups</strong>
+                      <span className="muted" style={{ fontSize: 'var(--fs-xs)' }}>
+                        Precedence: host &gt; group &gt; default
+                      </span>
+                    </div>
+                    <div className="row" style={{ gap: 'var(--sp-1)', flexWrap: 'wrap' }} data-machine-groups-list>
+                      {groupDraft.length > 0 ? (
+                        groupDraft.map((g) => (
+                          <span key={g} className="chip chip--outline chip--mono">
+                            {g}
+                            {!machine.removed && (
+                              <button
+                                type="button"
+                                aria-label={`Remove group ${g}`}
+                                title={`Remove ${g}`}
+                                onClick={() => removeGroupName(g)}
+                                style={{
+                                  background: 'none',
+                                  border: 0,
+                                  padding: '0 0 0 0.25rem',
+                                  color: 'inherit',
+                                  cursor: 'pointer',
+                                  font: 'inherit',
+                                  lineHeight: 1,
+                                }}
+                              >
+                                ×
+                              </button>
+                            )}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="muted" style={{ fontSize: 'var(--fs-sm)' }}>
+                          No groups assigned (default policy).
+                        </span>
+                      )}
+                    </div>
+                    {!machine.removed && (
+                      <>
+                        <div className="row" style={{ gap: 'var(--sp-2)' }}>
+                          <input
+                            className="input input--mono"
+                            id="machine-group-input"
+                            type="text"
+                            placeholder="Add group (e.g. edge, gpu)"
+                            aria-label="Watchdog group name"
+                            value={groupInput}
+                            onChange={(e) => setGroupInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                addGroupName(groupInput);
+                              }
+                            }}
+                            style={{ flex: 1, minWidth: 0 }}
+                          />
+                          <button
+                            className="btn btn--sm"
+                            type="button"
+                            disabled={!groupInput.trim() || groupBusy}
+                            onClick={() => addGroupName(groupInput)}
+                          >
+                            Add
+                          </button>
+                        </div>
+                        {availablePolicyGroups.length > 0 && (
+                          <div className="row" style={{ gap: 'var(--sp-1)', flexWrap: 'wrap' }}>
+                            <span className="muted" style={{ fontSize: 'var(--fs-xs)' }}>Policy groups:</span>
+                            {availablePolicyGroups.map((g) => (
+                              <button
+                                key={g}
+                                className="btn btn--sm"
+                                type="button"
+                                onClick={() => addGroupName(g)}
+                              >
+                                + {g}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        <StatusAlert status={groupStatus} />
+                        <div className="row" style={{ gap: 'var(--sp-2)' }}>
+                          <button
+                            className="btn btn--sm btn--primary"
+                            type="submit"
+                            data-save-groups
+                            disabled={groupBusy || (!groupsChanged && !groupInput.trim())}
+                          >
+                            {groupBusy ? 'Saving...' : 'Save groups'}
+                          </button>
+                          {groupsChanged && (
+                            <button
+                              className="btn btn--sm"
+                              type="button"
+                              disabled={groupBusy}
+                              onClick={resetGroupsDraft}
+                            >
+                              Reset
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </form>
                 </div>
               </section>
 
@@ -607,6 +813,7 @@ export function MachinesPage() {
     loading: detailsLoading,
     error: detailsError,
     notFound: detailsNotFound,
+    refresh: refreshDetails,
   } = useMachineDetails(detailsId, selectedMachineFromList);
 
   // Pause table refreshes while a row menu is open so the menu never closes under the cursor.
@@ -756,6 +963,7 @@ export function MachinesPage() {
         m.public_ip || '',
         m.note || '',
         ...(m.private_ips || []),
+        ...(m.groups || []),
       ]
         .join(' ')
         .toLowerCase();
@@ -1476,6 +1684,15 @@ export function MachinesPage() {
                             <span className="chip chip--outline">Decommissioned</span>
                           </>
                         )}
+                        {Array.isArray(m.groups) && m.groups.length > 0 && (
+                          <div className="row" style={{ gap: 'var(--sp-1)', marginTop: 'var(--sp-1)', flexWrap: 'wrap' }}>
+                            {m.groups.map((g) => (
+                              <span key={g} className="chip chip--outline chip--mono">
+                                {g}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                         {m.note && <div className="cell-sub">{m.note}</div>}
                       </th>
                       <td><RoleChip role={m.role} /></td>
@@ -1627,7 +1844,7 @@ export function MachinesPage() {
             type="button"
             onClick={() => openDetails(activeMenuMachine.id)}
           >
-            Details
+            Details &amp; groups
           </button>
           <button
             className="menu__item"
@@ -1882,6 +2099,15 @@ export function MachinesPage() {
         notFound={detailsNotFound}
         closeBtnRef={detailsCloseBtnRef}
         onClose={closeDetails}
+        onGroupsSaved={(groups) => {
+          pushToast(
+            groups.length
+              ? `Updated watchdog groups for ${detailsId}: ${groups.join(', ')}.`
+              : `Cleared watchdog groups for ${detailsId}.`
+          );
+          refresh();
+          refreshDetails();
+        }}
       />
     </>
   );

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -51,6 +52,7 @@ func (s *server) routesAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/machines", s.live(s.listMachines))
 	mux.HandleFunc("POST /api/machines", s.live(s.onboardMachine))
 	mux.HandleFunc("GET /api/machines/{id}", s.live(s.getMachine))
+	mux.HandleFunc("POST /api/machines/{id}/groups", s.live(s.setMachineGroups))
 	mux.HandleFunc("POST /api/machines/{id}/reprovision", s.live(s.reprovisionMachine))
 	mux.HandleFunc("POST /api/machines/{id}/remove", s.live(s.removeMachine))
 	mux.HandleFunc("POST /api/machines/{id}/refresh-public-ip", s.live(s.refreshPublicIP))
@@ -297,6 +299,94 @@ func (s *server) removeMachine(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"removed": id})
+}
+
+type registryProvider interface {
+	Registry() *registry.Registry
+}
+
+type machineGroupsBody struct {
+	Groups []string `json:"groups"`
+}
+
+func (s *server) registryDataDir() string {
+	if dp, ok := s.be.(dataDirProvider); ok {
+		if d := strings.TrimSpace(dp.DataDir()); d != "" {
+			return d
+		}
+	}
+	if ob, ok := s.be.(observer); ok {
+		if o := ob.Observe(); o != nil {
+			switch {
+			case o.Jobs != nil && o.Jobs.Dir() != "":
+				return filepath.Dir(o.Jobs.Dir())
+			case o.Archive != nil && o.Archive.Root() != "":
+				return filepath.Dir(o.Archive.Root())
+			}
+		}
+	}
+	return ""
+}
+
+func (s *server) setMachineGroups(w http.ResponseWriter, r *http.Request) {
+	rp, ok := s.be.(registryProvider)
+	if !ok || rp.Registry() == nil {
+		notConfigured(w, "the machine registry")
+		return
+	}
+	var b machineGroupsBody
+	if !decode(w, r, &b) {
+		return
+	}
+	groups := make([]string, 0, len(b.Groups))
+	for _, g := range b.Groups {
+		groups = append(groups, strings.TrimSpace(g))
+	}
+	if err := registry.ValidateGroups(groups); err != nil {
+		writeJSON(w, http.StatusBadRequest, errBody(err.Error()))
+		return
+	}
+	if len(groups) == 0 {
+		groups = nil
+	}
+
+	id := r.PathValue("id")
+	reg := rp.Registry()
+	var removed bool
+	var prevGroups []string
+	err := reg.Update(id, func(m *registry.Machine) {
+		if m.Removed {
+			removed = true
+			return
+		}
+		prevGroups = append([]string(nil), m.Groups...)
+		m.Groups = append([]string(nil), groups...)
+	})
+	if errors.Is(err, registry.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, errBody("unknown machine: "+id))
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errBody(err.Error()))
+		return
+	}
+	if removed {
+		writeJSON(w, http.StatusConflict, errBody("cannot update watchdog groups of a removed machine"))
+		return
+	}
+	if dataDir := s.registryDataDir(); dataDir != "" {
+		if err := registry.NewStore(dataDir).Save(reg); err != nil {
+			_ = reg.Update(id, func(m *registry.Machine) {
+				m.Groups = prevGroups
+			})
+			s.log.Warn("persist machine groups", "component", "panel", "machine", id, "err", err)
+			writeJSON(w, http.StatusInternalServerError, errBody("could not save registry: "+err.Error()))
+			return
+		}
+	}
+	s.log.Info("machine watchdog groups updated", "component", "panel", "operator", operatorFrom(r), "machine", id, "groups", groups)
+	info, _ := s.be.Machine(id)
+	writeJSON(w, http.StatusOK, map[string]any{"machine": info})
 }
 
 // ---- commands ----

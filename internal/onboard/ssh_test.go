@@ -1227,3 +1227,49 @@ func TestProvisionAgentDialRequiresEndpointAndConnects(t *testing.T) {
 		<-done
 	})
 }
+
+func TestProvisionWithWatchdogGroups(t *testing.T) {
+	f := newFixture(t, "root")
+	tgt := f.target("root", registry.RoleWorker)
+	tgt.Groups = []string{"edge", "gpu"}
+	res, err := f.p.Provision(context.Background(), tgt)
+	if err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if len(res.Machine.Groups) != 2 || res.Machine.Groups[0] != "edge" || res.Machine.Groups[1] != "gpu" {
+		t.Fatalf("machine groups = %v, want [edge gpu]", res.Machine.Groups)
+	}
+	cfgFile, ok := f.fm.file(DefaultLayout().configFile())
+	if !ok {
+		t.Fatal("agent config.json not written")
+	}
+	cfgPath := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(cfgPath, cfgFile.data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("config.Load: %v\n%s", err, cfgFile.data)
+	}
+	if len(loaded.Agent.Watchdog.Groups) != 2 || loaded.Agent.Watchdog.Groups[0] != "edge" || loaded.Agent.Watchdog.Groups[1] != "gpu" {
+		t.Fatalf("rendered agent watchdog.groups = %v, want [edge gpu]", loaded.Agent.Watchdog.Groups)
+	}
+
+	// Re-provisioning without Groups preserves existing machine groups.
+	tgt2 := f.target("root", registry.RoleWorker)
+	res2, err := f.p.Provision(context.Background(), tgt2)
+	if err != nil {
+		t.Fatalf("reprovision: %v", err)
+	}
+	if len(res2.Machine.Groups) != 2 || res2.Machine.Groups[0] != "edge" || res2.Machine.Groups[1] != "gpu" {
+		t.Fatalf("reprovision dropped groups: %v", res2.Machine.Groups)
+	}
+
+	// Invalid group name fails before dialing.
+	bad := f.target("root", registry.RoleWorker)
+	bad.Host = "10.0.0.99"
+	bad.Groups = []string{"bad/group"}
+	if _, err := f.p.Provision(context.Background(), bad); err == nil {
+		t.Fatal("expected error for invalid group name")
+	}
+}

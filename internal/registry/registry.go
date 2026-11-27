@@ -138,6 +138,9 @@ type Machine struct {
 	// WatchdogState persists the host's watchdog ladder stage, today's restart/
 	// reboot counters, alert-only latch, and last event across server restarts.
 	WatchdogState *WatchdogState `json:"watchdog_state,omitempty"`
+	// Groups lists the watchdog policy-override groups assigned to this machine,
+	// in precedence order (later groups override earlier ones; per-host wins).
+	Groups []string `json:"groups,omitempty"`
 
 	// Specs is what the machine reported at token enrollment (nil for an
 	// SSH-onboarded machine). EnrolledVia is "token" or empty/"ssh".
@@ -202,6 +205,9 @@ func (m Machine) Validate() error {
 			return fmt.Errorf("registry: machine %q: negative watchdog counters", m.ID)
 		}
 	}
+	if err := ValidateGroups(m.Groups); err != nil {
+		return fmt.Errorf("registry: machine %q: %w", m.ID, err)
+	}
 	return nil
 }
 
@@ -224,17 +230,42 @@ func Validate(machines []Machine) error {
 // validateID allows letters, digits, '.', '_' and '-' (safe as a file name,
 // a cert CN and a DNS SAN), at most 64 characters.
 func validateID(id string) error {
-	if id == "" {
-		return errors.New("registry: machine id must not be empty")
+	return validateIdent("machine id", id)
+}
+
+// ValidateGroupName validates one watchdog policy group name (letters, digits,
+// '.', '_' and '-', at most 64 characters).
+func ValidateGroupName(name string) error {
+	return validateIdent("group name", name)
+}
+
+// ValidateGroups checks that every group name is valid and unique.
+func ValidateGroups(groups []string) error {
+	seen := make(map[string]struct{}, len(groups))
+	for _, g := range groups {
+		if err := ValidateGroupName(g); err != nil {
+			return err
+		}
+		if _, dup := seen[g]; dup {
+			return fmt.Errorf("duplicate group %q", g)
+		}
+		seen[g] = struct{}{}
 	}
-	if len(id) > maxIDLen {
-		return fmt.Errorf("registry: machine id %q too long (max %d)", id, maxIDLen)
+	return nil
+}
+
+func validateIdent(kind, s string) error {
+	if s == "" {
+		return fmt.Errorf("registry: %s must not be empty", kind)
 	}
-	for _, r := range id {
+	if len(s) > maxIDLen {
+		return fmt.Errorf("registry: %s %q too long (max %d)", kind, s, maxIDLen)
+	}
+	for _, r := range s {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
 		default:
-			return fmt.Errorf("registry: machine id %q has invalid character %q (allowed: letters, digits, . _ -)", id, r)
+			return fmt.Errorf("registry: %s %q has invalid character %q (allowed: letters, digits, . _ -)", kind, s, r)
 		}
 	}
 	return nil
@@ -279,6 +310,11 @@ func (m Machine) clone() Machine {
 			ws.LastEvent = &le
 		}
 		m.WatchdogState = &ws
+	}
+	if len(m.Groups) > 0 {
+		m.Groups = append([]string(nil), m.Groups...)
+	} else {
+		m.Groups = nil
 	}
 	return m
 }
