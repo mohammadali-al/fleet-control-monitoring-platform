@@ -96,6 +96,9 @@ type Config struct {
 	// value pushes no monitor config and drops mon-data; SetMonitor can bind it
 	// later.
 	Monitor MonitorSource
+	// MonitorStore configures the persistent time-series store opened by
+	// EnableObserve. Empty disables external TSDB persistence.
+	MonitorStore config.MonitorStoreConfig
 	// Watchdog wires the watchdog policy push and event intake (see
 	// WatchdogSource). The zero value pushes no policy; the agent then keeps
 	// running its last-known (or baked-in default) policy. SetWatchdog can bind

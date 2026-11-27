@@ -21,6 +21,7 @@ import (
 // results on /ws/monitor.
 //
 //	GET  /api/monitor/live?window=60        series in the window, command overlay, per-agent summary
+//	GET  /api/monitor/history               persisted samples by metric + time range (History UI data source)
 //	GET  /api/monitor/config                jobs, probe settings, monitor agents and their load
 //	POST /api/monitor/settings              global frequency and timeouts (pushed to the agents)
 //	POST /api/monitor/jobs                  create a job {url, ip, paths, interval_ms}
@@ -28,6 +29,7 @@ import (
 //	POST /api/monitor/jobs/{id}/interval    per-target frequency override {target, interval_ms}
 func (s *server) routesMonitor(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/monitor/live", s.observed(s.monLive))
+	mux.HandleFunc("GET /api/monitor/history", s.observed(s.monHistory))
 	mux.HandleFunc("GET /api/monitor/config", s.observed(s.monConfig))
 	mux.HandleFunc("POST /api/monitor/settings", s.observed(s.monSettings))
 	mux.HandleFunc("POST /api/monitor/jobs", s.observed(s.monCreateJob))
@@ -182,6 +184,113 @@ func (s *server) monLive(w http.ResponseWriter, r *http.Request, _ observer, o *
 	writeJSON(w, http.StatusOK, map[string]any{
 		"now": now, "window_sec": win, "series": series, "agents": agents, "jobs": jobs, "targets": targets, "commands": cmds,
 	})
+}
+
+// monHistory queries persisted monitor time-series samples by metric and time
+// range from o.Store (the data source for the History UI).
+func (s *server) monHistory(w http.ResponseWriter, r *http.Request, _ observer, o *fleet.Observe) {
+	if o.Store == nil {
+		notConfigured(w, "the monitor history store")
+		return
+	}
+	q := r.URL.Query()
+	metric, err := monitor.NormalizeMetric(q.Get("metric"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errBody(err.Error()))
+		return
+	}
+	end := time.Now().UTC()
+	if raw := firstQuery(q, "to", "end"); raw != "" {
+		t, err := parseHistoryTime(raw)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, errBody("to must be RFC 3339 or unix seconds"))
+			return
+		}
+		end = t
+	}
+	start := end.Add(-time.Hour)
+	if raw := firstQuery(q, "from", "start"); raw != "" {
+		t, err := parseHistoryTime(raw)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, errBody("from must be RFC 3339 or unix seconds"))
+			return
+		}
+		start = t
+	}
+	if end.Before(start) {
+		writeJSON(w, http.StatusBadRequest, errBody("to must not be before from"))
+		return
+	}
+	var step time.Duration
+	if raw := strings.TrimSpace(q.Get("step")); raw != "" {
+		d, err := parseStep(raw)
+		if err != nil || d < 0 {
+			writeJSON(w, http.StatusBadRequest, errBody("step must be a non-negative duration or seconds"))
+			return
+		}
+		step = d
+	}
+	hq := monitor.HistoryQuery{
+		Metric:     metric,
+		Agent:      strings.TrimSpace(q.Get("agent")),
+		Target:     strings.TrimSpace(q.Get("target")),
+		HistoryKey: strings.TrimSpace(q.Get("history_key")),
+		Type:       probe.Type(strings.TrimSpace(q.Get("type"))),
+		Start:      start,
+		End:        end,
+		Step:       step,
+	}
+	series, err := o.Store.QueryRange(r.Context(), hq)
+	if err != nil {
+		if errors.Is(err, monitor.ErrBadQuery) {
+			writeJSON(w, http.StatusBadRequest, errBody(err.Error()))
+			return
+		}
+		s.log.Warn("monitor: history query failed", "component", "panel", "metric", metric, "err", err)
+		writeJSON(w, http.StatusBadGateway, errBody("monitor history query failed: "+err.Error()))
+		return
+	}
+	if series == nil {
+		series = []monitor.HistorySeries{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"metric":   metric,
+		"from":     start,
+		"to":       end,
+		"step_sec": step.Seconds(),
+		"series":   series,
+	})
+}
+
+func firstQuery(q map[string][]string, keys ...string) string {
+	for _, k := range keys {
+		if vs := q[k]; len(vs) > 0 && strings.TrimSpace(vs[0]) != "" {
+			return strings.TrimSpace(vs[0])
+		}
+	}
+	return ""
+}
+
+func parseHistoryTime(raw string) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+		return t.UTC(), nil
+	}
+	sec, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.UnixMilli(int64(sec * 1000)).UTC(), nil
+}
+
+func parseStep(raw string) (time.Duration, error) {
+	if d, err := time.ParseDuration(raw); err == nil {
+		return d, nil
+	}
+	sec, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0, err
+	}
+	return time.Duration(sec * float64(time.Second)), nil
 }
 
 // archivedPackets sums the records of the archived segments that hold the

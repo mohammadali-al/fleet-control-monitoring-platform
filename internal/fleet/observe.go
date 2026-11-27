@@ -10,6 +10,7 @@ import (
 
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/backup"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/channel"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/evidence"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/monitor"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/registry"
@@ -31,19 +32,35 @@ type Observe struct {
 	// Backup is the backup service (internal/backup).
 	Backup *backup.Service
 	// Jobs are the monitor jobs; Series holds the recent probe results (it is
-	// the monitor sink). Ingest is built from them by SetObserve.
+	// the live monitor sink). Store, when non-nil, is the persistent
+	// time-series store (VictoriaMetrics) fed alongside Series and queried for
+	// history ranges. Ingest is built from them by SetObserve.
 	Jobs   *monitor.Jobs
 	Series *Series
+	Store  monitor.HistoryStore
 	// Profile is the stored watchdog policy profile.
 	Profile *PolicyStore
 	// Log receives errors of background runs.
 	Log *slog.Logger
 }
 
+// ObserveOptions tunes OpenObserveWithOptions.
+type ObserveOptions struct {
+	Logger       *slog.Logger
+	MonitorStore config.MonitorStoreConfig
+}
+
 // OpenObserve opens every backend under dataDir (D-0006): the archive
 // (archive/), the backup state (config/), the monitor jobs (monitor/) and the
 // watchdog profile (watchdog/).
 func OpenObserve(dataDir string, log *slog.Logger) (*Observe, error) {
+	return OpenObserveWithOptions(dataDir, ObserveOptions{Logger: log})
+}
+
+// OpenObserveWithOptions opens the Observe backends with optional settings such
+// as the persistent monitor time-series store.
+func OpenObserveWithOptions(dataDir string, opt ObserveOptions) (*Observe, error) {
+	log := opt.Logger
 	if log == nil {
 		log = slog.Default()
 	}
@@ -59,7 +76,18 @@ func OpenObserve(dataDir string, log *slog.Logger) (*Observe, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Observe{Archive: arch, Backup: bk, Jobs: jobs, Series: NewSeries(0), Profile: NewPolicyStore(dataDir), Log: log}, nil
+	var tsdb monitor.HistoryStore
+	if opt.MonitorStore.Addr != "" {
+		vm, err := monitor.NewVMStore(monitor.VMStoreConfig{
+			Addr:      opt.MonitorStore.Addr,
+			Retention: opt.MonitorStore.RetentionOrDefault(),
+		})
+		if err != nil {
+			return nil, err
+		}
+		tsdb = vm
+	}
+	return &Observe{Archive: arch, Backup: bk, Jobs: jobs, Series: NewSeries(0), Store: tsdb, Profile: NewPolicyStore(dataDir), Log: log}, nil
 }
 
 // SetObserve binds the Observe backends: it routes evidence sync traffic,
@@ -79,8 +107,18 @@ func (m *Manager) SetObserve(o *Observe) {
 
 	if o.Jobs != nil {
 		src := MonitorSource{ConfigFor: o.Jobs.ConfigFor}
+		var sinks []monitor.Sink
 		if o.Series != nil {
-			src.Ingest = monitor.NewIngestor(o.Series, o.Jobs.HistoryKeyFor)
+			sinks = append(sinks, o.Series)
+		}
+		if o.Store != nil {
+			sinks = append(sinks, o.Store)
+		}
+		switch len(sinks) {
+		case 1:
+			src.Ingest = monitor.NewIngestor(sinks[0], o.Jobs.HistoryKeyFor)
+		case 2:
+			src.Ingest = monitor.NewIngestor(monitor.NewMultiSink(sinks...), o.Jobs.HistoryKeyFor)
 		}
 		m.SetMonitor(src)
 	}
@@ -93,10 +131,13 @@ func (m *Manager) SetObserve(o *Observe) {
 	m.startObserveLoops()
 }
 
-// EnableObserve opens the backends under dataDir and binds them (OpenObserve +
-// SetObserve).
+// EnableObserve opens the backends under dataDir and binds them
+// (OpenObserveWithOptions + SetObserve).
 func (m *Manager) EnableObserve(dataDir string) error {
-	o, err := OpenObserve(dataDir, m.log)
+	o, err := OpenObserveWithOptions(dataDir, ObserveOptions{
+		Logger:       m.log,
+		MonitorStore: m.cfg.MonitorStore,
+	})
 	if err != nil {
 		return err
 	}

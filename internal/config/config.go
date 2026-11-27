@@ -71,10 +71,38 @@ type LogConfig struct {
 
 // Defaults and environment overrides for the server (D-0004, D-0006).
 const (
-	DefaultListenAddr = ":6789"
-	EnvListenAddr     = "FLEET_LISTEN_ADDR"
-	EnvDataDir        = "FLEET_DATA_DIR"
+	DefaultListenAddr   = ":6789"
+	EnvListenAddr       = "FLEET_LISTEN_ADDR"
+	EnvDataDir          = "FLEET_DATA_DIR"
+	EnvMonitorStoreAddr = "FLEET_MONITOR_STORE_ADDR"
+
+	// DefaultMonitorStorePort is the loopback port VictoriaMetrics listens on.
+	DefaultMonitorStorePort = 8428
+	// DefaultMonitorStoreAddr is the default loopback URL for VictoriaMetrics.
+	DefaultMonitorStoreAddr = "http://127.0.0.1:8428"
+	// DefaultMonitorStoreRetention is the default retention passed to VictoriaMetrics.
+	DefaultMonitorStoreRetention = "90d"
 )
+
+// MonitorStoreConfig configures the persistent monitor time-series store
+// (VictoriaMetrics).
+type MonitorStoreConfig struct {
+	// Addr is the base HTTP URL of the VictoriaMetrics instance (e.g.
+	// "http://127.0.0.1:8428"). Empty disables external TSDB persistence; the
+	// 10-minute in-memory live window still operates.
+	Addr string `json:"addr,omitempty"`
+	// Retention is the store retention period (e.g. "90d", "12w", "1y").
+	// Empty means DefaultMonitorStoreRetention.
+	Retention string `json:"retention,omitempty"`
+}
+
+// RetentionOrDefault returns Retention, or DefaultMonitorStoreRetention when unset.
+func (m MonitorStoreConfig) RetentionOrDefault() string {
+	if m.Retention != "" {
+		return m.Retention
+	}
+	return DefaultMonitorStoreRetention
+}
 
 // ServerConfig is the fleet-server configuration.
 type ServerConfig struct {
@@ -120,7 +148,10 @@ type ServerConfig struct {
 	// pushes to every worker agent over the channel (config-push, T-0018).
 	// An all-zero section pushes nothing, leaving the agent's own defaults.
 	AgentCapture CaptureConfig `json:"agent_capture,omitempty"`
-	Log          LogConfig     `json:"log"`
+	// MonitorStore configures the persistent VictoriaMetrics time-series store
+	// (T-0055). Empty disables external TSDB persistence (live window only).
+	MonitorStore MonitorStoreConfig `json:"monitor_store,omitempty"`
+	Log          LogConfig          `json:"log"`
 }
 
 // ChannelPortOrDefault returns ChannelPort, or DefaultChannelPort when unset.
@@ -461,6 +492,9 @@ func (s *ServerConfig) applyEnv() {
 	}
 	if v := os.Getenv(EnvDataDir); v != "" {
 		s.DataDir = v
+	}
+	if v := os.Getenv(EnvMonitorStoreAddr); v != "" {
+		s.MonitorStore.Addr = v
 	}
 }
 
