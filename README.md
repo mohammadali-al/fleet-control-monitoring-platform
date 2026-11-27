@@ -39,6 +39,29 @@ sudo deploy/install-server.sh --upgrade
 
 Upgrades query the GitHub Releases API, verify `SHA256SUMS`, stop `fleet-server`, **back up `/var/lib/fleet-server`**, swap binaries, run `fleet-server migrate`, restart, and health-check — **automatically rolling back** on failure. The internal CA (`/var/lib/fleet-server/ca/`), proxy state (`/var/lib/fleet-proxy/`), secrets, and operator-edited configs are **preserved** (templates ship as `*.example`).
 
+## Uninstalling
+
+Always preview with `--dry-run` first — nothing is deleted until you confirm:
+
+```bash
+# 1. Dry run — list every unit/path that would be removed, delete nothing
+curl -fsSL https://raw.githubusercontent.com/mohammadali-al/fleet-control-monitoring-platform/main/deploy/uninstall-server.sh \
+  | sudo bash -s -- --dry-run
+
+# 2. Uninstall — remove Fleet units, binaries, /etc/fleet-server, /opt/fleet/proxy
+#    (KEEPS data: /var/lib/fleet-server, /var/lib/fleet-proxy, backups)
+curl -fsSL https://raw.githubusercontent.com/mohammadali-al/fleet-control-monitoring-platform/main/deploy/uninstall-server.sh \
+  | sudo bash
+```
+
+By default the data dirs are **kept**. To also destroy persistent data, pass `--purge-data`:
+
+```bash
+sudo deploy/uninstall-server.sh --purge-data   # or append: | sudo bash -s -- --purge-data
+```
+
+> **Warning:** `--purge-data` deletes the internal CA private key (`/var/lib/fleet-server/ca/`), the machine registry, upgrade backups, and Authelia users/secrets/TLS certs — this invalidates every enrolled agent certificate. The uninstaller never deletes an empty/underived path and only touches Fleet-owned paths; shared OS packages are left alone. Full options: [`deploy/README.md`](deploy/README.md#6-uninstalling).
+
 ## Requirements & Ports
 
 | Requirement / Port | Value | Purpose |
