@@ -81,6 +81,12 @@ type Controller struct {
 	groupSeq  atomic.Uint32
 	startOnce sync.Once
 	stopOnce  sync.Once
+
+	diskMu    sync.Mutex
+	onDisk    func(DiskStatus)
+	lastDisk  DiskStatus
+	hasDisk   bool
+	diskCheck func(path string, warnPct, pausePct int) (DiskStatus, error)
 }
 
 // NewController builds a Controller. It does not start the public-IP refresh
@@ -102,6 +108,7 @@ func NewController(cfg Config) (*Controller, error) {
 		cache:     cache,
 		resolver:  NewSourceIPResolver(cache),
 		newSource: newLiveSource,
+		diskCheck: CheckDisk,
 	}, nil
 }
 
@@ -130,6 +137,49 @@ func (c *Controller) RefreshPublicIPNow(ctx context.Context) (PublicIPResult, er
 	return c.cache.RefreshNow(ctx)
 }
 
+// SetOnDiskState registers a callback invoked on disk-guard state transitions
+// and returns the last known disk state atomically.
+func (c *Controller) SetOnDiskState(fn func(DiskStatus)) (DiskStatus, bool) {
+	c.diskMu.Lock()
+	c.onDisk = fn
+	st, ok := c.lastDisk, c.hasDisk
+	c.diskMu.Unlock()
+	return st, ok
+}
+
+// CheckDisk samples the filesystem holding the machine's evidence directory,
+// updates the cached status, and returns it.
+func (c *Controller) CheckDisk() (DiskStatus, error) {
+	dir := c.machineDir()
+	if _, err := os.Stat(dir); err != nil {
+		dir = c.cfg.DataDir
+	}
+	fn := c.diskCheck
+	if fn == nil {
+		fn = CheckDisk
+	}
+	st, err := fn(dir, c.cfg.Segment.DiskWarnPercent, c.cfg.Segment.DiskPausePercent)
+	if err != nil {
+		return DiskStatus{}, err
+	}
+	c.diskMu.Lock()
+	c.lastDisk = st
+	c.hasDisk = true
+	c.diskMu.Unlock()
+	return st, nil
+}
+
+func (c *Controller) notifyDisk(st DiskStatus) {
+	c.diskMu.Lock()
+	c.lastDisk = st
+	c.hasDisk = true
+	cb := c.onDisk
+	c.diskMu.Unlock()
+	if cb != nil {
+		cb(st)
+	}
+}
+
 // machineDir is DataDir/evidence/<machine>.
 func (c *Controller) machineDir() string {
 	return filepath.Join(c.cfg.DataDir, EvidenceDirName, c.cfg.Machine)
@@ -145,6 +195,7 @@ func (c *Controller) Capture(sessionID, cgroupPath string) (*SessionCapture, err
 	if err != nil {
 		return nil, err
 	}
+	sw.SetOnDiskState(c.notifyDisk)
 	src, err := c.newSource(cgroupPath, c.nextGroup(), c.log)
 	if err != nil {
 		_ = sw.Close()

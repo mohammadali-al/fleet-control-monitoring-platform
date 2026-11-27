@@ -514,3 +514,129 @@ func TestPublicIPDispatchAndRefresh(t *testing.T) {
 		t.Errorf("RefreshPublicIP(offline w2) = %v, want ErrOffline", err)
 	}
 }
+
+func TestDiskStateDispatch(t *testing.T) {
+	m, links := newWatchdogMgr(t, fleet.WatchdogSource{}, false)
+	eventually(t, "w1 online", func() bool {
+		info, ok := m.Machine("w1")
+		return ok && info.State == fleet.StateOnline
+	})
+
+	sub := m.Bus().Subscribe(func(ev fleet.Event) bool {
+		return ev.Kind == fleet.EventMachine && ev.Machine == "w1"
+	})
+	defer sub.Close()
+
+	at := time.Date(2026, 11, 28, 1, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+	links["w1"].h(ctx, envOf(t, channel.TypeDiskState, channel.DiskStatePayload{
+		Status:     "warn",
+		TotalBytes: 1000,
+		FreeBytes:  150,
+		UsedPct:    85,
+		WarnAt:     80,
+		PauseAt:    90,
+		At:         at,
+	}))
+
+	eventually(t, "registry Disk updated", func() bool {
+		info, ok := m.Machine("w1")
+		return ok && info.Disk.Status == "warn" && info.Disk.TotalBytes == 1000 && info.Disk.FreeBytes == 150 && info.Disk.UpdatedAt != nil && info.Disk.UpdatedAt.Equal(at)
+	})
+	select {
+	case ev := <-sub.C:
+		if ev.Info == nil || ev.Info.Disk.Status != "warn" {
+			t.Fatalf("bus event = %+v, want Disk.Status warn", ev.Info)
+		}
+	case <-time.After(wait):
+		t.Fatal("timed out waiting for EventMachine after TypeDiskState")
+	}
+
+	// Invalid status or free > total are ignored without corrupting stored disk state.
+	links["w1"].h(ctx, envOf(t, channel.TypeDiskState, channel.DiskStatePayload{Status: "bogus", TotalBytes: 1000, FreeBytes: 500, At: at}))
+	links["w1"].h(ctx, envOf(t, channel.TypeDiskState, channel.DiskStatePayload{Status: "ok", TotalBytes: 100, FreeBytes: 200, At: at}))
+	if info, _ := m.Machine("w1"); info.Disk.Status != "warn" || info.Disk.FreeBytes != 150 {
+		t.Errorf("Disk changed on invalid payload: %+v", info.Disk)
+	}
+}
+
+func TestCommandHistoryPersistenceAndReload(t *testing.T) {
+	dataDir := t.TempDir()
+	reg := registry.New()
+	if err := reg.Add(registry.Machine{ID: "w1", Role: registry.RoleWorker, ConnectMode: registry.ConnectModeServerDial, PrivateIPs: []string{"10.0.0.1"}, Provisioned: true}); err != nil {
+		t.Fatal(err)
+	}
+	gate, err := exec.NewGate([]byte("test-secret"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loop := fleettest.NewLoopback(gate)
+	m1, err := fleet.New(fleet.Config{
+		Registry:     reg,
+		Gate:         gate,
+		NewLink:      loop.Factory(),
+		PollInterval: 10 * time.Millisecond,
+		DataDir:      dataDir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	m1.Start(ctx1)
+	eventually(t, "w1 online", func() bool {
+		info, ok := m1.Machine("w1")
+		return ok && info.State == fleet.StateOnline
+	})
+
+	sub := m1.Bus().Subscribe(nil)
+	s1, err := m1.Submit(fleet.SubmitRequest{Machine: "w1", Command: "echo persist-out; echo persist-err >&2; exit 7", User: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, ex1 := collect(t, sub, s1)
+	if ex1.ExitCode != 7 {
+		t.Fatalf("exit code = %d, want 7", ex1.ExitCode)
+	}
+	s2, err := m1.Submit(fleet.SubmitRequest{Machine: "w1", Command: "sleep 30", User: "bob"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRunning(t, sub, s2)
+	sub.Close()
+
+	// Simulate server shutdown / restart.
+	cancel1()
+	m1.Close()
+
+	loop2 := fleettest.NewLoopback(gate)
+	m2, err := fleet.New(fleet.Config{
+		Registry:     reg,
+		Gate:         gate,
+		NewLink:      loop2.Factory(),
+		PollInterval: 10 * time.Millisecond,
+		DataDir:      dataDir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Reloaded history is immediately available even before Start or machine reconnect.
+	cmds := m2.Commands()
+	if len(cmds) != 2 {
+		t.Fatalf("reloaded Commands() len = %d, want 2: %+v", len(cmds), cmds)
+	}
+	c1, segs1, ok := m2.Command(s1)
+	if !ok || c1.Command != "echo persist-out; echo persist-err >&2; exit 7" || c1.User != "alice" || c1.State != "finished" || c1.Exit == nil || c1.Exit.ExitCode != 7 {
+		t.Fatalf("reloaded c1 = %+v ok=%v", c1, ok)
+	}
+	var outText string
+	for _, seg := range segs1 {
+		outText += seg.Stream + ":" + seg.Text
+	}
+	if !strings.Contains(outText, "stdout:persist-out") || !strings.Contains(outText, "stderr:persist-err") {
+		t.Errorf("reloaded output = %q", outText)
+	}
+	c2, _, ok := m2.Command(s2)
+	if !ok || c2.State != "finished" || c2.User != "bob" {
+		t.Fatalf("reloaded interrupted c2 = %+v ok=%v", c2, ok)
+	}
+}

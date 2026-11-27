@@ -2,10 +2,13 @@ package agent
 
 import (
 	"context"
+	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/capture"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/channel"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/exec"
 )
 
 const (
@@ -19,6 +22,160 @@ type publicIPSource interface {
 	PublicIPCache() *capture.PublicIPCache
 }
 
+// publicIPReporter binds to a capture.PublicIPCache and reports resolved public
+// IPs (plus manual TypePublicIPRefresh requests) over the control channel. It
+// is shared by worker and monitor agents.
+type publicIPReporter struct {
+	sender exec.Sender
+	log    *slog.Logger
+	base   func() context.Context
+
+	mu       sync.Mutex
+	cache    *capture.PublicIPCache
+	last     capture.PublicIPResult
+	reported bool
+	closed   bool
+	wg       sync.WaitGroup
+}
+
+func newPublicIPReporter(sender exec.Sender, log *slog.Logger, base func() context.Context) *publicIPReporter {
+	return &publicIPReporter{sender: sender, log: log, base: base}
+}
+
+func (r *publicIPReporter) bind(cache *capture.PublicIPCache) {
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return
+	}
+	old := r.cache
+	if old == cache {
+		r.mu.Unlock()
+		return
+	}
+	r.cache = cache
+	r.mu.Unlock()
+
+	if old != nil {
+		old.SetOnRefresh(nil)
+	}
+	if cache == nil {
+		return
+	}
+	cur := cache.SetOnRefresh(func(res capture.PublicIPResult) {
+		r.report(res, false)
+	})
+	if cur.IP != "" {
+		r.mu.Lock()
+		closed := r.closed
+		if !closed {
+			r.wg.Add(1)
+		}
+		r.mu.Unlock()
+		if !closed {
+			go func() {
+				defer r.wg.Done()
+				r.report(cur, false)
+			}()
+		}
+	}
+}
+
+func (r *publicIPReporter) reportOnConnect() {
+	r.mu.Lock()
+	cache := r.cache
+	r.mu.Unlock()
+	if cache == nil {
+		return
+	}
+	res := cache.Result()
+	if res.IP == "" {
+		return
+	}
+	r.send(res)
+}
+
+func (r *publicIPReporter) handleRefresh() {
+	r.mu.Lock()
+	cache := r.cache
+	closed := r.closed
+	if cache != nil && !closed {
+		r.wg.Add(1)
+	}
+	r.mu.Unlock()
+	if cache == nil {
+		r.log.Debug("public-ip-refresh ignored: reflector cache not active", "component", "fleet-agent")
+		return
+	}
+	if closed {
+		return
+	}
+	go func() {
+		defer r.wg.Done()
+		ctx, cancel := context.WithTimeout(r.base(), publicIPRefreshTimeout)
+		defer cancel()
+		res, err := cache.RefreshNow(ctx)
+		if err != nil {
+			r.log.Warn("public IP refresh failed", "component", "fleet-agent", "err", err)
+			return
+		}
+		r.report(res, true)
+	}()
+}
+
+func (r *publicIPReporter) report(res capture.PublicIPResult, force bool) {
+	if res.IP == "" {
+		return
+	}
+	if !force {
+		r.mu.Lock()
+		dup := r.reported &&
+			res.IP == r.last.IP &&
+			res.Confirmed == r.last.Confirmed &&
+			res.At.Sub(r.last.At) < capture.PublicIPRefreshInterval
+		r.mu.Unlock()
+		if dup {
+			return
+		}
+	}
+	r.send(res)
+}
+
+func (r *publicIPReporter) send(res capture.PublicIPResult) {
+	p := channel.PublicIPPayload{
+		IP:        res.IP,
+		At:        res.At,
+		Confirmed: res.Confirmed,
+	}
+	env, err := channel.NewEnvelope(channel.TypePublicIP, "", p)
+	if err != nil {
+		r.log.Warn("build public-ip envelope", "component", "fleet-agent", "err", err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.base(), publicIPSendTimeout)
+	defer cancel()
+	if err := r.sender.Send(ctx, env); err != nil {
+		r.log.Debug("send public-ip", "component", "fleet-agent", "err", err)
+		return
+	}
+	r.mu.Lock()
+	r.last = res
+	r.reported = true
+	r.mu.Unlock()
+}
+
+func (r *publicIPReporter) unbind() {
+	r.mu.Lock()
+	r.closed = true
+	cache := r.cache
+	r.cache = nil
+	r.mu.Unlock()
+	if cache != nil {
+		cache.SetOnRefresh(nil)
+	}
+	r.wg.Wait()
+}
+
 // bindPublicIP attaches the worker's public-IP reporter to c's reflector cache
 // (if c exposes one) and reports any already-resolved IP. Caller holds w.mu
 // and has verified !w.closed.
@@ -29,128 +186,11 @@ func (w *worker) bindPublicIP(c Capturer) {
 			cache = src.PublicIPCache()
 		}
 	}
-
-	w.pipMu.Lock()
-	old := w.pipCache
-	if old == cache {
-		w.pipMu.Unlock()
-		return
-	}
-	w.pipCache = cache
-	w.pipMu.Unlock()
-
-	if old != nil {
-		old.SetOnRefresh(nil)
-	}
-	if cache == nil {
-		return
-	}
-	cur := cache.SetOnRefresh(func(res capture.PublicIPResult) {
-		w.reportPublicIP(res, false)
-	})
-	if cur.IP != "" {
-		w.wg.Add(1)
-		go func() {
-			defer w.wg.Done()
-			w.reportPublicIP(cur, false)
-		}()
-	}
+	w.pip.bind(cache)
 }
 
-// reportPublicIPOnConnect sends the currently cached public IP (if resolved)
-// as soon as a control-channel connection is established.
-func (w *worker) reportPublicIPOnConnect() {
-	w.pipMu.Lock()
-	cache := w.pipCache
-	w.pipMu.Unlock()
-	if cache == nil {
-		return
-	}
-	res := cache.Result()
-	if res.IP == "" {
-		return
-	}
-	w.sendPublicIP(res)
-}
+func (w *worker) reportPublicIPOnConnect() { w.pip.reportOnConnect() }
 
-// handlePublicIPRefresh handles an inbound TypePublicIPRefresh by running a
-// synchronous reflector refresh and immediately reporting the fresh result.
-func (w *worker) handlePublicIPRefresh() {
-	w.pipMu.Lock()
-	cache := w.pipCache
-	w.pipMu.Unlock()
-	if cache == nil {
-		w.log.Debug("public-ip-refresh ignored: reflector cache not active", "component", "fleet-agent")
-		return
-	}
-	w.mu.Lock()
-	if w.closed {
-		w.mu.Unlock()
-		return
-	}
-	w.wg.Add(1)
-	w.mu.Unlock()
+func (w *worker) handlePublicIPRefresh() { w.pip.handleRefresh() }
 
-	go func() {
-		defer w.wg.Done()
-		ctx, cancel := context.WithTimeout(w.base, publicIPRefreshTimeout)
-		defer cancel()
-		res, err := cache.RefreshNow(ctx)
-		if err != nil {
-			w.log.Warn("public IP refresh failed", "component", "fleet-agent", "err", err)
-			return
-		}
-		w.reportPublicIP(res, true)
-	}()
-}
-
-func (w *worker) reportPublicIP(res capture.PublicIPResult, force bool) {
-	if res.IP == "" {
-		return
-	}
-	if !force {
-		w.pipMu.Lock()
-		dup := w.pipReported &&
-			res.IP == w.lastPIP.IP &&
-			res.Confirmed == w.lastPIP.Confirmed &&
-			res.At.Sub(w.lastPIP.At) < capture.PublicIPRefreshInterval
-		w.pipMu.Unlock()
-		if dup {
-			return
-		}
-	}
-	w.sendPublicIP(res)
-}
-
-func (w *worker) sendPublicIP(res capture.PublicIPResult) {
-	p := channel.PublicIPPayload{
-		IP:        res.IP,
-		At:        res.At,
-		Confirmed: res.Confirmed,
-	}
-	env, err := channel.NewEnvelope(channel.TypePublicIP, "", p)
-	if err != nil {
-		w.log.Warn("build public-ip envelope", "component", "fleet-agent", "err", err)
-		return
-	}
-	ctx, cancel := context.WithTimeout(w.base, publicIPSendTimeout)
-	defer cancel()
-	if err := w.sender.Send(ctx, env); err != nil {
-		w.log.Debug("send public-ip", "component", "fleet-agent", "err", err)
-		return
-	}
-	w.pipMu.Lock()
-	w.lastPIP = res
-	w.pipReported = true
-	w.pipMu.Unlock()
-}
-
-func (w *worker) unbindPublicIP() {
-	w.pipMu.Lock()
-	cache := w.pipCache
-	w.pipCache = nil
-	w.pipMu.Unlock()
-	if cache != nil {
-		cache.SetOnRefresh(nil)
-	}
-}
+func (w *worker) unbindPublicIP() { w.pip.unbind() }

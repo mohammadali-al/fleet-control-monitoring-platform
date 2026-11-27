@@ -168,3 +168,59 @@ func TestDroppedCountRecorded(t *testing.T) {
 		t.Errorf("dropped = %v, want 7 in one segment", e)
 	}
 }
+
+func TestDiskGuardCallbackTransitions(t *testing.T) {
+	w := newWriter(t, SegmentConfig{MaxBytes: 1 << 30, MaxAge: time.Hour, DiskWarnPercent: 80, DiskPausePercent: 90})
+	ts := time.Now()
+
+	var events []DiskStatus
+	w.SetOnDiskState(func(st DiskStatus) {
+		// Verify callback runs without holding w.mu by calling AddDropped.
+		w.AddDropped(0)
+		events = append(events, st)
+	})
+
+	usage := 50.0
+	w.diskUse = func(string) (float64, error) { return usage, nil }
+	if err := w.Write(rec(t, "s", ts, []byte("ok1"))); err != nil {
+		t.Fatal(err)
+	}
+	// Same status again -> no duplicate transition event.
+	if err := w.Write(rec(t, "s", ts, []byte("ok2"))); err != nil {
+		t.Fatal(err)
+	}
+
+	usage = 85.0
+	if err := w.Write(rec(t, "s", ts, []byte("warn1"))); err != nil {
+		t.Fatal(err)
+	}
+
+	usage = 92.0
+	if err := w.Write(rec(t, "s", ts, []byte("crit1"))); err != ErrDiskPaused {
+		t.Fatalf("err = %v, want ErrDiskPaused", err)
+	}
+
+	usage = 40.0
+	if err := w.Write(rec(t, "s", ts, []byte("ok3"))); err != nil {
+		t.Fatal(err)
+	}
+	_ = w.Close()
+
+	want := []string{DiskStatusOK, DiskStatusWarn, DiskStatusCritical, DiskStatusOK}
+	if len(events) != len(want) {
+		t.Fatalf("events = %+v, want %v", events, want)
+	}
+	for i, wStatus := range want {
+		if events[i].Status != wStatus {
+			t.Errorf("event[%d].Status = %q, want %q", i, events[i].Status, wStatus)
+		}
+	}
+
+	st, err := CheckDisk(t.TempDir(), 0, 0)
+	if err != nil {
+		t.Fatalf("CheckDisk: %v", err)
+	}
+	if st.TotalBytes == 0 || st.WarnAt != DefaultDiskWarnPercent || st.PauseAt != DefaultDiskPausePercent {
+		t.Errorf("CheckDisk = %+v", st)
+	}
+}

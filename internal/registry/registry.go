@@ -56,10 +56,10 @@ const (
 
 const maxIDLen = 64
 
-// DiskState is the last known disk situation of a machine. The fields are
-// stored here; their telemetry source is a later task.
+// DiskState is the last known disk situation of a machine, reported by agent
+// telemetry and updated on disk-guard state transitions.
 type DiskState struct {
-	Status     string     `json:"status,omitempty"` // e.g. ok|warn|critical
+	Status     string     `json:"status,omitempty"` // ok|warn|critical
 	TotalBytes uint64     `json:"total_bytes,omitempty"`
 	FreeBytes  uint64     `json:"free_bytes,omitempty"`
 	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
@@ -153,6 +153,11 @@ func (m Machine) Validate() error {
 	if m.PublicIP != "" && net.ParseIP(m.PublicIP) == nil {
 		return fmt.Errorf("registry: machine %q: invalid public IP %q", m.ID, m.PublicIP)
 	}
+	switch m.Disk.Status {
+	case "", "ok", "warn", "critical":
+	default:
+		return fmt.Errorf("registry: machine %q: invalid disk status %q (must be ok, warn, or critical)", m.ID, m.Disk.Status)
+	}
 	return nil
 }
 
@@ -209,6 +214,14 @@ func New() *Registry {
 
 func (m Machine) clone() Machine {
 	m.PrivateIPs = append([]string(nil), m.PrivateIPs...)
+	if m.PublicIPAt != nil {
+		t := *m.PublicIPAt
+		m.PublicIPAt = &t
+	}
+	if m.Disk.UpdatedAt != nil {
+		t := *m.Disk.UpdatedAt
+		m.Disk.UpdatedAt = &t
+	}
 	if m.Specs != nil {
 		sp := *m.Specs
 		m.Specs = &sp

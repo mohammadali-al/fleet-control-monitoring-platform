@@ -71,7 +71,18 @@ export function useMachines() {
 
   useEvents(
     (msg) => {
-      if (msg && msg.type === 'machine') refreshSoon();
+      if (msg && msg.type === 'machine') {
+        if (msg.machine && msg.machine.id && !pausedRef.current) {
+          setMachines((prev) => {
+            const idx = prev.findIndex((x) => x.id === msg.machine.id);
+            if (idx === -1) return prev;
+            const next = prev.slice();
+            next[idx] = msg.machine;
+            return next;
+          });
+        }
+        refreshSoon();
+      }
     },
     refresh
   );

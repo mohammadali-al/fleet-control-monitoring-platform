@@ -81,10 +81,12 @@ type worker struct {
 	svcMu sync.Mutex // guards svc
 	svc   ServiceController
 
-	pipMu       sync.Mutex // guards pipCache, lastPIP, pipReported
-	pipCache    *capture.PublicIPCache
-	lastPIP     capture.PublicIPResult
-	pipReported bool
+	pip *publicIPReporter
+
+	diskMu       sync.Mutex // guards diskSrc, lastDisk, diskReported
+	diskSrc      diskStateSource
+	lastDisk     capture.DiskStatus
+	diskReported bool
 
 	wg sync.WaitGroup // runs waiting for the first config
 }
@@ -105,6 +107,11 @@ func newWorker(cfg Config) *worker {
 		live:  map[string]struct{}{},
 		svc:   defaultServiceController(),
 	}
+	w.pip = newPublicIPReporter(w.sender, w.log, func() context.Context {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		return w.base
+	})
 	w.initEvidence()
 	return w
 }
@@ -121,6 +128,7 @@ func (w *worker) start(ctx context.Context) {
 	w.stop()
 	w.base, w.stop = context.WithCancel(ctx)
 	w.startEvidence()
+	w.startDiskMonitor()
 }
 
 // onConnect runs when the main server's connection is established: it asks for
@@ -139,6 +147,7 @@ func (w *worker) onConnect(peer string) {
 	// An idle agent offers segments the server lacks as soon as it is connected.
 	go w.offerEvidence()
 	w.reportPublicIPOnConnect()
+	w.reportDiskOnConnect()
 }
 
 // handle is the channel.Handler. It never blocks on a running command.
@@ -219,6 +228,7 @@ func (w *worker) runWhenConfigured(env channel.Envelope) {
 func (w *worker) shutdown() {
 	w.stop()
 	w.unbindPublicIP()
+	w.unbindDiskState()
 	w.mu.Lock()
 	w.closed = true
 	exs := append([]*exec.Executor(nil), w.retired...)

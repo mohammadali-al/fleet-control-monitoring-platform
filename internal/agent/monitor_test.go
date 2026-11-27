@@ -324,3 +324,80 @@ func TestMonitorConfigProtocol(t *testing.T) {
 		t.Error("a monitor agent answered a run")
 	}
 }
+
+func TestMonitorReportsPublicIPOnConnectAndRefresh(t *testing.T) {
+	var mu sync.Mutex
+	currentIP := "203.0.113.19"
+	mkReflector := func() *httptest.Server {
+		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			mu.Lock()
+			ip := currentIP
+			mu.Unlock()
+			_, _ = w.Write([]byte(ip))
+		}))
+		t.Cleanup(s.Close)
+		return s
+	}
+	r1, r2 := mkReflector(), mkReflector()
+
+	mt, err := fleettest.NewMTLS()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mon, err := mt.StartMonitor("m1", agent.MonitorConfig{
+		Reflectors: []string{r1.URL, r2.URL},
+		Logger:     quiet(),
+	})
+	if err != nil {
+		t.Fatalf("StartMonitor: %v", err)
+	}
+	t.Cleanup(func() { _ = mon.Stop() })
+
+	reg := registry.New()
+	if err := reg.Add(registry.Machine{
+		ID:          "m1",
+		Role:        registry.RoleMonitor,
+		ConnectMode: registry.ConnectModeServerDial,
+		PrivateIPs:  []string{"127.0.0.1"},
+		Provisioned: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	gate, err := exec.NewGate([]byte("s"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr, err := fleet.New(fleet.Config{
+		Registry:     reg,
+		Gate:         gate,
+		NewLink:      mt.Factory(),
+		PollInterval: 10 * time.Millisecond,
+		Logger:       quiet(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	mgr.Start(ctx)
+	defer func() { cancel(); mgr.Close() }()
+
+	// Boot reflector resolution updates the monitor's PublicIP in the registry.
+	eventually(t, "monitor boot public IP", func() bool {
+		info, ok := mgr.Machine("m1")
+		return ok && info.State == fleet.StateOnline && info.PublicIP == "203.0.113.19" && info.PublicIPAt != nil
+	})
+	firstInfo, _ := mgr.Machine("m1")
+	firstAt := *firstInfo.PublicIPAt
+
+	// Manual refresh updates the monitor's IP when changed.
+	mu.Lock()
+	currentIP = "198.51.100.88"
+	mu.Unlock()
+	if err := mgr.RefreshPublicIP(ctx, "m1"); err != nil {
+		t.Fatalf("RefreshPublicIP(m1): %v", err)
+	}
+	eventually(t, "monitor refreshed public IP", func() bool {
+		info, ok := mgr.Machine("m1")
+		return ok && info.PublicIP == "198.51.100.88" && info.PublicIPAt != nil && info.PublicIPAt.After(firstAt)
+	})
+}

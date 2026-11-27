@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/capture"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/channel"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/monitor"
@@ -140,10 +141,12 @@ func (a *DialingWorker) Run(ctx context.Context) error {
 // engine for the targets the server pushes (mon-config) and flushes the
 // results over the outbound connection, buffering them while it is down.
 type DialingMonitor struct {
-	log *slog.Logger
-	d   *channel.AgentDialer
-	eng *probe.Engine
-	fl  *monitor.Flusher
+	log      *slog.Logger
+	d        *channel.AgentDialer
+	eng      *probe.Engine
+	fl       *monitor.Flusher
+	pipCache *capture.PublicIPCache
+	pip      *publicIPReporter
 
 	mu   sync.Mutex
 	base context.Context // lifetime context, set by Run
@@ -172,6 +175,9 @@ func NewDialingMonitor(cfg MonitorConfig, ds DialSettings) (*DialingMonitor, err
 	for _, p := range cfg.Probers {
 		m.eng.Register(p)
 	}
+	m.pipCache = capture.NewPublicIPCache(capture.NewReflector(cfg.Reflectors), 0)
+	m.pip = newPublicIPReporter(serviceSenderFunc(m.send), cfg.Logger, m.baseCtx)
+	m.pip.bind(m.pipCache)
 	d, err := ds.dialer(cfg.MachineID, m.handle, m.onConnect)
 	if err != nil {
 		return nil, err
@@ -197,6 +203,12 @@ func (m *DialingMonitor) Run(ctx context.Context) error {
 	m.mu.Lock()
 	m.base = ctx
 	m.mu.Unlock()
+
+	m.pipCache.Start(ctx)
+	defer func() {
+		m.pipCache.Stop()
+		m.pip.unbind()
+	}()
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -228,6 +240,7 @@ func (m *DialingMonitor) onConnect(peer string) {
 	if err != nil {
 		m.log.Warn("request config", "component", "fleet-agent", "err", err)
 	}
+	m.pip.reportOnConnect()
 }
 
 func (m *DialingMonitor) serviceController() ServiceController {
@@ -236,13 +249,18 @@ func (m *DialingMonitor) serviceController() ServiceController {
 	return m.svc
 }
 
-// handle mirrors Monitor.handle: mon-config and service-control are understood.
+// handle mirrors Monitor.handle: mon-config, service-control, and
+// public-ip-refresh are understood.
 func (m *DialingMonitor) handle(ctx context.Context, env channel.Envelope) {
-	if env.Type == channel.TypeServiceControl {
+	switch env.Type {
+	case channel.TypeServiceControl:
 		handleServiceControl(ctx, m.log, serviceSenderFunc(m.send), m.serviceController(), env)
 		return
-	}
-	if env.Type != channel.TypeMonConfig {
+	case channel.TypePublicIPRefresh:
+		m.pip.handleRefresh()
+		return
+	case channel.TypeMonConfig:
+	default:
 		m.log.Debug("ignoring envelope a monitor agent does not handle", "component", "fleet-agent", "type", env.Type)
 		return
 	}
@@ -303,7 +321,7 @@ func DialFromConfig(ac config.AgentConfig, dataDir string, log *slog.Logger) (Ru
 	}
 	ds := DialSettings{ServerAddr: ac.ServerAddr, TLS: tlsCfg}
 	if ac.Role == config.RoleMonitor {
-		return NewDialingMonitor(MonitorConfig{MachineID: ac.MachineID, Logger: log}, ds)
+		return NewDialingMonitor(MonitorConfig{MachineID: ac.MachineID, Reflectors: ac.Capture.Reflectors, Logger: log}, ds)
 	}
 	cg := ac.CgroupRoot
 	if cg == "" {

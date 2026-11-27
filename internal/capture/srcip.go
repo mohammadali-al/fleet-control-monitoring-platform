@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -177,9 +178,12 @@ func (r *Reflector) fetch(ctx context.Context, url string) (string, error) {
 type PublicIPCache struct {
 	ref      *Reflector
 	interval time.Duration
+	watchNet func(ctx context.Context, onChange func()) error
+	log      *slog.Logger
 
 	mu     sync.RWMutex
 	result PublicIPResult
+	cancel context.CancelFunc
 
 	refreshC chan struct{}
 	stopOnce sync.Once
@@ -198,6 +202,8 @@ func NewPublicIPCache(ref *Reflector, interval time.Duration) *PublicIPCache {
 	return &PublicIPCache{
 		ref:      ref,
 		interval: interval,
+		watchNet: watchNetworkChanges,
+		log:      slog.Default(),
 		refreshC: make(chan struct{}, 1),
 		stop:     make(chan struct{}),
 		done:     make(chan struct{}),
@@ -243,32 +249,65 @@ func (c *PublicIPCache) TriggerRefresh() {
 	}
 }
 
-// Start does an initial boot refresh, then refreshes every interval and on each
-// TriggerRefresh until Stop. It is safe to call once.
+// Start does an initial boot refresh, then refreshes every interval, on OS
+// network-change events (best-effort), and on each TriggerRefresh until Stop.
+// It is safe to call once.
 func (c *PublicIPCache) Start(ctx context.Context) {
+	runCtx, runCancel := context.WithCancel(ctx)
+	c.mu.Lock()
+	c.cancel = runCancel
+	c.mu.Unlock()
+
+	var wg sync.WaitGroup
+	if c.watchNet != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := c.watchNet(runCtx, c.TriggerRefresh); err != nil && runCtx.Err() == nil {
+				log := c.log
+				if log == nil {
+					log = slog.Default()
+				}
+				log.Info("capture: network-change public-IP trigger unavailable; continuing with boot/periodic/manual triggers", "err", err)
+			}
+		}()
+	}
+
 	go func() {
-		defer close(c.done)
-		_, _ = c.RefreshNow(ctx)
+		defer func() {
+			runCancel()
+			wg.Wait()
+			close(c.done)
+		}()
+		_, _ = c.RefreshNow(runCtx)
 		t := time.NewTicker(c.interval)
 		defer t.Stop()
 		for {
 			select {
 			case <-c.stop:
 				return
-			case <-ctx.Done():
+			case <-runCtx.Done():
 				return
 			case <-t.C:
-				_, _ = c.RefreshNow(ctx)
+				_, _ = c.RefreshNow(runCtx)
 			case <-c.refreshC:
-				_, _ = c.RefreshNow(ctx)
+				_, _ = c.RefreshNow(runCtx)
 			}
 		}
 	}()
 }
 
-// Stop ends the refresh loop and waits for it to exit.
+// Stop ends the refresh loop and waits for it (and any network watcher) to exit.
 func (c *PublicIPCache) Stop() {
-	c.stopOnce.Do(func() { close(c.stop) })
+	c.stopOnce.Do(func() {
+		close(c.stop)
+		c.mu.Lock()
+		cancel := c.cancel
+		c.mu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
+	})
 	<-c.done
 }
 

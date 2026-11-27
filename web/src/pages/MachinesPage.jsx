@@ -483,6 +483,7 @@ export function MachinesPage() {
   const diskAlertParts = [];
   if (diskWarn.length) diskAlertParts.push(`warning: ${diskWarn.join(', ')}`);
   if (diskCritical.length) diskAlertParts.push(`intake paused: ${diskCritical.join(', ')}`);
+  const hasDiskReports = machines.some((m) => !m.removed && (m.disk?.total_bytes > 0 || Boolean(m.disk?.status)));
 
   const activeMenuMachine = openMenu ? machines.find((m) => m.id === openMenu.id) : null;
 
@@ -829,7 +830,9 @@ export function MachinesPage() {
         <div className="card stat col-3 col-3--md-6">
           <div className="stat__label">Disk guard</div>
           <div className="stat__value">{diskWarn.length + diskCritical.length}</div>
-          <div className="stat__note">{diskAlertParts.length ? diskAlertParts.join('; ') : 'No disk reports yet'}</div>
+          <div className="stat__note">
+            {diskAlertParts.length ? diskAlertParts.join('; ') : hasDiskReports ? 'All reported disks OK' : 'No disk reports yet'}
+          </div>
         </div>
       </section>
 
@@ -914,7 +917,25 @@ export function MachinesPage() {
                 </tr>
               ) : (
                 filteredMachines.map((m) => {
-                  const disk = diskView(m.disk);
+                  const rawDisk = diskView(m.disk);
+                  const diskStatus = m.disk?.status || '';
+                  const disk = rawDisk
+                    ? {
+                        ...rawDisk,
+                        className:
+                          diskStatus === 'critical'
+                            ? 'danger'
+                            : diskStatus === 'warn'
+                              ? 'warn'
+                              : rawDisk.className,
+                        word:
+                          diskStatus === 'critical'
+                            ? 'intake paused'
+                            : diskStatus === 'warn'
+                              ? 'warning'
+                              : rawDisk.word,
+                      }
+                    : null;
                   const privateIPs = m.private_ips || [];
                   const termSearch = `?machine=${encodeURIComponent(m.id)}`;
                   const termHref = routeHref('terminal', termSearch);
@@ -962,7 +983,10 @@ export function MachinesPage() {
                       </td>
                       <td>
                         {disk ? (
-                          <div className={`meter${disk.className ? ` meter--${disk.className}` : ''}`}>
+                          <div
+                            className={`meter${disk.className ? ` meter--${disk.className}` : ''}`}
+                            title={m.disk?.updated_at ? `Updated ${fmtAgo(m.disk.updated_at)}` : undefined}
+                          >
                             <div className="meter__bar">
                               <div className="meter__fill" style={{ width: `${disk.pct}%` }} />
                             </div>
@@ -971,6 +995,10 @@ export function MachinesPage() {
                               <span>{disk.pct}%{disk.word ? ` · ${disk.word}` : ''}</span>
                             </div>
                           </div>
+                        ) : diskStatus ? (
+                          <span className={diskStatus === 'critical' ? 'chip chip--danger' : diskStatus === 'warn' ? 'chip chip--warn' : 'chip chip--ok'}>
+                            {diskStatus === 'critical' ? 'intake paused' : diskStatus === 'warn' ? 'warning' : 'ok'}
+                          </span>
                         ) : (
                           <span className="faint">Unknown</span>
                         )}
@@ -1062,8 +1090,7 @@ export function MachinesPage() {
         <div className="card__foot">
           Live registry. State is derived from the control channel; <em>Reconnecting</em> means the agent was connected
           since the server started and dropped. Public IP is cached from the last reflector check. Disk guard: 80% raises
-          a warning, 90% pauses capture intake (nothing is deleted). Disk figures arrive with the agent telemetry (a later
-          task).
+          a warning, 90% pauses capture intake (nothing is deleted). Disk figures update live from agent telemetry.
         </div>
       </section>
 
