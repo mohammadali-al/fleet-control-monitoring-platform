@@ -1,7 +1,7 @@
 ---
 id: T-0040
 title: panel-skin-refactor
-state: ready
+state: merged
 touches: [web/_src/shell.html, web/pages/backup.html, web/pages/baseline.html, web/pages/commands.html,
           web/pages/evidence.html, web/pages/fragments.html, web/pages/machines.html, web/pages/maneuver.html,
           web/pages/monitor.html, web/pages/projects.html, web/pages/terminal.html, web/pages/watchdog.html,
