@@ -26,16 +26,20 @@ domain. Keep the current two-subdomain layout as the default (or a `--two-domain
 
 - **Caddy** (`deploy/proxy/Caddyfile` template): on the panel domain, `handle /authelia*` →
   `reverse_proxy` Authelia (NO `forward_auth`, do NOT strip the prefix); `handle` (everything else) →
-  `forward_auth` Authelia `uri /api/authz/forward-auth` (copy `Remote-User/Groups/Name/Email`) →
-  `reverse_proxy` fleet-server. One `tls` block, one hostname.
+  `forward_auth` Authelia `uri /authelia/api/authz/forward-auth` (copy `Remote-User/Groups/Name/Email`)
+  → `reverse_proxy` fleet-server. One `tls` block, one hostname. NB: with subpath hosting the whole
+  Authelia app (portal + API + forward-auth) lives under `/authelia`, so the forward-auth uri is
+  `/authelia/api/authz/forward-auth`, not `/api/authz/forward-auth`.
 - **Authelia** (`deploy/authelia/configuration.yml` template): `server.address:
   'tcp://127.0.0.1:9091/authelia'`; `session.cookies[]` with `domain: <panel-domain>`,
   `authelia_url: https://<panel-domain>/authelia`, `default_redirection_url: https://<panel-domain>`.
 - **Installer** (`deploy/install-server.sh`): in single-domain mode prompt for ONE domain, render the
   above templates (both `--proxy=native` and `--proxy=docker`), and save the mode in
   `install-answers.env`. Default path is unchanged.
-- **Reserved paths:** document (and, if cheap, assert) that the panel must never serve `/authelia*` or
-  `/api/authz/*` so there is no collision; `/authelia` chosen over `/auth` for distinctiveness.
+- **Reserved path:** with subpath hosting, the entire Authelia app is under `/authelia*`, so the panel
+  must never serve `/authelia*` — that single prefix already covers `/authelia/api/authz/*`, so there is
+  nothing else to reserve. `/authelia` chosen over `/auth` for distinctiveness. Document (and, if cheap,
+  assert) it.
 - **Docs** (`deploy/README.md`, `deploy/REQUIREMENTS.md`): the single-domain option, its one-name
   requirement, and that IP-only is still unsupported.
 
@@ -54,7 +58,8 @@ domain. Keep the current two-subdomain layout as the default (or a `--two-domain
 
 ## Facts this brief relies on
 
-- fleet-server does not use `/auth*` or `/api/authz*` (no route collision): `internal/panel/server.go`.
+- fleet-server does not use `/authelia*` (nor `/auth*` / `/api/authz*`), so serving Authelia under
+  `/authelia*` causes no route collision: `internal/panel/server.go`.
 - Current installer generates the two-domain Caddy + Authelia layout: `deploy/install-server.sh`
   (domain/proxy rendering), `deploy/proxy/Caddyfile`, `deploy/authelia/configuration.yml`;
   `workflow/tasks/T-0036-github-release-and-installer/task.md`.
