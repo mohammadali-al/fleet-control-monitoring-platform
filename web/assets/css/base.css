@@ -171,16 +171,23 @@ h3 { font-size: var(--fs-base); line-height: var(--lh-tight); font-weight: 700; 
   .col-3--md-6 { grid-column: span 6; }
   .split, .split--rail-left { grid-template-columns: minmax(0, 1fr); }
 }
+.nav-scrim { display: none; }
+
 @media (max-width: 959px) {
   :root { --page-pad: var(--sp-4); }
   .app { grid-template-columns: minmax(0, 1fr); }
+  body.nav-open { overflow: hidden; }
   .sidebar {
     position: fixed; inset: 0 auto 0 0; width: min(18rem, 86vw); z-index: 60;
+    pointer-events: auto;
     transform: translateX(-100%); transition: transform var(--dur) var(--ease);
     box-shadow: var(--ink-shadow);
   }
-  body.nav-open .sidebar { transform: none; }
-  body.nav-open::after { content: ""; position: fixed; inset: 0; background: var(--scrim); z-index: 50; }
+  body.nav-open .sidebar,
+  .app.app--nav-open .sidebar { transform: none; }
+  .nav-scrim { display: block; position: fixed; inset: 0; background: var(--scrim); z-index: 50; }
+  /* Legacy server-rendered shell fallback: keep the scrim inside .app (z 50 < .sidebar z 60). */
+  body.nav-open .app:not(.app--spa)::after { content: ""; position: fixed; inset: 0; background: var(--scrim); z-index: 50; }
   .topbar .topbar__menu { display: inline-grid; }
 }
 @media (max-width: 599px) {

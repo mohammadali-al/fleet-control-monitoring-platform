@@ -1,10 +1,10 @@
 // Package panel is the operator panel: fleet-server's web front-end on :6789.
 //
-// Pages are Go html/template (the layout in web/_src/shell.html, one file per
-// page under web/pages/), served together with the static assets (CSS, JS,
-// the vendored xterm.js). The Operate pages (Machines, Command runner,
-// Terminal) are live: a JSON API (api.go) and two WebSockets (ws.go) sit on a
-// Backend, which is the fleet manager (internal/fleet) in production.
+// Ported pages are served as a React single-page application (dist/index.html +
+// /assets/dist/app.{js,css}); un-ported pages temporarily fall back to Go
+// html/template pages under web/pages/ until ported. The Operate, Observe, and
+// Administer APIs (api.go) and WebSockets (ws.go) sit on a Backend, which is
+// the fleet manager (internal/fleet) in production.
 //
 // There is no authentication here: the panel sits behind the auth proxy and
 // trusts the headers it forwards (D-0004); see operatorFrom.
@@ -13,6 +13,7 @@ package panel
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -56,12 +57,19 @@ func New(o Options) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &server{assets: o.Assets, tpl: tpl, be: o.Backend, log: o.Logger}
+	spaHTML, err := fs.ReadFile(o.Assets, "dist/index.html")
+	if err != nil {
+		return nil, fmt.Errorf("panel: read SPA shell dist/index.html: %w", err)
+	}
+	s := &server{assets: o.Assets, spaHTML: spaHTML, tpl: tpl, be: o.Backend, log: o.Logger}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", s.page(pages[0].name))
-	mux.HandleFunc("GET /index.html", s.page(pages[0].name))
+	mux.HandleFunc("GET /{$}", s.spa)
+	mux.HandleFunc("GET /index.html", s.spa)
 	for _, p := range pages {
+		if p.spa {
+			mux.HandleFunc("GET /"+p.name, s.spa)
+		}
 		mux.HandleFunc("GET /"+p.name+".html", s.page(p.name))
 	}
 	mux.HandleFunc("GET /fragments/{name}", s.fragment)
@@ -69,6 +77,27 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("GET /styleguide.html", s.static)
 	s.routesAPI(mux)
 	s.routesWS(mux)
+
+	// Guard non-app prefixes so unknown API/WS/fragment/source paths never fall
+	// through to the SPA shell catch-all.
+	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusNotFound, errBody("not found"))
+	})
+	mux.HandleFunc("/ws/", http.NotFound)
+	mux.HandleFunc("/fragments/", http.NotFound)
+	for _, p := range []string{"/_src/", "/pages/", "/dist/", "/src/", "/embed.go", "/templates.go"} {
+		mux.HandleFunc(p, http.NotFound)
+	}
+
+	// SPA catch-all: return the shell for any non-API, non-asset app route so
+	// client-side routes work on refresh and deep-link.
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+			return
+		}
+		s.spa(w, r)
+	})
 	return secure(mux), nil
 }
 
@@ -94,10 +123,17 @@ func secure(next http.Handler) http.Handler {
 }
 
 type server struct {
-	assets fs.FS
-	tpl    *templates
-	be     Backend
-	log    *slog.Logger
+	assets  fs.FS
+	spaHTML []byte
+	tpl     *templates
+	be      Backend
+	log     *slog.Logger
+}
+
+func (s *server) spa(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(s.spaHTML)
 }
 
 // data gathers what the templates need for a page.
