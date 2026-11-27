@@ -21,10 +21,10 @@
             <fieldset class="field">
               <legend>Target worker agents</legend>
               <div class="row" style="margin-bottom:var(--sp-1)">
-                <button class="btn btn--sm btn--ghost" type="button" data-select="online">Select all online</button>
-                <button class="btn btn--sm btn--ghost" type="button" data-select="none">Clear</button>
+                <button class="btn btn--sm" type="button" data-select="online">Select all online</button>
+                <button class="btn btn--sm" type="button" data-select="none">Clear</button>
               </div>
-              <ul class="list" id="targets" style="border:1px solid var(--border);border-radius:var(--radius)">{{template "command-targets" .}}</ul>
+              <ul class="list list--boxed" id="targets">{{template "command-targets" .}}</ul>
               <span class="field__hint">Monitor agents never appear here: they have no command role.</span>
             </fieldset>
             <div class="field"><label for="cmd">Command</label><textarea class="textarea input--mono" id="cmd" name="command" rows="3" spellcheck="false" placeholder="uname -a &amp;&amp; uptime" required></textarea>

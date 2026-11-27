@@ -63,14 +63,14 @@
         <div class="card__body stack" data-enroll-result hidden>
           <div>
             <div class="muted">Code (valid for 10 minutes, one machine, one use)</div>
-            <div class="input--mono" style="font-size: var(--fs-xl, 1.6rem); letter-spacing: .15em; font-weight: 600" data-enroll-code></div>
+            <div class="enroll-code" data-enroll-code></div>
             <div class="muted" data-enroll-expiry aria-live="polite"></div>
           </div>
-          <div data-enroll-os="linux">
+          <div class="stack" style="gap:var(--sp-2)" data-enroll-os="linux">
             <div class="row"><strong>Linux</strong><button class="btn btn--sm" type="button" data-enroll-copy="linux"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg>Copy</button></div>
             <pre class="codeblock" data-enroll-cmd="linux" tabindex="0"></pre>
           </div>
-          <div data-enroll-os="macos">
+          <div class="stack" style="gap:var(--sp-2)" data-enroll-os="macos">
             <div class="row"><strong>macOS</strong> <span class="muted">(monitor agents only)</span><button class="btn btn--sm" type="button" data-enroll-copy="macos"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg>Copy</button></div>
             <pre class="codeblock" data-enroll-cmd="macos" tabindex="0"></pre>
           </div>
