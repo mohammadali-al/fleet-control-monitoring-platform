@@ -1,4 +1,6 @@
+import { CommandsPage } from './pages/CommandsPage';
 import { MachinesPage } from './pages/MachinesPage';
+import { TerminalPage } from './pages/TerminalPage';
 
 /**
  * Route registry for all operator-panel pages.
@@ -42,7 +44,7 @@ export const ROUTES = [
     group: 'Operate',
     label: 'Command runner',
     icon: 'i-bolt',
-    component: null,
+    component: CommandsPage,
   },
   {
     id: 'terminal',
@@ -51,7 +53,7 @@ export const ROUTES = [
     group: 'Operate',
     label: 'Terminal',
     icon: 'i-terminal',
-    component: null,
+    component: TerminalPage,
   },
   // Plan
   {

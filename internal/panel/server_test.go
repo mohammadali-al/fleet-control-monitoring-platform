@@ -48,6 +48,8 @@ func TestServesPanel(t *testing.T) {
 		{"/", 200, "text/html", `<div id="root">`},
 		{"/index.html", 200, "text/html", `<div id="root">`},
 		{"/machines", 200, "text/html", `<div id="root">`},
+		{"/commands", 200, "text/html", `<div id="root">`},
+		{"/terminal", 200, "text/html", `<div id="root">`},
 		{"/projects", 200, "text/html", `<div id="root">`}, // SPA catch-all
 		{"/deep/app/route", 200, "text/html", `<div id="root">`},
 		{"/projects.html", 200, "text/html", "<html"}, // legacy fallback
@@ -111,8 +113,10 @@ func TestSPAShellAndCatchAll(t *testing.T) {
 	_, _, root := body(t, srv.URL+"/")
 	_, _, idx := body(t, srv.URL+"/index.html")
 	_, _, machines := body(t, srv.URL+"/machines")
+	_, _, commands := body(t, srv.URL+"/commands")
+	_, _, terminal := body(t, srv.URL+"/terminal")
 	_, _, deep := body(t, srv.URL+"/machines/w1")
-	if root != idx || root != machines || root != deep {
+	if root != idx || root != machines || root != commands || root != terminal || root != deep {
 		t.Error("SPA routes did not all serve the identical shell HTML")
 	}
 	for _, must := range []string{
@@ -129,6 +133,50 @@ func TestSPAShellAndCatchAll(t *testing.T) {
 	}
 	if strings.Contains(root, "fonts.googleapis.com") || strings.Contains(root, "fonts.gstatic.com") {
 		t.Error("SPA shell has external Google Fonts reference")
+	}
+}
+
+func TestOperateSPARoutesInBundle(t *testing.T) {
+	srv := noBackend(t)
+	for _, route := range []string{"/commands", "/terminal"} {
+		status, _, page := body(t, srv.URL+route)
+		if status != 200 {
+			t.Fatalf("GET %s = %d", route, status)
+		}
+		for _, want := range []string{`<div id="root"></div>`, `/assets/dist/app.css`, `/assets/dist/app.js`} {
+			if !strings.Contains(page, want) {
+				t.Errorf("%s SPA shell lacks %q", route, want)
+			}
+		}
+	}
+
+	status, _, js := body(t, srv.URL+"/assets/dist/app.js")
+	if status != 200 || len(js) == 0 {
+		t.Fatalf("GET /assets/dist/app.js = %d (len=%d)", status, len(js))
+	}
+	for _, want := range []string{
+		"Command runner",
+		"/api/commands",
+		"/ws/events",
+		"/ws/shell",
+		"/assets/vendor/xterm/xterm.js",
+		"/assets/vendor/xterm/addon-fit.js",
+		"/assets/vendor/xterm/xterm.css",
+		"Confirm a dangerous command",
+		"concurrent long-lived session",
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("SPA bundle lacks %q", want)
+		}
+	}
+	for _, stale := range []string{
+		"Runs as the agent's service user",
+		"shares the machine's serial queue",
+		"starts when the machine is free",
+	} {
+		if strings.Contains(js, stale) {
+			t.Errorf("SPA bundle still contains stale GAP-10 copy %q", stale)
+		}
 	}
 }
 

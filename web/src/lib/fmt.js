@@ -36,6 +36,22 @@ export function fmtAgo(iso) {
   return `${Math.floor(s / 86400)} d ago`;
 }
 
+export function fmtTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+export function fmtDur(ms) {
+  if (ms == null) return '';
+  let s = ms / 1000;
+  if (s < 10) return `${s.toFixed(1)} s`;
+  s = Math.round(s);
+  const m = Math.floor(s / 60);
+  return m ? `${m}:${String(s % 60).padStart(2, '0')}` : `${s} s`;
+}
+
 // Disk guard thresholds (architecture 6.5, 7.3).
 const DISK_WARN_PCT = 80;
 const DISK_CRITICAL_PCT = 90;
