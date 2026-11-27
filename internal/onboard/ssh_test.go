@@ -5,8 +5,11 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"io"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -19,6 +22,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/agent"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/channel"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/pki"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/registry"
@@ -550,6 +555,8 @@ func TestReprovisionIssuesCertOnlyIfMissing(t *testing.T) {
 func TestReprovisionUpdatesRoleAndMode(t *testing.T) {
 	f := newFixture(t, "root")
 	first, _ := f.p.Provision(context.Background(), f.target("root", registry.RoleWorker))
+	f.p.ServerAddr = "fleet.example.com:7444"
+	f.p.ServerID = "fleet-server"
 	tgt := f.target("root", registry.RoleMonitor)
 	tgt.ConnectMode = registry.ConnectModeAgentDial
 	second, err := f.p.Provision(context.Background(), tgt)
@@ -560,8 +567,14 @@ func TestReprovisionUpdatesRoleAndMode(t *testing.T) {
 		t.Fatalf("%+v", second.Machine)
 	}
 	cfgFile, _ := f.fm.file(DefaultLayout().configFile())
-	if !strings.Contains(string(cfgFile.data), `"connect_mode": "agent_dial"`) {
-		t.Fatalf("config: %s", cfgFile.data)
+	for _, want := range []string{
+		`"connect_mode": "agent_dial"`,
+		`"server_addr": "fleet.example.com:7444"`,
+		`"server_id": "fleet-server"`,
+	} {
+		if !strings.Contains(string(cfgFile.data), want) {
+			t.Fatalf("config missing %s:\n%s", want, cfgFile.data)
+		}
 	}
 }
 
@@ -990,5 +1003,227 @@ func TestProvisionSelectsBinaryFromAgentBinaryDirAndErrorsClearly(t *testing.T) 
 		if len(f.fm.rawCmds) != 0 {
 			t.Errorf("commands ran despite preflight error: %v", f.fm.rawCmds)
 		}
+	})
+}
+
+func TestRenderAgentConfigAgentDialVsServerDial(t *testing.T) {
+	l := DefaultLayout()
+
+	t.Run("agent_dial_emits_server_addr_and_server_id", func(t *testing.T) {
+		m := registry.Machine{ID: "m-ad1", Role: config.RoleWorker, ConnectMode: config.ConnectModeAgentDial}
+		got, err := renderAgentConfig(m, l, "fleet.example.com:7444", "srv-custom")
+		if err != nil {
+			t.Fatalf("renderAgentConfig: %v", err)
+		}
+		var doc struct {
+			Agent map[string]any `json:"agent"`
+		}
+		if err := json.Unmarshal(got, &doc); err != nil {
+			t.Fatalf("unmarshal: %v\n%s", err, got)
+		}
+		if doc.Agent["server_addr"] != "fleet.example.com:7444" {
+			t.Errorf("server_addr = %v, want fleet.example.com:7444", doc.Agent["server_addr"])
+		}
+		if doc.Agent["server_id"] != "srv-custom" {
+			t.Errorf("server_id = %v, want srv-custom", doc.Agent["server_id"])
+		}
+		cfgPath := filepath.Join(t.TempDir(), "config.json")
+		if err := os.WriteFile(cfgPath, got, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		loaded, err := config.Load(cfgPath)
+		if err != nil {
+			t.Fatalf("config.Load: %v", err)
+		}
+		if err := loaded.Agent.Validate(); err != nil {
+			t.Fatalf("Validate: %v", err)
+		}
+		if loaded.Agent.ServerAddr != "fleet.example.com:7444" || loaded.Agent.ServerID != "srv-custom" {
+			t.Errorf("loaded agent config = %+v", loaded.Agent)
+		}
+	})
+
+	t.Run("agent_dial_defaults_empty_server_id", func(t *testing.T) {
+		m := registry.Machine{ID: "m-ad2", Role: config.RoleMonitor, ConnectMode: config.ConnectModeAgentDial}
+		got, err := renderAgentConfig(m, l, "fleet.example.com:7444", "")
+		if err != nil {
+			t.Fatalf("renderAgentConfig: %v", err)
+		}
+		if !strings.Contains(string(got), `"server_id": "`+config.DefaultServerID+`"`) {
+			t.Fatalf("missing default server_id:\n%s", got)
+		}
+	})
+
+	t.Run("agent_dial_without_server_addr_errors", func(t *testing.T) {
+		m := registry.Machine{ID: "m-ad3", Role: config.RoleWorker, ConnectMode: config.ConnectModeAgentDial}
+		if _, err := renderAgentConfig(m, l, "", "fleet-server"); !errors.Is(err, ErrAgentDialNotConfigured) {
+			t.Fatalf("err = %v, want ErrAgentDialNotConfigured", err)
+		}
+	})
+
+	t.Run("server_dial_omits_server_addr_and_server_id_byte_identical", func(t *testing.T) {
+		for _, mode := range []string{config.ConnectModeServerDial, ""} {
+			m := registry.Machine{ID: "m-sd1", Role: config.RoleWorker, ConnectMode: mode}
+			got, err := renderAgentConfig(m, l, "fleet.example.com:7444", "srv-custom")
+			if err != nil {
+				t.Fatalf("renderAgentConfig(%q): %v", mode, err)
+			}
+			for _, forbidden := range []string{"server_addr", "server_id", "fleet.example.com", "srv-custom"} {
+				if strings.Contains(string(got), forbidden) {
+					t.Errorf("mode %q output unexpectedly contains %q:\n%s", mode, forbidden, got)
+				}
+			}
+			legacyDoc := struct {
+				Agent config.AgentConfig `json:"agent"`
+			}{Agent: config.AgentConfig{
+				Role:        m.Role,
+				MachineID:   m.ID,
+				ConnectMode: m.ConnectMode,
+				CAFile:      l.caFile(),
+				CertFile:    l.certFile(),
+				KeyFile:     l.keyFile(),
+			}}
+			wantBytes, err := json.MarshalIndent(legacyDoc, "", "  ")
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantBytes = append(wantBytes, '\n')
+			if string(got) != string(wantBytes) {
+				t.Errorf("mode %q output differs from byte-identical baseline:\n got:\n%s\nwant:\n%s", mode, got, wantBytes)
+			}
+		}
+	})
+}
+
+func TestProvisionAgentDialRequiresEndpointAndConnects(t *testing.T) {
+	t.Run("missing_endpoint_fails_before_dial_or_registry", func(t *testing.T) {
+		f := newFixture(t, "root")
+		tgt := f.target("root", registry.RoleWorker)
+		tgt.ConnectMode = config.ConnectModeAgentDial
+		_, err := f.p.Provision(context.Background(), tgt)
+		if !errors.Is(err, ErrAgentDialNotConfigured) {
+			t.Fatalf("err = %v, want ErrAgentDialNotConfigured", err)
+		}
+		if len(f.fm.rawCmds) != 0 {
+			t.Errorf("SSH commands ran despite missing endpoint: %v", f.fm.rawCmds)
+		}
+		if len(f.reg.List()) != 0 {
+			t.Errorf("registry modified despite missing endpoint: %+v", f.reg.List())
+		}
+		if _, err := os.Stat(f.store.Path()); !errors.Is(err, os.ErrNotExist) {
+			t.Error("registry store written despite missing endpoint")
+		}
+	})
+
+	t.Run("reprovision_existing_agent_dial_without_endpoint_fails_early", func(t *testing.T) {
+		f := newFixture(t, "root")
+		f.p.ServerAddr = "fleet.example.com:7444"
+		tgt := f.target("root", registry.RoleWorker)
+		tgt.ConnectMode = config.ConnectModeAgentDial
+		if _, err := f.p.Provision(context.Background(), tgt); err != nil {
+			t.Fatal(err)
+		}
+		f.fm.resetLog()
+		f.p.ServerAddr = ""
+		reprov := f.target("root", registry.RoleWorker)
+		reprov.ConnectMode = "" // empty keeps existing agent_dial mode
+		if _, err := f.p.Provision(context.Background(), reprov); !errors.Is(err, ErrAgentDialNotConfigured) {
+			t.Fatalf("err = %v, want ErrAgentDialNotConfigured", err)
+		}
+		if len(f.fm.rawCmds) != 0 {
+			t.Errorf("SSH commands ran on reprovision despite missing endpoint: %v", f.fm.rawCmds)
+		}
+	})
+
+	t.Run("onboarded_agent_dial_config_connects_end_to_end", func(t *testing.T) {
+		f := newFixture(t, "root")
+		const serverID = "fleet-srv-e2e"
+		srvCert, srvKey, err := f.ca.IssuePeer(serverID, nil, time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		srvTLS, err := pki.ServerTLSConfig(srvCert, srvKey, f.ca.CertPEM())
+		if err != nil {
+			t.Fatal(err)
+		}
+		attached := make(chan string, 2)
+		acc, err := channel.Accept(channel.AcceptorConfig{
+			Addr: "127.0.0.1:0", TLS: srvTLS, ServerID: serverID,
+			Attach: func(id string, _ *channel.Conn) (channel.Handler, func(), error) {
+				attached <- id
+				return nil, nil, nil
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sctx, scancel := context.WithCancel(context.Background())
+		defer scancel()
+		go func() { _ = acc.Serve(sctx) }()
+
+		f.p.ServerAddr = acc.Addr().String()
+		f.p.ServerID = serverID
+		tgt := f.target("root", registry.RoleMonitor)
+		tgt.ConnectMode = config.ConnectModeAgentDial
+		res, err := f.p.Provision(context.Background(), tgt)
+		if err != nil {
+			t.Fatalf("Provision: %v", err)
+		}
+
+		l := DefaultLayout()
+		cfgFile, ok := f.fm.file(l.configFile())
+		if !ok {
+			t.Fatal("agent config.json not written")
+		}
+		localDir := t.TempDir()
+		cfgPath := filepath.Join(localDir, "config.json")
+		if err := os.WriteFile(cfgPath, cfgFile.data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		loaded, err := config.Load(cfgPath)
+		if err != nil {
+			t.Fatalf("config.Load: %v\n%s", err, cfgFile.data)
+		}
+		if loaded.Agent.ServerAddr != f.p.ServerAddr || loaded.Agent.ServerID != serverID {
+			t.Fatalf("agent config = %+v", loaded.Agent)
+		}
+		for remotePath, localName := range map[string]string{
+			l.caFile():   "ca.crt",
+			l.certFile(): "agent.crt",
+			l.keyFile():  "agent.key",
+		} {
+			ff, ok := f.fm.file(remotePath)
+			if !ok {
+				t.Fatalf("missing remote file %s", remotePath)
+			}
+			if err := os.WriteFile(filepath.Join(localDir, localName), ff.data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		loaded.Agent.CAFile = filepath.Join(localDir, "ca.crt")
+		loaded.Agent.CertFile = filepath.Join(localDir, "agent.crt")
+		loaded.Agent.KeyFile = filepath.Join(localDir, "agent.key")
+
+		runner, err := agent.DialFromConfig(loaded.Agent, filepath.Join(localDir, "data"), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		if err != nil {
+			t.Fatalf("agent.DialFromConfig: %v", err)
+		}
+		actx, acancel := context.WithCancel(context.Background())
+		defer acancel()
+		done := make(chan error, 1)
+		go func() { done <- runner.Run(actx) }()
+
+		select {
+		case id := <-attached:
+			if id != res.Machine.ID {
+				t.Errorf("server saw agent %q, want %q", id, res.Machine.ID)
+			}
+		case err := <-done:
+			t.Fatalf("agent exited early: %v", err)
+		case <-time.After(5 * time.Second):
+			t.Fatal("onboarded agent_dial agent did not connect to server")
+		}
+		acancel()
+		<-done
 	})
 }
