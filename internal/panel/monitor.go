@@ -1,14 +1,19 @@
 package panel
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/evidence"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/fleet"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/monitor"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/probe"
@@ -45,7 +50,9 @@ func monitorStatus(err error) int {
 	case errors.Is(err, monitor.ErrDuplicate), errors.Is(err, monitor.ErrNoCapacity), errors.Is(err, monitor.ErrNoMonitorAgent):
 		return http.StatusConflict
 	case errors.Is(err, monitor.ErrIPRequired), errors.Is(err, monitor.ErrBadIP), errors.Is(err, monitor.ErrBadOrigin),
-		errors.Is(err, monitor.ErrBadPath), errors.Is(err, monitor.ErrPathNeedsOrg):
+		errors.Is(err, monitor.ErrBadPath), errors.Is(err, monitor.ErrPathNeedsOrg),
+		errors.Is(err, monitor.ErrBadProbeType), errors.Is(err, monitor.ErrOriginRequired),
+		errors.Is(err, monitor.ErrDNSNameRequired), errors.Is(err, monitor.ErrBadDNSServer):
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError
@@ -74,6 +81,14 @@ type monAgent struct {
 	LastType string     `json:"last_type,omitempty"`
 }
 
+const overlayIntervals = 12
+
+type monInterval struct {
+	Start   time.Time `json:"start"`
+	End     time.Time `json:"end"`
+	Packets int       `json:"packets"`
+}
+
 type monCommand struct {
 	Session string     `json:"session"`
 	Machine string     `json:"machine"`
@@ -85,6 +100,9 @@ type monCommand struct {
 	// Packets is the archived packet count of the session; nil until its
 	// evidence has been pulled to the main server.
 	Packets *int `json:"packets"`
+	// IntervalPackets holds the archived packet count for this session in
+	// each of the live window's intervals; nil until evidence is archived.
+	IntervalPackets []int `json:"interval_packets,omitempty"`
 }
 
 func (s *server) monLive(w http.ResponseWriter, r *http.Request, _ observer, o *fleet.Observe) {
@@ -150,6 +168,9 @@ func (s *server) monLive(w http.ResponseWriter, r *http.Request, _ observer, o *
 	if o.Jobs != nil {
 		for _, j := range o.Jobs.List() {
 			label := j.Origin
+			if label == "" && j.DNSName != "" {
+				label = "dns://" + j.DNSName
+			}
 			if label == "" {
 				label = j.IP
 			}
@@ -171,18 +192,16 @@ func (s *server) monLive(w http.ResponseWriter, r *http.Request, _ observer, o *
 		if c.Finished != nil && c.Finished.Before(since) {
 			continue
 		}
-		mc := monCommand{Session: c.Session, Machine: c.Machine, Command: c.Command, User: c.User, Mode: c.Mode, Start: start, End: c.Finished}
-		if o.Archive != nil {
-			if n, ok := archivedPackets(o, c.Machine, c.Session); ok {
-				mc.Packets = &n
-			}
-		}
-		cmds = append(cmds, mc)
+		cmds = append(cmds, monCommand{Session: c.Session, Machine: c.Machine, Command: c.Command, User: c.User, Mode: c.Mode, Start: start, End: c.Finished})
 	}
 	sort.Slice(cmds, func(i, j int) bool { return cmds[i].Start.Before(cmds[j].Start) })
+	intervals := buildIntervals(since, now)
+	if o.Archive != nil && len(cmds) > 0 {
+		populateCommandPacketStats(o.Archive, cmds, intervals, since, now)
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"now": now, "window_sec": win, "series": series, "agents": agents, "jobs": jobs, "targets": targets, "commands": cmds,
+		"now": now, "window_sec": win, "series": series, "agents": agents, "jobs": jobs, "targets": targets, "commands": cmds, "intervals": intervals,
 	})
 }
 
@@ -293,8 +312,134 @@ func parseStep(raw string) (time.Duration, error) {
 	return time.Duration(sec * float64(time.Second)), nil
 }
 
-// archivedPackets sums the records of the archived segments that hold the
-// session; ok is false when none of its evidence is on the main server yet.
+func segmentSessions(sg evidence.ArchivedSegment) []string {
+	if len(sg.Sessions) > 0 {
+		return sg.Sessions
+	}
+	if sg.Session != "" {
+		return []string{sg.Session}
+	}
+	return nil
+}
+
+func buildIntervals(since, now time.Time) []monInterval {
+	step := now.Sub(since) / overlayIntervals
+	intervals := make([]monInterval, overlayIntervals)
+	for i := range intervals {
+		a := since.Add(time.Duration(i) * step)
+		b := since.Add(time.Duration(i+1) * step)
+		if i == overlayIntervals-1 {
+			b = now
+		}
+		intervals[i] = monInterval{Start: a, End: b}
+	}
+	return intervals
+}
+
+func intervalIndex(ts, since, now time.Time, step time.Duration) (int, bool) {
+	if step <= 0 || ts.Before(since) || ts.After(now) {
+		return 0, false
+	}
+	idx := int(ts.Sub(since) / step)
+	if idx >= overlayIntervals {
+		idx = overlayIntervals - 1
+	}
+	return idx, true
+}
+
+func populateCommandPacketStats(arch *evidence.Archive, cmds []monCommand, intervals []monInterval, since, now time.Time) {
+	type sessKey struct{ machine, session string }
+	byMachine := map[string]map[string]bool{}
+	for _, c := range cmds {
+		m := byMachine[c.Machine]
+		if m == nil {
+			m = map[string]bool{}
+			byMachine[c.Machine] = m
+		}
+		m[c.Session] = true
+	}
+	totals := map[sessKey]int{}
+	found := map[sessKey]bool{}
+	bins := map[sessKey][]int{}
+	step := now.Sub(since) / overlayIntervals
+
+	for machine, wanted := range byMachine {
+		segs, err := arch.Segments(machine)
+		if err != nil {
+			continue
+		}
+		for _, sg := range segs {
+			ids := segmentSessions(sg)
+			var matched []string
+			for _, id := range ids {
+				if wanted[id] {
+					matched = append(matched, id)
+				}
+			}
+			if len(matched) == 0 {
+				continue
+			}
+			for _, id := range matched {
+				k := sessKey{machine, id}
+				found[k] = true
+				if bins[k] == nil {
+					bins[k] = make([]int, overlayIntervals)
+				}
+			}
+			shared := len(ids) > 1
+			inWindow := !sg.EndTime.Before(since) && !sg.StartTime.After(now)
+			if !shared && !inWindow {
+				totals[sessKey{machine, matched[0]}] += sg.Records
+				continue
+			}
+			f, err := arch.OpenSegment(machine, sg)
+			if err != nil {
+				if !shared {
+					totals[sessKey{machine, matched[0]}] += sg.Records
+				}
+				continue
+			}
+			br := bufio.NewReaderSize(f, 64<<10)
+			for {
+				line, rerr := br.ReadBytes('\n')
+				if len(line) > 0 {
+					var row struct {
+						SessionID string    `json:"session_id"`
+						Timestamp time.Time `json:"timestamp"`
+					}
+					if jerr := json.Unmarshal(line, &row); jerr == nil && wanted[row.SessionID] {
+						k := sessKey{machine, row.SessionID}
+						totals[k]++
+						if idx, ok := intervalIndex(row.Timestamp, since, now, step); ok {
+							bins[k][idx]++
+							intervals[idx].Packets++
+						}
+					}
+				}
+				if rerr == io.EOF {
+					break
+				}
+				if rerr != nil {
+					break
+				}
+			}
+			_ = f.Close()
+		}
+	}
+	for i := range cmds {
+		k := sessKey{cmds[i].Machine, cmds[i].Session}
+		if found[k] {
+			n := totals[k]
+			cmds[i].Packets = &n
+			cmds[i].IntervalPackets = bins[k]
+		}
+	}
+}
+
+// archivedPackets counts the archived records belonging to session on machine;
+// ok is false when none of its evidence is on the main server yet. When a
+// segment is shared across multiple sessions, only records of session are
+// counted.
 func archivedPackets(o *fleet.Observe, machine, session string) (int, bool) {
 	segs, err := o.Archive.Segments(machine)
 	if err != nil {
@@ -302,14 +447,20 @@ func archivedPackets(o *fleet.Observe, machine, session string) (int, bool) {
 	}
 	n, found := 0, false
 	for _, sg := range segs {
-		ids := append([]string{sg.Session}, sg.Sessions...)
-		for _, id := range ids {
-			if id == session {
-				n += sg.Records
-				found = true
-				break
-			}
+		ids := segmentSessions(sg)
+		if !slices.Contains(ids, session) {
+			continue
 		}
+		found = true
+		if len(ids) <= 1 {
+			n += sg.Records
+			continue
+		}
+		counts, err := sessionPacketCounts(o.Archive, machine, sg)
+		if err != nil {
+			continue
+		}
+		n += counts[session]
 	}
 	return n, found
 }
@@ -397,6 +548,10 @@ type jobBody struct {
 	URL        string   `json:"url"`
 	IP         string   `json:"ip"`
 	Paths      []string `json:"paths"`
+	ProbeType  string   `json:"probe_type"`
+	ProbeTypes []string `json:"probe_types"`
+	DNSName    string   `json:"dns_name"`
+	DNSServer  string   `json:"dns_server"`
 	IntervalMS int      `json:"interval_ms"`
 }
 
@@ -413,6 +568,15 @@ func (s *server) monCreateJob(w http.ResponseWriter, r *http.Request, ob observe
 		writeJSON(w, http.StatusBadRequest, errBody("the frequency override is out of range"))
 		return
 	}
+	var probeTypes []probe.Type
+	for _, pt := range b.ProbeTypes {
+		if pt = strings.TrimSpace(pt); pt != "" {
+			probeTypes = append(probeTypes, probe.Type(pt))
+		}
+	}
+	if len(probeTypes) == 0 && strings.TrimSpace(b.ProbeType) != "" {
+		probeTypes = []probe.Type{probe.Type(strings.TrimSpace(b.ProbeType))}
+	}
 	var spec monitor.Spec
 	if strings.TrimSpace(b.URL) != "" {
 		var err error
@@ -420,9 +584,15 @@ func (s *server) monCreateJob(w http.ResponseWriter, r *http.Request, ob observe
 			writeJSON(w, monitorStatus(err), errBody(err.Error()))
 			return
 		}
+		if len(probeTypes) > 0 && !slices.Contains(probeTypes, probe.TypeHTTP) {
+			spec.Paths = nil
+		}
 	} else {
 		spec = monitor.Spec{IP: b.IP}
 	}
+	spec.ProbeTypes = probeTypes
+	spec.DNSName = b.DNSName
+	spec.DNSServer = b.DNSServer
 	for _, p := range b.Paths {
 		if p = strings.TrimSpace(p); p != "" {
 			spec.Paths = append(spec.Paths, p)

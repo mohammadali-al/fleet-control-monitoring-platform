@@ -34,15 +34,19 @@ const jobsFormatVersion = 1
 
 // Errors returned by Jobs.
 var (
-	ErrIPRequired     = errors.New("monitor: ip is required")
-	ErrBadIP          = errors.New("monitor: invalid ip")
-	ErrBadOrigin      = errors.New("monitor: invalid origin (want scheme://host:port)")
-	ErrBadPath        = errors.New("monitor: invalid path (want a path starting with /)")
-	ErrPathNeedsOrg   = errors.New("monitor: paths need an origin")
-	ErrDuplicate      = errors.New("monitor: a job for this (ip, origin) already exists")
-	ErrNotFound       = errors.New("monitor: no such job")
-	ErrNoCapacity     = errors.New("monitor: no monitor agent has room for the job's targets")
-	ErrNoMonitorAgent = errors.New("monitor: no monitor agents available")
+	ErrIPRequired      = errors.New("monitor: ip is required")
+	ErrBadIP           = errors.New("monitor: invalid ip")
+	ErrBadOrigin       = errors.New("monitor: invalid origin (want scheme://host:port)")
+	ErrBadPath         = errors.New("monitor: invalid path (want a path starting with /)")
+	ErrPathNeedsOrg    = errors.New("monitor: paths need an origin")
+	ErrBadProbeType    = errors.New("monitor: invalid probe type (want icmp, tcp, http or dns)")
+	ErrOriginRequired  = errors.New("monitor: tcp and http probes require an origin")
+	ErrDNSNameRequired = errors.New("monitor: dns probe requires a query name or origin")
+	ErrBadDNSServer    = errors.New("monitor: invalid dns server (want host or host:port)")
+	ErrDuplicate       = errors.New("monitor: a job for this (ip, origin) already exists")
+	ErrNotFound        = errors.New("monitor: no such job")
+	ErrNoCapacity      = errors.New("monitor: no monitor agent has room for the job's targets")
+	ErrNoMonitorAgent  = errors.New("monitor: no monitor agents available")
 )
 
 // Spec is what a caller supplies to create a job.
@@ -55,6 +59,14 @@ type Spec struct {
 	// Paths are the paths of the origin to probe over HTTP (default "/").
 	// Only valid with an Origin.
 	Paths []string
+	// ProbeTypes chooses which probe types to create (icmp, tcp, http, dns).
+	// When empty, defaults to ICMP (plus TCP and HTTP when Origin is set).
+	ProbeTypes []probe.Type
+	// DNSName is the query name for DNS targets (defaults to Origin's host).
+	DNSName string
+	// DNSServer is an optional resolver (host or host:port) for DNS targets;
+	// empty uses the system resolver.
+	DNSServer string
 }
 
 // SpecFromURL builds a Spec from the form the operator enters: an IP and a
@@ -150,6 +162,12 @@ type Job struct {
 	Origin string `json:"origin,omitempty"`
 	// Paths are the origin paths probed over HTTP.
 	Paths []string `json:"paths,omitempty"`
+	// ProbeTypes are the explicitly selected probe types, if any.
+	ProbeTypes []probe.Type `json:"probe_types,omitempty"`
+	// DNSName is the DNS query name when DNS probing is configured.
+	DNSName string `json:"dns_name,omitempty"`
+	// DNSServer is the optional DNS resolver (host:port).
+	DNSServer string `json:"dns_server,omitempty"`
 	// HistoryKey is the unique (ip, origin) history this job feeds.
 	HistoryKey string           `json:"history_key"`
 	Targets    []AssignedTarget `json:"targets"`
@@ -275,6 +293,16 @@ func (j *Jobs) Create(spec Spec, agents []string) (Job, error) {
 			return Job{}, err
 		}
 	}
+	probeTypes, err := normalizeProbeTypes(spec.ProbeTypes)
+	if err != nil {
+		return Job{}, err
+	}
+	wantHTTP := len(probeTypes) == 0 || slices.Contains(probeTypes, probe.TypeHTTP)
+	wantTCP := slices.Contains(probeTypes, probe.TypeTCP)
+	wantDNS := slices.Contains(probeTypes, probe.TypeDNS)
+	if (wantTCP || (len(probeTypes) > 0 && wantHTTP)) && origin == "" {
+		return Job{}, ErrOriginRequired
+	}
 	var paths []string
 	for _, p := range spec.Paths {
 		if origin == "" {
@@ -287,13 +315,21 @@ func (j *Jobs) Create(spec Spec, agents []string) (Job, error) {
 			paths = append(paths, p)
 		}
 	}
-	if origin != "" && len(paths) == 0 {
+	if origin != "" && len(paths) == 0 && wantHTTP {
 		paths = []string{"/"}
+	}
+	dnsName, dnsServer, err := normalizeDNSSpec(spec.DNSName, spec.DNSServer, origin, wantDNS)
+	if err != nil {
+		return Job{}, err
 	}
 
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	key := HistoryKey(ip, origin)
+	keyOrigin := origin
+	if keyOrigin == "" && dnsName != "" {
+		keyOrigin = "dns://" + dnsName
+	}
+	key := HistoryKey(ip, keyOrigin)
 	for _, other := range j.byID {
 		if other.HistoryKey == key {
 			return Job{}, fmt.Errorf("%w: %s (job %s)", ErrDuplicate, key, other.ID)
@@ -304,6 +340,9 @@ func (j *Jobs) Create(spec Spec, agents []string) (Job, error) {
 		IP:         ip,
 		Origin:     origin,
 		Paths:      paths,
+		ProbeTypes: probeTypes,
+		DNSName:    dnsName,
+		DNSServer:  dnsServer,
 		HistoryKey: key,
 		CreatedAt:  j.now().UTC(),
 	}
@@ -553,18 +592,51 @@ func pickAgent(agents []string, load map[string]int) (string, bool) {
 	return best, bestLoad >= 0
 }
 
-// initialTargets derives the probe targets of a new job: ICMP to the ip, and
-// when there is an origin a TCP connect to its port and one HTTP probe per
-// path. HTTP and TCP connect to the job's ip while carrying the origin host.
+// initialTargets derives the probe targets of a new job. When ProbeTypes is
+// empty it uses the defaults (ICMP to the ip, plus TCP connect and one HTTP
+// probe per path when an origin is set); otherwise it builds targets for the
+// selected probe types (including DNS).
 func initialTargets(job Job) []probe.Target {
-	ts := []probe.Target{{ID: job.ID + "/icmp", Type: probe.TypeICMP, Address: job.IP}}
-	if job.Origin == "" {
+	if len(job.ProbeTypes) == 0 {
+		ts := []probe.Target{{ID: job.ID + "/icmp", Type: probe.TypeICMP, Address: job.IP}}
+		if job.Origin == "" {
+			return ts
+		}
+		u, _ := url.Parse(job.Origin) // already normalised
+		ts = append(ts, probe.Target{ID: job.ID + "/tcp", Type: probe.TypeTCP, Address: u.Host, IP: job.IP})
+		for i, p := range job.Paths {
+			ts = append(ts, httpTarget(job, i, p))
+		}
 		return ts
 	}
-	u, _ := url.Parse(job.Origin) // already normalised
-	ts = append(ts, probe.Target{ID: job.ID + "/tcp", Type: probe.TypeTCP, Address: u.Host, IP: job.IP})
-	for i, p := range job.Paths {
-		ts = append(ts, httpTarget(job, i, p))
+	var u *url.URL
+	if job.Origin != "" {
+		u, _ = url.Parse(job.Origin)
+	}
+	var ts []probe.Target
+	for _, pt := range job.ProbeTypes {
+		switch pt {
+		case probe.TypeICMP:
+			ts = append(ts, probe.Target{ID: job.ID + "/icmp", Type: probe.TypeICMP, Address: job.IP})
+		case probe.TypeTCP:
+			if u != nil {
+				ts = append(ts, probe.Target{ID: job.ID + "/tcp", Type: probe.TypeTCP, Address: u.Host, IP: job.IP})
+			}
+		case probe.TypeHTTP:
+			if u != nil {
+				for i, p := range job.Paths {
+					ts = append(ts, httpTarget(job, i, p))
+				}
+			}
+		case probe.TypeDNS:
+			name := job.DNSName
+			if name == "" && u != nil {
+				name = u.Hostname()
+			}
+			if name != "" {
+				ts = append(ts, dnsTarget(job, name))
+			}
+		}
 	}
 	return ts
 }
@@ -573,9 +645,78 @@ func httpTarget(job Job, n int, path string) probe.Target {
 	return probe.Target{ID: fmt.Sprintf("%s/http/%d", job.ID, n), Type: probe.TypeHTTP, Address: job.Origin + path, IP: job.IP}
 }
 
+func dnsTarget(job Job, name string) probe.Target {
+	return probe.Target{ID: job.ID + "/dns", Type: probe.TypeDNS, Address: name, Server: job.DNSServer}
+}
+
+func normalizeProbeTypes(raw []probe.Type) ([]probe.Type, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make([]probe.Type, 0, len(raw))
+	for _, r := range raw {
+		pt := probe.Type(strings.ToLower(strings.TrimSpace(string(r))))
+		switch pt {
+		case probe.TypeICMP, probe.TypeTCP, probe.TypeHTTP, probe.TypeDNS:
+		default:
+			return nil, fmt.Errorf("%w: %q", ErrBadProbeType, r)
+		}
+		if !slices.Contains(out, pt) {
+			out = append(out, pt)
+		}
+	}
+	return out, nil
+}
+
+func normalizeDNSSpec(rawName, rawServer, origin string, required bool) (name, server string, err error) {
+	name = strings.TrimSpace(rawName)
+	if name != "" {
+		if strings.ContainsAny(name, " \t\r\n/\\") {
+			return "", "", fmt.Errorf("%w: invalid query name %q", ErrDNSNameRequired, name)
+		}
+		name = strings.ToLower(strings.TrimSuffix(name, "."))
+	}
+	if name == "" && required && origin != "" {
+		u, _ := url.Parse(origin)
+		name = u.Hostname()
+	}
+	if required && name == "" {
+		return "", "", ErrDNSNameRequired
+	}
+	server = strings.TrimSpace(rawServer)
+	if server != "" {
+		server, err = normalizeDNSServer(server)
+		if err != nil {
+			return "", "", err
+		}
+	}
+	return name, server, nil
+}
+
+func normalizeDNSServer(raw string) (string, error) {
+	if host, port, err := net.SplitHostPort(raw); err == nil {
+		if strings.TrimSpace(host) == "" {
+			return "", fmt.Errorf("%w: missing host", ErrBadDNSServer)
+		}
+		n, perr := strconv.Atoi(port)
+		if perr != nil || n < 1 || n > 65535 {
+			return "", fmt.Errorf("%w: bad port %q", ErrBadDNSServer, port)
+		}
+		return net.JoinHostPort(host, port), nil
+	}
+	if addr, err := netip.ParseAddr(raw); err == nil {
+		return net.JoinHostPort(addr.Unmap().String(), "53"), nil
+	}
+	if strings.ContainsAny(raw, " \t\r\n:/\\") {
+		return "", fmt.Errorf("%w: %q", ErrBadDNSServer, raw)
+	}
+	return net.JoinHostPort(raw, "53"), nil
+}
+
 func cloneJob(job *Job) *Job {
 	c := *job
 	c.Paths = slices.Clone(job.Paths)
+	c.ProbeTypes = slices.Clone(job.ProbeTypes)
 	c.Targets = slices.Clone(job.Targets)
 	return &c
 }

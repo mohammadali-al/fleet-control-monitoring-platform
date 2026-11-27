@@ -82,6 +82,107 @@ func TestCreateRequiresIPAndAllowsOptionalOrigin(t *testing.T) {
 	}
 }
 
+func TestDNSTargetCreationAndValidation(t *testing.T) {
+	j, dir := openJobs(t)
+
+	// Validation failures for probe_types / dns fields leave no job behind.
+	if _, err := j.Create(Spec{IP: "10.0.0.1", ProbeTypes: []probe.Type{"bogus"}}, agents); !errors.Is(err, ErrBadProbeType) {
+		t.Errorf("bad probe type: %v, want ErrBadProbeType", err)
+	}
+	if _, err := j.Create(Spec{IP: "10.0.0.1", ProbeTypes: []probe.Type{probe.TypeTCP}}, agents); !errors.Is(err, ErrOriginRequired) {
+		t.Errorf("tcp without origin: %v, want ErrOriginRequired", err)
+	}
+	if _, err := j.Create(Spec{IP: "10.0.0.1", ProbeTypes: []probe.Type{probe.TypeHTTP}}, agents); !errors.Is(err, ErrOriginRequired) {
+		t.Errorf("http without origin: %v, want ErrOriginRequired", err)
+	}
+	if _, err := j.Create(Spec{IP: "10.0.0.1", ProbeTypes: []probe.Type{probe.TypeDNS}}, agents); !errors.Is(err, ErrDNSNameRequired) {
+		t.Errorf("dns without name or origin: %v, want ErrDNSNameRequired", err)
+	}
+	if _, err := j.Create(Spec{IP: "10.0.0.1", Origin: "https://shop.example.test", ProbeTypes: []probe.Type{probe.TypeDNS}, DNSServer: "bad:99999"}, agents); !errors.Is(err, ErrBadDNSServer) {
+		t.Errorf("bad dns server: %v, want ErrBadDNSServer", err)
+	}
+	if len(j.List()) != 0 {
+		t.Fatalf("failed creates left jobs behind: %+v", j.List())
+	}
+
+	// Origin + DNS-only target derives query name from Origin hostname.
+	dnsFromOrigin, err := j.Create(Spec{
+		IP:         "10.0.0.1",
+		Origin:     "https://Shop.Example.test",
+		ProbeTypes: []probe.Type{probe.TypeDNS},
+	}, agents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dnsFromOrigin.Targets) != 1 {
+		t.Fatalf("targets = %+v, want 1 dns target", dnsFromOrigin.Targets)
+	}
+	tg := dnsFromOrigin.Targets[0].Target
+	if tg.Type != probe.TypeDNS || tg.Address != "shop.example.test" || tg.Server != "" || tg.ID != dnsFromOrigin.ID+"/dns" {
+		t.Errorf("dns target = %+v", tg)
+	}
+	if hk, ok := j.HistoryKeyFor(tg.ID); !ok || hk != dnsFromOrigin.HistoryKey {
+		t.Errorf("HistoryKeyFor(%s) = %q, %v", tg.ID, hk, ok)
+	}
+
+	// DNS-only job without Origin uses DNSName and does not collide with IP-only ICMP job.
+	if _, err := j.Create(Spec{IP: "10.0.0.2"}, agents); err != nil {
+		t.Fatalf("ip-only icmp job: %v", err)
+	}
+	dnsNoOrigin, err := j.Create(Spec{
+		IP:         "10.0.0.2",
+		ProbeTypes: []probe.Type{probe.TypeDNS},
+		DNSName:    "DNS.Example.Test.",
+		DNSServer:  "10.0.0.2",
+	}, agents)
+	if err != nil {
+		t.Fatalf("dns-only without origin: %v", err)
+	}
+	if dnsNoOrigin.HistoryKey != "10.0.0.2|dns://dns.example.test" {
+		t.Errorf("HistoryKey = %q", dnsNoOrigin.HistoryKey)
+	}
+	if dt := dnsNoOrigin.Targets[0].Target; dt.Type != probe.TypeDNS || dt.Address != "dns.example.test" || dt.Server != "10.0.0.2:53" {
+		t.Errorf("dnsNoOrigin target = %+v", dt)
+	}
+
+	// All four probe types (icmp, tcp, http, dns) together across agents.
+	all4, err := j.Create(Spec{
+		IP:         "10.0.0.3",
+		Origin:     "https://api.example.test",
+		Paths:      []string{"/health"},
+		ProbeTypes: []probe.Type{probe.TypeICMP, probe.TypeTCP, probe.TypeHTTP, probe.TypeDNS, probe.TypeDNS},
+		DNSServer:  "198.51.100.53:5353",
+	}, []string{"mon-a", "mon-b", "mon-c"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all4.Targets) != 4 {
+		t.Fatalf("all4 targets = %d (%+v), want 4 (deduped)", len(all4.Targets), all4.Targets)
+	}
+	gotTypes := map[probe.Type]probe.Target{}
+	for _, at := range all4.Targets {
+		gotTypes[at.Target.Type] = at.Target
+	}
+	for _, want := range []probe.Type{probe.TypeICMP, probe.TypeTCP, probe.TypeHTTP, probe.TypeDNS} {
+		if _, ok := gotTypes[want]; !ok {
+			t.Errorf("missing probe type %s in %+v", want, all4.Targets)
+		}
+	}
+	if gotTypes[probe.TypeDNS].Server != "198.51.100.53:5353" || gotTypes[probe.TypeDNS].Address != "api.example.test" {
+		t.Errorf("all4 dns target = %+v", gotTypes[probe.TypeDNS])
+	}
+
+	// Persistence round-trip preserves ProbeTypes, DNSName, DNSServer, and DNS targets.
+	re, err := OpenJobs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloaded, ok := re.Get(dnsNoOrigin.ID)
+	if !ok || reloaded.DNSName != "dns.example.test" || reloaded.DNSServer != "10.0.0.2:53" || len(reloaded.Targets) != 1 || reloaded.Targets[0].Target.Type != probe.TypeDNS {
+		t.Errorf("reloaded dns job = %+v (ok=%v)", reloaded, ok)
+	}
+}
+
 func TestNoDuplicateIPOriginButOriginsAndPathsDiffer(t *testing.T) {
 	j, _ := openJobs(t)
 	first, err := j.Create(Spec{IP: "10.0.0.1", Origin: "https://app.example.com"}, agents)
