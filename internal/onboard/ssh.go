@@ -651,7 +651,7 @@ func stepInstallUnit(ctx context.Context, j *job) error {
 	}{
 		{j.l.UnitPath, renderUnit(j.l)},
 		{j.l.watchdogUnitPath(), renderWatchdogUnit(j.l, j.m.Role)},
-		// The independent liveness checks (T-0027): 45 s timers and their
+		// The independent liveness checks (T-0027): 1 min timers and their
 		// one-shots, restarting a stopped or hung agent / watchdog.
 		{j.l.livenessServicePath(), renderLivenessService(j.l)},
 		{j.l.livenessTimerPath(), renderLivenessTimer(j.l)},
@@ -841,14 +841,21 @@ ExecStart=%s
 `, desc, watchdog.LivenessExecStart(unitName, hbPath))
 }
 
-// renderLivenessTimer fires the one-shot every 45 s (the fixed check cadence;
-// heartbeat_threshold is never below it).
+// renderLivenessTimer fires the one-shot at the fixed check cadence
+// (heartbeat_threshold is never below it).
 func renderLivenessTimer(l Layout) string {
-	return renderLivenessTimerUnit("Fleet agent liveness check (every 45 s)", l.livenessBase())
+	return renderLivenessTimerUnit("Fleet agent liveness check (every 1 min)", l.livenessBase())
 }
 
 func renderWatchdogLivenessTimer(l Layout) string {
-	return renderLivenessTimerUnit("Fleet watchdog liveness check (every 45 s)", l.watchdogLivenessBase())
+	return renderLivenessTimerUnit("Fleet watchdog liveness check (every 1 min)", l.watchdogLivenessBase())
+}
+
+func formatSystemdDuration(d time.Duration) string {
+	if d >= time.Minute && d%time.Minute == 0 {
+		return fmt.Sprintf("%dmin", int(d/time.Minute))
+	}
+	return fmt.Sprintf("%ds", int(d/time.Second))
 }
 
 func renderLivenessTimerUnit(desc, base string) string {
@@ -857,13 +864,13 @@ Description=%s
 
 [Timer]
 OnBootSec=1min
-OnUnitActiveSec=%ds
+OnUnitActiveSec=%s
 AccuracySec=5s
 Unit=%s.service
 
 [Install]
 WantedBy=timers.target
-`, desc, int(watchdog.HeartbeatCheckEvery/time.Second), base)
+`, desc, formatSystemdDuration(watchdog.HeartbeatCheckEvery), base)
 }
 
 // CertFingerprint is the lowercase hex SHA-256 of the first certificate in a

@@ -13,7 +13,7 @@ import (
 func secs(n int) time.Duration { return time.Duration(n) * time.Second }
 
 func TestValidateHeartbeat(t *testing.T) {
-	good := [][2]int{{2, 45}, {5, 90}, {10, 75}, {15, 45}, {15, 300}, {2, 300}, {14, 45}}
+	good := [][2]int{{2, 60}, {5, 90}, {10, 75}, {15, 60}, {15, 300}, {2, 300}, {14, 60}}
 	for _, c := range good {
 		if err := ValidateHeartbeat(secs(c[0]), secs(c[1])); err != nil {
 			t.Errorf("write %ds threshold %ds should be accepted: %v", c[0], c[1], err)
@@ -26,18 +26,18 @@ func TestValidateHeartbeat(t *testing.T) {
 		{50, 75, "write above 15"},
 		{1, 90, "write below 2"},
 		{16, 300, "write above 15"},
-		{5, 44, "threshold below the 45 s check"},
+		{5, 59, "threshold below the 1 min check"},
 		{5, 301, "threshold above 300"},
 		{0, 90, "zero write"},
-		{15, 44, "threshold below 45"},
-		{10, 29, "threshold below 3 x write and 45"},
+		{15, 45, "threshold below 60"},
+		{10, 29, "threshold below 3 x write and 60"},
 	}
 	for _, c := range bad {
 		if err := ValidateHeartbeat(secs(c.w), secs(c.th)); err == nil {
 			t.Errorf("write %ds threshold %ds should be rejected (%s)", c.w, c.th, c.why)
 		}
 	}
-	// With write <= 15 the 45 s floor already implies threshold >= 3 x write, so
+	// With write <= 15 the 60 s floor already implies threshold >= 3 x write, so
 	// the factor never binds on its own today. If the bounds ever change so that
 	// it can, this reminds whoever does it to give the factor its own case.
 	if HeartbeatThresholdFactor*MaxHeartbeatWrite > MinHeartbeatThreshold {
@@ -261,7 +261,7 @@ func TestLivenessScriptFreshness(t *testing.T) {
 }
 
 // The deploy/ unit files carry exactly the script the Go code defines, on the
-// fixed 45 s cadence.
+// fixed 1 min cadence.
 func TestDeployUnitsMatchTheScript(t *testing.T) {
 	root := filepath.Join("..", "..", "deploy", "systemd")
 	for unit, who := range map[string]string{"fleet-watchdog": HeartbeatWatchdog, "fleet-agent": HeartbeatAgent} {
@@ -277,10 +277,10 @@ func TestDeployUnitsMatchTheScript(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// fleet-watchdog-liveness.timer (1 min -> 45 s) is outside T-0027's touches
-		// and ships as a patch, so only the agent timer is checked here.
-		if unit == "fleet-agent" && !strings.Contains(string(tim), "OnUnitActiveSec=45s\n") {
-			t.Errorf("%s-liveness.timer must fire every 45 s:\n%s", unit, tim)
+		// fleet-agent-liveness.timer (45 s -> 1 min) is outside T-0052's touches
+		// and ships as a patch, so only the watchdog timer is checked here.
+		if unit == "fleet-watchdog" && !strings.Contains(string(tim), "OnUnitActiveSec=1min\n") {
+			t.Errorf("%s-liveness.timer must fire every 1 min:\n%s", unit, tim)
 		}
 	}
 }

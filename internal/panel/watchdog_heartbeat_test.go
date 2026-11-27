@@ -8,7 +8,7 @@ import (
 )
 
 // The Watchdog policy editor exposes heartbeat_write and heartbeat_threshold,
-// validated by the one shared check (T-0027); the 45 s check cadence is not a key.
+// validated by the one shared check (T-0027); the 1 min check cadence is not a key.
 func TestWatchdogPolicyHeartbeatFields(t *testing.T) {
 	e := newObsEnv(t, nil)
 
@@ -25,7 +25,7 @@ func TestWatchdogPolicyHeartbeatFields(t *testing.T) {
 		}
 	}
 	if strings.Contains(pol.YAML, "check_interval") || strings.Contains(pol.YAML, "heartbeat_check") {
-		t.Errorf("the fixed 45 s check cadence must not be a policy key:\n%s", pol.YAML)
+		t.Errorf("the fixed 1 min check cadence must not be a policy key:\n%s", pol.YAML)
 	}
 	if pol.Effective.HeartbeatWrite.D() != watchdog.DefaultHeartbeatWrite || pol.Effective.HeartbeatThreshold.D() != watchdog.DefaultHeartbeatThreshold {
 		t.Errorf("effective = %v / %v", pol.Effective.HeartbeatWrite.D(), pol.Effective.HeartbeatThreshold.D())
@@ -35,12 +35,12 @@ func TestWatchdogPolicyHeartbeatFields(t *testing.T) {
 		code, _ := e.req("POST", "/api/watchdog/policy", map[string]string{"yaml": "version: 1\nheartbeat_write: " + w + "\nheartbeat_threshold: " + th + "\n"}, nil)
 		return code
 	}
-	for _, bad := range [][2]string{{"50s", "75s"}, {"1s", "75s"}, {"10s", "44s"}, {"10s", "301s"}, {"15s", "40s"}} {
+	for _, bad := range [][2]string{{"50s", "75s"}, {"1s", "75s"}, {"10s", "59s"}, {"10s", "301s"}, {"15s", "40s"}} {
 		if code := save(bad[0], bad[1]); code != 400 {
 			t.Errorf("write %s threshold %s = %d, want 400", bad[0], bad[1], code)
 		}
 	}
-	if code := save("10s", "75s"); code != 200 {
-		t.Errorf("10s/75s = %d, want 200", code)
+	if code := save("10s", "60s"); code != 200 {
+		t.Errorf("10s/60s = %d, want 200", code)
 	}
 }

@@ -15,7 +15,7 @@ import (
 // check only catches a crashed or stopped service; a process that is deadlocked
 // yet still "active" needs more. So both the watchdog and the main agent write a
 // tiny timestamp file every `heartbeat_write` seconds from inside their main
-// loop, and an independent systemd timer (fixed 45 s cadence) runs a one-shot
+// loop, and an independent systemd timer (fixed 1 min cadence) runs a one-shot
 // that restarts the unit when the file is older than `heartbeat_threshold`.
 //
 // The file is "<unix seconds> <threshold seconds>\n", fixed width, so one
@@ -27,7 +27,7 @@ import (
 // OnUnitActiveSec and is deliberately not a policy field.
 const (
 	// HeartbeatCheckEvery is the fixed cadence of the liveness timers.
-	HeartbeatCheckEvery = 45 * time.Second
+	HeartbeatCheckEvery = time.Minute
 
 	MinHeartbeatWrite = 2 * time.Second
 	MaxHeartbeatWrite = 15 * time.Second
@@ -50,7 +50,7 @@ const (
 
 // ValidateHeartbeat is the single check of the heartbeat settings, used by the
 // policy parser (and so by the panel's save, which parses the YAML) on both the
-// server and the agent: write within [2 s, 15 s], threshold within [45 s,
+// server and the agent: write within [2 s, 15 s], threshold within [1 min,
 // 300 s], and threshold at least 3 x write.
 func ValidateHeartbeat(write, threshold time.Duration) error {
 	if write < MinHeartbeatWrite || write > MaxHeartbeatWrite {
