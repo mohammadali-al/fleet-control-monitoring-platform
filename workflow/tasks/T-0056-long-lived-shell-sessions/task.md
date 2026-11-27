@@ -1,7 +1,7 @@
 ---
 id: T-0056
 title: long-lived-shell-sessions
-state: ready
+state: merged
 touches: [internal/panel/ws.go, internal/fleet/fleet.go, internal/panel/api.go,
           web/src/pages/TerminalPage.jsx, internal/panel/ws_test.go]
 tests: [server]
