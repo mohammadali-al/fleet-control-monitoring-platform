@@ -85,6 +85,7 @@ export function WatchdogPage() {
 
   // Policy editor
   const [policyTab, setPolicyTab] = useState('yaml'); // 'yaml' | 'form'
+  const [effTarget, setEffTarget] = useState('__default__');
   const [yamlText, setYamlText] = useState('');
   const [policyDoc, setPolicyDoc] = useState(null);
   const [savingPolicy, setSavingPolicy] = useState(false);
@@ -319,8 +320,10 @@ export function WatchdogPage() {
     }
   };
 
-  const eff = policyDoc?.effective;
   const hostById = Object.fromEntries(hosts.map((h) => [h.machine, h]));
+  const selectedEffHost = effTarget !== '__default__' ? hostById[effTarget] : null;
+  const eff = selectedEffHost?.effective_policy || policyDoc?.effective;
+  const workerHosts = hosts.filter((h) => h.role !== 'monitor' && !h.headless);
   const verText = policyMeta.stored ? `v${policyMeta.version}` : 'no profile';
   const inForceText = policyMeta.stored
     ? `In force on ${policyMeta.in_force} of ${policyMeta.workers} worker agents`
@@ -478,6 +481,15 @@ export function WatchdogPage() {
                             {isMonitor ? 'Monitor agent (headless)' : 'Worker agent'}
                             {h.connection === 'online' ? '' : ` (${h.connection})`}
                           </div>
+                          {Array.isArray(h.groups) && h.groups.length > 0 && (
+                            <div className="row" style={{ gap: 'var(--sp-1)', marginTop: 'var(--sp-1)', flexWrap: 'wrap' }}>
+                              {h.groups.map((g) => (
+                                <span key={g} className="chip chip--outline chip--mono">
+                                  {g}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </th>
                         <td>
                           <span className={`chip chip--${tone}`}>
@@ -522,6 +534,13 @@ export function WatchdogPage() {
                             `v${h.policy_pushed} pushed, no ack yet`
                           ) : (
                             'default'
+                          )}
+                          {!isMonitor && h.effective_policy && (
+                            <div className="cell-sub mono">
+                              {`CPU ${h.effective_policy.machine?.cpu_percent?.trigger ?? '-'}% · throttle ${
+                                h.effective_policy.throttle?.cpu_percent ?? '-'
+                              }%`}
+                            </div>
                           )}
                         </td>
                         <td className={`num${notReporting ? ' faint' : ''}`}>
@@ -689,9 +708,33 @@ export function WatchdogPage() {
               aria-labelledby="ptab-form"
               hidden={policyTab !== 'form'}
             >
-              <p className="field__hint" style={{ marginBottom: 'var(--sp-3)' }}>
-                What the stored default profile resolves to (read-only). Change it in the YAML tab.
-              </p>
+              <div className="row row--between" style={{ marginBottom: 'var(--sp-3)', gap: 'var(--sp-3)' }}>
+                <p className="field__hint" style={{ margin: 0 }}>
+                  {selectedEffHost
+                    ? `Resolved effective policy for ${selectedEffHost.machine}${
+                        selectedEffHost.groups?.length ? ` (groups: ${selectedEffHost.groups.join(', ')})` : ''
+                      }, host > group > default (read-only).`
+                    : 'What the stored default profile resolves to (read-only). Change it in the YAML tab.'}
+                </p>
+                {workerHosts.length > 0 && (
+                  <select
+                    className="select"
+                    id="wd-eff-host"
+                    aria-label="Inspect effective policy for host"
+                    style={{ width: 'auto' }}
+                    value={selectedEffHost ? selectedEffHost.machine : '__default__'}
+                    onChange={(e) => setEffTarget(e.target.value)}
+                  >
+                    <option value="__default__">Default profile (no overrides)</option>
+                    {workerHosts.map((h) => (
+                      <option key={h.machine} value={h.machine}>
+                        {h.machine}
+                        {h.groups?.length ? ` [${h.groups.join(', ')}]` : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
               <dl className="kv" id="wd-effective">
                 {eff && (
                   <>

@@ -1,11 +1,14 @@
 package panel
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -261,5 +264,215 @@ func TestWatchdogHostStatePersistedAcrossRestart(t *testing.T) {
 	}, now)
 	if stale.Restarts != 0 || stale.Reboots != 0 || stale.Stage != "restart" || stale.Condition != "alert-only" {
 		t.Errorf("yesterday's persisted state = %+v, want today's counters 0", stale)
+	}
+}
+
+func TestWatchdogGroupsAssignmentPersistenceAndResolution(t *testing.T) {
+	dataDir := t.TempDir()
+	store := registry.NewStore(dataDir)
+	reg := registry.New()
+	for _, mc := range []registry.Machine{
+		{ID: "w1", Role: registry.RoleWorker, PrivateIPs: []string{"10.0.0.1"}, Provisioned: true},
+		{ID: "w2", Role: registry.RoleWorker, PrivateIPs: []string{"10.0.0.2"}, Provisioned: true},
+		{ID: "gone", Role: registry.RoleWorker, PrivateIPs: []string{"10.0.0.9"}, Removed: true},
+	} {
+		if err := reg.Add(mc); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.Save(reg); err != nil {
+		t.Fatal(err)
+	}
+
+	gate, err := exe.NewGate([]byte("secret"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	startServer := func(r *registry.Registry) (*httptest.Server, *fleet.Manager, func()) {
+		m, err := fleet.New(fleet.Config{
+			Registry: r, Gate: gate, DataDir: dataDir, PollInterval: 10 * time.Millisecond, Logger: log,
+			NewLink: func(mc registry.Machine, h channel.Handler) (fleet.Link, error) {
+				return &obsLink{h: h, up: true}, nil
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		o, err := fleet.OpenObserve(dataDir, log)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m.SetObserve(o)
+		ctx, cancel := context.WithCancel(context.Background())
+		m.Start(ctx)
+		eventually(t, "online", func() bool {
+			w, ok1 := m.Machine("w1")
+			w2, ok2 := m.Machine("w2")
+			return ok1 && ok2 && w.State == fleet.StateOnline && w2.State == fleet.StateOnline
+		})
+		h, err := New(Options{Assets: web.FS, Templates: web.Templates, Backend: m, Logger: log})
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv := httptest.NewServer(h)
+		return srv, m, func() { srv.Close(); cancel(); m.Close() }
+	}
+
+	postJSON := func(srv *httptest.Server, path string, in any, out any) int {
+		t.Helper()
+		b, _ := json.Marshal(in)
+		req, err := http.NewRequest("POST", srv.URL+path, bytes.NewReader(b))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if out != nil {
+			if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return resp.StatusCode
+	}
+
+	fetchHosts := func(srv *httptest.Server) map[string]hostState {
+		t.Helper()
+		resp, err := srv.Client().Get(srv.URL + "/api/watchdog")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET /api/watchdog = %d", resp.StatusCode)
+		}
+		var body struct {
+			Hosts []hostState `json:"hosts"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]hostState{}
+		for _, h := range body.Hosts {
+			out[h.Machine] = h
+		}
+		return out
+	}
+
+	srv1, _, stop1 := startServer(reg)
+	policyYAML := `version: 1
+caps: {restarts_per_day: 3, reboots_per_day: 1}
+throttle: {cpu_percent: 50}
+overrides:
+  groups:
+    edge:
+      throttle: {cpu_percent: 30}
+      caps: {restarts_per_day: 5}
+    gpu:
+      caps: {restarts_per_day: 7, reboots_per_day: 2}
+  hosts:
+    w2:
+      caps: {restarts_per_day: 2}
+`
+	if code := postJSON(srv1, "/api/watchdog/policy", map[string]string{"yaml": policyYAML}, nil); code != http.StatusOK {
+		t.Fatalf("POST /api/watchdog/policy = %d", code)
+	}
+
+	// Validation & error cases.
+	for name, tc := range map[string]struct {
+		id   string
+		body any
+		want int
+	}{
+		"invalid group": {id: "w1", body: map[string]any{"groups": []string{"bad/name"}}, want: http.StatusBadRequest},
+		"empty group":   {id: "w1", body: map[string]any{"groups": []string{"  "}}, want: http.StatusBadRequest},
+		"dup group":     {id: "w1", body: map[string]any{"groups": []string{"edge", "edge"}}, want: http.StatusBadRequest},
+		"unknown field": {id: "w1", body: map[string]any{"groups": []string{"edge"}, "extra": 1}, want: http.StatusBadRequest},
+		"unknown host":  {id: "nope", body: map[string]any{"groups": []string{"edge"}}, want: http.StatusNotFound},
+		"removed host":  {id: "gone", body: map[string]any{"groups": []string{"edge"}}, want: http.StatusConflict},
+	} {
+		if got := postJSON(srv1, "/api/machines/"+tc.id+"/groups", tc.body, nil); got != tc.want {
+			t.Errorf("%s: got %d, want %d", name, got, tc.want)
+		}
+	}
+
+	// Assign groups: w1 -> [edge, gpu] (later group gpu wins on restarts_per_day=7, edge sets throttle=30).
+	// w2 -> [edge] (host w2 override restarts_per_day=2 beats edge=5, edge still sets throttle=30).
+	var resp1 struct {
+		Machine fleet.MachineInfo `json:"machine"`
+	}
+	if code := postJSON(srv1, "/api/machines/w1/groups", map[string]any{"groups": []string{" edge ", "gpu"}}, &resp1); code != http.StatusOK {
+		t.Fatalf("POST /api/machines/w1/groups = %d", code)
+	}
+	if len(resp1.Machine.Groups) != 2 || resp1.Machine.Groups[0] != "edge" || resp1.Machine.Groups[1] != "gpu" {
+		t.Fatalf("w1 machine groups = %v, want [edge gpu]", resp1.Machine.Groups)
+	}
+	if code := postJSON(srv1, "/api/machines/w2/groups", map[string]any{"groups": []string{"edge"}}, nil); code != http.StatusOK {
+		t.Fatalf("POST /api/machines/w2/groups = %d", code)
+	}
+
+	hosts1 := fetchHosts(srv1)
+	if w1 := hosts1["w1"]; len(w1.Groups) != 2 || w1.RestartsX != 7 || w1.RebootsX != 2 ||
+		w1.EffectivePolicy == nil || w1.EffectivePolicy.Throttle.CPUPercent != 30 {
+		t.Fatalf("w1 watchdog host = %+v (eff=%+v)", w1, w1.EffectivePolicy)
+	}
+	if w2 := hosts1["w2"]; len(w2.Groups) != 1 || w2.Groups[0] != "edge" || w2.RestartsX != 2 ||
+		w2.EffectivePolicy == nil || w2.EffectivePolicy.Throttle.CPUPercent != 30 {
+		t.Fatalf("w2 watchdog host = %+v (eff=%+v)", w2, w2.EffectivePolicy)
+	}
+	stop1()
+
+	// Restart server from disk: group assignments and effective-policy resolution survive.
+	reg2, err := registry.NewStore(dataDir).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv2, _, stop2 := startServer(reg2)
+	defer stop2()
+
+	hosts2 := fetchHosts(srv2)
+	if w1 := hosts2["w1"]; len(w1.Groups) != 2 || w1.RestartsX != 7 || w1.RebootsX != 2 ||
+		w1.EffectivePolicy == nil || w1.EffectivePolicy.Throttle.CPUPercent != 30 {
+		t.Fatalf("w1 after restart = %+v", w1)
+	}
+	if w2 := hosts2["w2"]; len(w2.Groups) != 1 || w2.Groups[0] != "edge" || w2.RestartsX != 2 ||
+		w2.EffectivePolicy == nil || w2.EffectivePolicy.Throttle.CPUPercent != 30 {
+		t.Fatalf("w2 after restart = %+v", w2)
+	}
+
+	// Clearing w1 groups reverts to default policy.
+	if code := postJSON(srv2, "/api/machines/w1/groups", map[string]any{"groups": []string{}}, nil); code != http.StatusOK {
+		t.Fatalf("clear w1 groups = %d", code)
+	}
+	hostsAfterClear := fetchHosts(srv2)
+	if w1 := hostsAfterClear["w1"]; len(w1.Groups) != 0 || w1.RestartsX != 3 || w1.RebootsX != 1 ||
+		w1.EffectivePolicy == nil || w1.EffectivePolicy.Throttle.CPUPercent != 50 {
+		t.Fatalf("w1 after clear = %+v", w1)
+	}
+
+	// Bundle includes Watchdog groups UI on Machines and Watchdog pages.
+	_, _, js := body(t, srv2.URL+"/assets/dist/app.js")
+	for _, want := range []string{"Watchdog groups", "/groups", "wd-eff-host", "Save groups"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("SPA bundle lacks %q", want)
+		}
+	}
+
+	// Without backend -> 503.
+	nb := noBackend(t)
+	req, _ := http.NewRequest("POST", nb.URL+"/api/machines/w1/groups", bytes.NewReader([]byte(`{"groups":["edge"]}`)))
+	req.Header.Set("Content-Type", "application/json")
+	if resp, err := http.DefaultClient.Do(req); err != nil {
+		t.Fatal(err)
+	} else {
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusServiceUnavailable {
+			t.Errorf("no-backend POST groups = %d, want 503", resp.StatusCode)
+		}
 	}
 }

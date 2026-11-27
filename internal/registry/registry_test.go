@@ -31,15 +31,19 @@ func TestAddDefaultsConnectMode(t *testing.T) {
 
 func TestValidateRejects(t *testing.T) {
 	cases := map[string]Machine{
-		"bad role":      {ID: "a", Role: "boss", ConnectMode: ConnectModeServerDial},
-		"empty role":    {ID: "a", ConnectMode: ConnectModeServerDial},
-		"bad mode":      {ID: "a", Role: RoleWorker, ConnectMode: "carrier_pigeon"},
-		"empty id":      {Role: RoleWorker, ConnectMode: ConnectModeServerDial},
-		"id with space": {ID: "a b", Role: RoleWorker, ConnectMode: ConnectModeServerDial},
-		"id with slash": {ID: "../x", Role: RoleWorker, ConnectMode: ConnectModeServerDial},
-		"bad ip":        {ID: "a", Role: RoleWorker, ConnectMode: ConnectModeServerDial, PrivateIPs: []string{"nope"}},
-		"bad wd stage":  {ID: "a", Role: RoleWorker, ConnectMode: ConnectModeServerDial, WatchdogState: &WatchdogState{Stage: "explode"}},
-		"neg wd count":  {ID: "a", Role: RoleWorker, ConnectMode: ConnectModeServerDial, WatchdogState: &WatchdogState{RestartsToday: -1}},
+		"bad role":        {ID: "a", Role: "boss", ConnectMode: ConnectModeServerDial},
+		"empty role":      {ID: "a", ConnectMode: ConnectModeServerDial},
+		"bad mode":        {ID: "a", Role: RoleWorker, ConnectMode: "carrier_pigeon"},
+		"empty id":        {Role: RoleWorker, ConnectMode: ConnectModeServerDial},
+		"id with space":   {ID: "a b", Role: RoleWorker, ConnectMode: ConnectModeServerDial},
+		"id with slash":   {ID: "../x", Role: RoleWorker, ConnectMode: ConnectModeServerDial},
+		"bad ip":          {ID: "a", Role: RoleWorker, ConnectMode: ConnectModeServerDial, PrivateIPs: []string{"nope"}},
+		"bad wd stage":    {ID: "a", Role: RoleWorker, ConnectMode: ConnectModeServerDial, WatchdogState: &WatchdogState{Stage: "explode"}},
+		"neg wd count":    {ID: "a", Role: RoleWorker, ConnectMode: ConnectModeServerDial, WatchdogState: &WatchdogState{RestartsToday: -1}},
+		"empty group":     {ID: "a", Role: RoleWorker, ConnectMode: ConnectModeServerDial, Groups: []string{""}},
+		"bad group slash": {ID: "a", Role: RoleWorker, ConnectMode: ConnectModeServerDial, Groups: []string{"prod/edge"}},
+		"bad group space": {ID: "a", Role: RoleWorker, ConnectMode: ConnectModeServerDial, Groups: []string{"my group"}},
+		"dup group":       {ID: "a", Role: RoleWorker, ConnectMode: ConnectModeServerDial, Groups: []string{"edge", "edge"}},
 	}
 	for name, m := range cases {
 		if err := m.Validate(); err == nil {
@@ -159,7 +163,8 @@ func sample() *Registry {
 	_ = r.Add(Machine{
 		ID: "w-1", Role: RoleWorker, PrivateIPs: []string{"10.0.0.5", "10.0.1.5"},
 		PublicIP: "203.0.113.9", PublicIPAt: &now, CertFingerprint: "abc123", SSHHostKey: "SHA256:xyz",
-		Disk: DiskState{Status: "ok", TotalBytes: 100, FreeBytes: 40, UpdatedAt: &now},
+		Disk:   DiskState{Status: "ok", TotalBytes: 100, FreeBytes: 40, UpdatedAt: &now},
+		Groups: []string{"edge", "gpu-1.a_b"},
 		WatchdogState: &WatchdogState{
 			Day: "2026-11-24", Stage: "restart", RestartsToday: 2, RebootsToday: 1, AlertOnly: true,
 			Breaches: []string{"machine/cpu_percent"}, Throttled: []string{"session s-1"}, Events: 4,
@@ -275,5 +280,32 @@ func assertNoTemp(t *testing.T, dir string) {
 		if strings.HasSuffix(e.Name(), ".tmp") {
 			t.Errorf("leftover temp file %s", e.Name())
 		}
+	}
+}
+
+func TestGroupsCloneUpdateAndOmitEmpty(t *testing.T) {
+	r := New()
+	if err := r.Add(Machine{ID: "m1", Role: RoleWorker, Groups: []string{"edge"}}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := r.Get("m1")
+	got.Groups[0] = "mutated"
+	again, _ := r.Get("m1")
+	if len(again.Groups) != 1 || again.Groups[0] != "edge" {
+		t.Fatalf("Get leaked Groups slice: %+v", again.Groups)
+	}
+	if err := r.Update("m1", func(m *Machine) { m.Groups = []string{"bad/group"} }); err == nil {
+		t.Fatal("Update accepted invalid group")
+	}
+	if err := r.Update("m1", func(m *Machine) { m.Groups = []string{} }); err != nil {
+		t.Fatal(err)
+	}
+	st := NewStore(t.TempDir())
+	if err := st.Save(r); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(st.Path())
+	if strings.Contains(string(raw), `"groups"`) {
+		t.Fatalf("empty groups should be omitted from JSON:\n%s", raw)
 	}
 }

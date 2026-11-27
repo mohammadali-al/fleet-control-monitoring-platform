@@ -95,10 +95,11 @@ func (s *server) wdReset(w http.ResponseWriter, r *http.Request, _ observer, _ *
 // backed by persisted registry.WatchdogState and updated live from the policy
 // acknowledgement and forwarded watchdog events.
 type hostState struct {
-	Machine    string `json:"machine"`
-	Role       string `json:"role"`               // worker | monitor
-	Headless   bool   `json:"headless,omitempty"` // true for monitor-agent headless watchdog
-	Connection string `json:"connection"`         // the machine's channel state
+	Machine    string   `json:"machine"`
+	Role       string   `json:"role"`               // worker | monitor
+	Headless   bool     `json:"headless,omitempty"` // true for monitor-agent headless watchdog
+	Groups     []string `json:"groups,omitempty"`
+	Connection string   `json:"connection"` // the machine's channel state
 	// Condition: normal | breaching | throttled | alert-only | not-reporting.
 	Condition string `json:"condition"`
 	Stage     string `json:"stage"` // last ladder step taken: none | throttle | kill_session | restart | reboot
@@ -107,6 +108,8 @@ type hostState struct {
 	Reboots   int    `json:"reboots_today"`
 	RestartsX int    `json:"restart_cap"`
 	RebootsX  int    `json:"reboot_cap"`
+	// EffectivePolicy is the host's resolved policy (host > group > default) for workers.
+	EffectivePolicy *watchdog.Policy `json:"effective_policy,omitempty"`
 	// Policy: what the manager pushed and what the agent acknowledged.
 	PolicyPushed int                  `json:"policy_pushed"`
 	PolicyInForc int                  `json:"policy_in_force"`
@@ -194,7 +197,7 @@ func (s *server) wdHosts(w http.ResponseWriter, _ *http.Request, ob observer, o 
 		if m.Role == registry.RoleWorker {
 			workers++
 			if pf != nil {
-				if p, err := pf.Effective(m.ID, nil); err == nil {
+				if p, err := pf.Effective(m.ID, m.Groups); err == nil {
 					pol = p
 				}
 			}
@@ -210,8 +213,13 @@ func (s *server) wdHosts(w http.ResponseWriter, _ *http.Request, ob observer, o 
 			h = deriveHost(evs, pol.AutoResetMidnight, now)
 		}
 		h.Machine, h.Role, h.Headless, h.Connection = m.ID, m.Role, m.Role == registry.RoleMonitor, m.State
+		if len(m.Groups) > 0 {
+			h.Groups = append([]string(nil), m.Groups...)
+		}
 		h.RestartsX, h.RebootsX = pol.Caps.RestartsPerDay, pol.Caps.RebootsPerDay
 		if m.Role == registry.RoleWorker {
+			effCopy := pol
+			h.EffectivePolicy = &effCopy
 			if st, ok := ob.WatchdogStatus(m.ID); ok {
 				h.PolicyPushed, h.PolicyInForc, h.PolicyAcked, h.PolicyOK, h.PolicyErr = st.Pushed, st.InForce, st.Acked, st.AckOK, st.AckErr
 			}

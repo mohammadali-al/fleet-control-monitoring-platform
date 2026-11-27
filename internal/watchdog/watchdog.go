@@ -54,6 +54,7 @@ type Watchdog struct {
 	engine *Engine
 
 	mu       sync.Mutex
+	groups   []string
 	profile  *Profile
 	applied  []byte // YAML text of the profile in force (nil for the baked-in default)
 	rejected []byte // last on-disk profile that failed validation (log once)
@@ -77,7 +78,8 @@ func New(cfg Config) (*Watchdog, error) {
 	if err != nil {
 		return nil, err
 	}
-	w := &Watchdog{cfg: cfg, log: log, guards: guards}
+	cfg.Groups = append([]string(nil), cfg.Groups...)
+	w := &Watchdog{cfg: cfg, log: log, guards: guards, groups: append([]string(nil), cfg.Groups...)}
 	if guards.Corrupt != nil {
 		log.Error("watchdog counters unreadable; starting in alert-only mode until reset", "component", "fleet-watchdog", "err", guards.Corrupt)
 	}
@@ -88,7 +90,7 @@ func New(cfg Config) (*Watchdog, error) {
 	}
 	var pol Policy
 	if pf != nil {
-		pol, perr = pf.Effective(cfg.MachineID, cfg.Groups)
+		pol, perr = pf.Effective(cfg.MachineID, w.groups)
 		if perr != nil {
 			log.Error("last-known policy does not resolve for this host; using the baked-in default", "component", "fleet-watchdog", "err", perr)
 			pf = nil
@@ -96,7 +98,7 @@ func New(cfg Config) (*Watchdog, error) {
 	}
 	if pf == nil {
 		pf = DefaultProfile()
-		pol, _ = pf.Effective(cfg.MachineID, cfg.Groups)
+		pol, _ = pf.Effective(cfg.MachineID, w.groups)
 	}
 	w.profile, w.applied = pf, pf.Raw
 
@@ -105,7 +107,7 @@ func New(cfg Config) (*Watchdog, error) {
 		boot = procBootTime
 	}
 	w.engine = NewEngine(pol, cfg.Actuator, guards, boot, cfg.Notify, log)
-	log.Info("watchdog ready", "component", "fleet-watchdog", "policy_version", pf.Version, "machine", cfg.MachineID)
+	log.Info("watchdog ready", "component", "fleet-watchdog", "policy_version", pf.Version, "machine", cfg.MachineID, "groups", w.groups)
 	return w, nil
 }
 
@@ -137,6 +139,32 @@ func (w *Watchdog) PolicyVersion() int {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.profile.Version
+}
+
+// Groups returns a copy of the watchdog policy-override groups in force.
+func (w *Watchdog) Groups() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]string(nil), w.groups...)
+}
+
+// SetGroups updates this host's policy-override groups and re-resolves the
+// active profile live (precedence: host > group > default).
+func (w *Watchdog) SetGroups(groups []string) error {
+	next := append([]string(nil), groups...)
+	w.mu.Lock()
+	pf := w.profile
+	pol, err := pf.Effective(w.cfg.MachineID, next)
+	if err != nil {
+		w.mu.Unlock()
+		return fmt.Errorf("policy does not resolve for this host: %w", err)
+	}
+	w.groups = next
+	w.cfg.Groups = append([]string(nil), next...)
+	w.mu.Unlock()
+	w.engine.SetPolicy(pol)
+	w.engine.Emit(Event{Time: time.Now(), Kind: EventPolicy, Detail: fmt.Sprintf("groups updated (%v)", next)})
+	return nil
 }
 
 // Step takes one sample and processes it. A policy change on disk (written by
@@ -183,6 +211,7 @@ func (w *Watchdog) Run(ctx context.Context) error {
 func (w *Watchdog) ApplyPolicy(raw []byte) error {
 	w.mu.Lock()
 	cur := w.profile.Version
+	groups := append([]string(nil), w.groups...)
 	w.mu.Unlock()
 	reject := func(err error) error {
 		w.engine.Emit(Event{Time: time.Now(), Kind: EventPolicy, Detail: "rejected: " + err.Error()})
@@ -195,7 +224,7 @@ func (w *Watchdog) ApplyPolicy(raw []byte) error {
 	if pf.Version < cur {
 		return reject(fmt.Errorf("%w (pushed %d, current %d)", ErrStalePolicy, pf.Version, cur))
 	}
-	if _, err := pf.Effective(w.cfg.MachineID, w.cfg.Groups); err != nil {
+	if _, err := pf.Effective(w.cfg.MachineID, groups); err != nil {
 		return reject(fmt.Errorf("policy does not resolve for this host: %w", err))
 	}
 	if err := SaveLastKnown(w.cfg.DataDir, pf); err != nil {
@@ -206,11 +235,13 @@ func (w *Watchdog) ApplyPolicy(raw []byte) error {
 
 // install resolves pf for this host and puts it in force.
 func (w *Watchdog) install(pf *Profile, how string) error {
-	pol, err := pf.Effective(w.cfg.MachineID, w.cfg.Groups)
+	w.mu.Lock()
+	groups := append([]string(nil), w.groups...)
+	pol, err := pf.Effective(w.cfg.MachineID, groups)
 	if err != nil {
+		w.mu.Unlock()
 		return fmt.Errorf("policy does not resolve for this host: %w", err)
 	}
-	w.mu.Lock()
 	w.profile, w.applied, w.rejected = pf, pf.Raw, nil
 	w.mu.Unlock()
 	w.engine.SetPolicy(pol)

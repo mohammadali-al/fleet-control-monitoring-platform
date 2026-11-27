@@ -696,3 +696,62 @@ func TestDefaultsSitAboveLoadControllerCeiling(t *testing.T) {
 		t.Fatal("intended Maneuver load at the ceiling must never count as a breach")
 	}
 }
+
+func TestSetGroupsReResolvesPolicyLive(t *testing.T) {
+	r := newRig(t, "", t0)
+	r.apply(`version: 8
+caps: {restarts_per_day: 3}
+throttle: {cpu_percent: 50}
+overrides:
+  groups:
+    edge:
+      throttle: {cpu_percent: 30}
+      caps: {restarts_per_day: 5}
+    gpu:
+      caps: {restarts_per_day: 7}
+  hosts:
+    w1:
+      caps: {restarts_per_day: 2}
+`)
+	// Initial rig has Groups: ["edge"], host w1 wins on restarts_per_day (2), edge applies on throttle (30).
+	if p := r.w.Engine().Policy(); p.Throttle.CPUPercent != 30 || p.Caps.RestartsPerDay != 2 {
+		t.Fatalf("initial resolved policy = throttle:%v restarts:%d", p.Throttle.CPUPercent, p.Caps.RestartsPerDay)
+	}
+	// Mutating returned Groups slice does not affect Watchdog.
+	gs := r.w.Groups()
+	gs[0] = "tampered"
+	if got := r.w.Groups(); len(got) != 1 || got[0] != "edge" {
+		t.Fatalf("Groups() leaked internal slice: %v", got)
+	}
+	// Dropping "edge" reverts throttle to default (50) while keeping host override (2).
+	if err := r.w.SetGroups([]string{"gpu"}); err != nil {
+		t.Fatal(err)
+	}
+	if p := r.w.Engine().Policy(); p.Throttle.CPUPercent != 50 || p.Caps.RestartsPerDay != 2 {
+		t.Fatalf("after SetGroups([gpu]) = throttle:%v restarts:%d", p.Throttle.CPUPercent, p.Caps.RestartsPerDay)
+	}
+	// A non-host-overridden machine resolves group > default and later-group-wins.
+	w2, err := New(Config{
+		DataDir: t.TempDir(), MachineID: "w2", Groups: []string{"edge", "gpu"},
+		Sampler: &fakeSampler{}, Actuator: &fakeAct{}, Log: quietLog(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w2.ApplyPolicy([]byte(`version: 8
+caps: {restarts_per_day: 3}
+throttle: {cpu_percent: 50}
+overrides:
+  groups:
+    edge:
+      throttle: {cpu_percent: 30}
+      caps: {restarts_per_day: 5}
+    gpu:
+      caps: {restarts_per_day: 7}
+`)); err != nil {
+		t.Fatal(err)
+	}
+	if p := w2.Engine().Policy(); p.Throttle.CPUPercent != 30 || p.Caps.RestartsPerDay != 7 {
+		t.Fatalf("w2 group resolution = throttle:%v restarts:%d, want 30 and 7", p.Throttle.CPUPercent, p.Caps.RestartsPerDay)
+	}
+}
