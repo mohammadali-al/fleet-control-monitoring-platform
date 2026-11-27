@@ -1,6 +1,8 @@
 import { CommandsPage } from './pages/CommandsPage';
+import { EvidencePage } from './pages/EvidencePage';
 import { MachinesPage } from './pages/MachinesPage';
 import { TerminalPage } from './pages/TerminalPage';
+import { WatchdogPage } from './pages/WatchdogPage';
 
 /**
  * Route registry for all operator-panel pages.
@@ -92,7 +94,7 @@ export const ROUTES = [
     group: 'Observe',
     label: 'Watchdog',
     icon: 'i-shield',
-    component: null,
+    component: WatchdogPage,
   },
   {
     id: 'evidence',
@@ -101,7 +103,7 @@ export const ROUTES = [
     group: 'Observe',
     label: 'Evidence',
     icon: 'i-evidence',
-    component: null,
+    component: EvidencePage,
   },
   // Administer
   {

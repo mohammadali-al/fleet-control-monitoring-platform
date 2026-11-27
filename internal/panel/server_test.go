@@ -50,6 +50,8 @@ func TestServesPanel(t *testing.T) {
 		{"/machines", 200, "text/html", `<div id="root">`},
 		{"/commands", 200, "text/html", `<div id="root">`},
 		{"/terminal", 200, "text/html", `<div id="root">`},
+		{"/watchdog", 200, "text/html", `<div id="root">`},
+		{"/evidence", 200, "text/html", `<div id="root">`},
 		{"/projects", 200, "text/html", `<div id="root">`}, // SPA catch-all
 		{"/deep/app/route", 200, "text/html", `<div id="root">`},
 		{"/projects.html", 200, "text/html", "<html"}, // legacy fallback
@@ -115,8 +117,10 @@ func TestSPAShellAndCatchAll(t *testing.T) {
 	_, _, machines := body(t, srv.URL+"/machines")
 	_, _, commands := body(t, srv.URL+"/commands")
 	_, _, terminal := body(t, srv.URL+"/terminal")
+	_, _, watchdog := body(t, srv.URL+"/watchdog")
+	_, _, evidence := body(t, srv.URL+"/evidence")
 	_, _, deep := body(t, srv.URL+"/machines/w1")
-	if root != idx || root != machines || root != commands || root != terminal || root != deep {
+	if root != idx || root != machines || root != commands || root != terminal || root != watchdog || root != evidence || root != deep {
 		t.Error("SPA routes did not all serve the identical shell HTML")
 	}
 	for _, must := range []string{
@@ -177,6 +181,49 @@ func TestOperateSPARoutesInBundle(t *testing.T) {
 		if strings.Contains(js, stale) {
 			t.Errorf("SPA bundle still contains stale GAP-10 copy %q", stale)
 		}
+	}
+}
+
+func TestObserveSPARoutesInBundle(t *testing.T) {
+	srv := noBackend(t)
+	for _, route := range []string{"/watchdog", "/evidence"} {
+		status, _, page := body(t, srv.URL+route)
+		if status != 200 {
+			t.Fatalf("GET %s = %d", route, status)
+		}
+		for _, want := range []string{`<div id="root"></div>`, `/assets/dist/app.css`, `/assets/dist/app.js`} {
+			if !strings.Contains(page, want) {
+				t.Errorf("%s SPA shell lacks %q", route, want)
+			}
+		}
+	}
+
+	status, _, js := body(t, srv.URL+"/assets/dist/app.js")
+	if status != 200 || len(js) == 0 {
+		t.Fatalf("GET /assets/dist/app.js = %d (len=%d)", status, len(js))
+	}
+	for _, want := range []string{
+		"Watchdog",
+		"/api/watchdog",
+		"/api/watchdog/reset",
+		"/api/watchdog/policy",
+		"/api/watchdog/events",
+		"/ws/watchdog",
+		"Reset all counters",
+		"Evidence",
+		"/api/evidence/sessions",
+		"/api/evidence/sync",
+		"/api/evidence/pull",
+		"/api/evidence/manifest/",
+		"/api/evidence/export",
+		"payload_head",
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("SPA bundle lacks %q", want)
+		}
+	}
+	if strings.Contains(js, "when a segment also holds other sessions it is an upper bound") {
+		t.Error("SPA bundle contains stale shared-segment upper-bound copy")
 	}
 }
 

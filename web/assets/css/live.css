@@ -11,3 +11,16 @@
 .term-ph [data-term-mount] { padding: var(--sp-2) var(--sp-3); min-height: 22rem; background: var(--term-bg); }
 .term-ph .xterm { padding: 0; }
 .term-ph .xterm-viewport { background-color: transparent !important; }
+
+/* Compact payload_head preview inside Evidence packet records table. */
+.payload-head {
+  display: block;
+  margin-top: var(--sp-1);
+  max-width: 22rem;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
