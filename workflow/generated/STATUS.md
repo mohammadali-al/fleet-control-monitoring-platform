@@ -6,7 +6,6 @@
 _none_
 ## Next (ready, in order)
 - **T-0034** panel-hacker-restyle-samples  `after: []`
-- **T-0039** single-domain-auth-path  `after: [T-0036, T-0038]`
 - **T-0040** panel-skin-refactor  `after: [T-0023]`
 
 ## Waiting for the operator (merged → see CHECKS.md)
@@ -47,6 +46,7 @@ _none_
 - **T-0036** github-release-and-installer  `after: [T-0024, T-0032, T-0035]`
 - **T-0037** secret-scan-history  `after: []`
 - **T-0038** deploy-verification  `after: [T-0036]`
+- **T-0039** single-domain-auth-path  `after: [T-0036, T-0038]`
 
 ## Blocked
 _none_

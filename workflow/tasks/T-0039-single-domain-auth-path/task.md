@@ -1,7 +1,7 @@
 ---
 id: T-0039
 title: single-domain-auth-path
-state: ready
+state: merged
 touches: [deploy/install-server.sh, deploy/proxy/Caddyfile, deploy/authelia/configuration.yml,
           deploy/proxy/compose.yml, deploy/README.md, deploy/REQUIREMENTS.md]
 tests: []
