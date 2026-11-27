@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -45,8 +46,8 @@ type evSession struct {
 	Started  time.Time `json:"started"`
 	Ended    time.Time `json:"ended"`
 	Segments int       `json:"segments"`
-	// Packets is the records of the segments that hold this session; when a
-	// segment also holds other sessions the figure is an upper bound (Shared).
+	// Packets is the number of captured records belonging to this session
+	// across its segments (exact even when Shared is true).
 	Packets int    `json:"packets"`
 	Shared  bool   `json:"shared"`
 	Dropped uint64 `json:"dropped"`
@@ -89,6 +90,15 @@ func (s *server) evSessions(w http.ResponseWriter, r *http.Request, ob observer,
 			if len(ids) == 0 {
 				ids = []string{seg.Session}
 			}
+			var counts map[string]int
+			if len(ids) > 1 {
+				var cerr error
+				counts, cerr = sessionPacketCounts(o.Archive, machine, seg)
+				if cerr != nil {
+					s.log.Warn("evidence: count shared segment records", "component", "panel", "machine", machine, "file", seg.File, "err", cerr)
+					counts = nil
+				}
+			}
 			for _, id := range ids {
 				key := machine + "/" + id
 				e := agg[key]
@@ -106,7 +116,11 @@ func (s *server) evSessions(w http.ResponseWriter, r *http.Request, ob observer,
 					e.Ended = seg.EndTime
 				}
 				e.Segments++
-				e.Packets += seg.Records
+				if counts != nil {
+					e.Packets += counts[id]
+				} else {
+					e.Packets += seg.Records
+				}
 				e.Dropped += seg.Dropped
 				if len(ids) > 1 {
 					e.Shared = true
@@ -144,7 +158,36 @@ type evRecord struct {
 	PayloadStatus string    `json:"payload_status"`
 	PayloadBytes  int       `json:"payload_bytes"`
 	PayloadSHA256 string    `json:"payload_sha256"`
+	PayloadHead   []byte    `json:"payload_head,omitempty"`
 	SrcIPUsed     string    `json:"src_ip_used,omitempty"`
+}
+
+func sessionPacketCounts(arch *evidence.Archive, machine string, seg evidence.ArchivedSegment) (map[string]int, error) {
+	f, err := arch.OpenSegment(machine, seg)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	counts := map[string]int{}
+	br := bufio.NewReaderSize(f, 64<<10)
+	for {
+		line, err := br.ReadBytes('\n')
+		if len(line) > 0 {
+			var row struct {
+				SessionID string `json:"session_id"`
+			}
+			if jerr := json.Unmarshal(line, &row); jerr != nil {
+				return nil, jerr
+			}
+			counts[row.SessionID]++
+		}
+		if err == io.EOF {
+			return counts, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
 }
 
 const (
@@ -234,7 +277,7 @@ func decodeRecords(rd io.Reader, limit int) ([]evRecord, int, error) {
 		out = append(out, evRecord{
 			Time: rec.Timestamp, Protocol: rec.Protocol, Src: rec.Src, Dst: rec.Dst, Flags: rec.Flags,
 			Seq: rec.Seq, Ack: rec.Ack, PayloadStatus: rec.PayloadStatus, PayloadBytes: rec.PayloadBytesFull,
-			PayloadSHA256: rec.PayloadSHA256, SrcIPUsed: rec.SrcIPUsed,
+			PayloadSHA256: rec.PayloadSHA256, PayloadHead: rec.PayloadHead, SrcIPUsed: rec.SrcIPUsed,
 		})
 	}
 	return out, total, nil
