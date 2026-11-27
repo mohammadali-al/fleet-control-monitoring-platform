@@ -1,7 +1,7 @@
 ---
 id: T-0041
 title: uninstall-server-script
-state: ready
+state: merged
 touches: [deploy/uninstall-server.sh, deploy/README.md, deploy/REQUIREMENTS.md, .github/workflows/release.yml]
 tests: []
 after: [T-0036, T-0038, T-0039]
