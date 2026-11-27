@@ -50,6 +50,7 @@ _none_
 - **T-0041** uninstall-server-script  `after: [T-0036, T-0038, T-0039]`
 - **T-0042** single-domain-default-choice  `after: [T-0039]`
 - **T-0043** enroll-addr-default  `after: [T-0036]`
+- **T-0047** panel-spa-foundation  `after: [T-0040, T-0045]`
 
 ## Blocked
 _none_

@@ -1,7 +1,7 @@
 ---
 id: T-0047
 title: panel-spa-foundation
-state: ready
+state: merged
 touches: [web/, web/embed.go, internal/panel/server.go, internal/panel/templates.go,
           internal/panel/server_test.go, internal/panel/machines_test.go]
 tests: [server]
