@@ -1,4 +1,5 @@
 import { BackupPage } from './pages/BackupPage';
+import { BaselinePage } from './pages/BaselinePage';
 import { CommandsPage } from './pages/CommandsPage';
 import { EvidencePage } from './pages/EvidencePage';
 import { MachinesPage } from './pages/MachinesPage';
@@ -66,7 +67,7 @@ export const ROUTES = [
     group: 'Plan',
     label: 'Baseline items',
     icon: 'i-layers',
-    component: null,
+    component: BaselinePage,
   },
   {
     id: 'maneuver',
