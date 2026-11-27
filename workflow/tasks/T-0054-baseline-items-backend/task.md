@@ -1,7 +1,7 @@
 ---
 id: T-0054
 title: baseline-items-backend
-state: ready
+state: merged
 touches: [internal/baseline/, internal/config/config.go, internal/panel/api.go, internal/panel/baseline.go,
           web/src/pages/BaselinePage.jsx, web/src/routes.js, web/src/hooks/, internal/panel/baseline_test.go]
 tests: [server]

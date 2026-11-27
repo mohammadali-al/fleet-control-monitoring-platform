@@ -57,3 +57,5 @@
 - [ ] T-0048 operate-pages-react — Command runner + Terminal ported to React routes (live streaming, xterm, GAP-10 copy fixed). Open: eyeball in browser both themes. Confirm to close.
 - [ ] T-0050 observe-pages-react — Watchdog + Evidence ported to React routes (live counters/reset, evidence list/stream/export + payload_head). Open: eyeball in browser. Confirm to close.
 - [ ] T-0051 administer-pages-react — Backup ported to React route; NOT final port (monitor/projects/baseline/maneuver still legacy-fallback). Open: eyeball in browser. Confirm to close.
+- [ ] T-0053 agent-telemetry-completeness — disk guard reported to the React Machines page, Linux netlink public-IP refresh trigger, monitor-agent reflector, persistent command history. Verified build/tests/-race. Confirm to close.
+- [ ] T-0054 baseline-items-backend — global baseline library: store + CRUD/preview API + placeholder substitution engine + real React Baseline page. Verified build/tests/-race. Confirm to close.

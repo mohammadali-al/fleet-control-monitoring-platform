@@ -58,6 +58,8 @@ _none_
 - **T-0048** operate-pages-react  `after: [T-0047]`
 - **T-0050** observe-pages-react  `after: [T-0047, T-0052]`
 - **T-0051** administer-pages-react  `after: [T-0047]`
+- **T-0053** agent-telemetry-completeness  `after: [T-0045, T-0047]`
+- **T-0054** baseline-items-backend  `after: [T-0047]`
 
 ## Blocked
 _none_

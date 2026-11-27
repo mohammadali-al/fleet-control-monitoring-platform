@@ -1,7 +1,7 @@
 ---
 id: T-0053
 title: agent-telemetry-completeness
-state: ready
+state: merged
 touches: [internal/channel/envelope.go, internal/agent/, internal/capture/, internal/monitor/,
           internal/fleet/fleet.go, internal/registry/registry.go, internal/panel/api.go,
           web/src/pages/MachinesPage.jsx, web/src/hooks/]
