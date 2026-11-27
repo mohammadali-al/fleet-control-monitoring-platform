@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -76,6 +77,8 @@ func Open(o Options) (*Manager, error) {
 			CA: ca, Registry: reg, Store: store,
 			AgentBinaryDir:  o.Config.AgentBinaryDir,
 			AgentBinaryPath: o.Config.AgentBinaryPath,
+			ServerAddr:      agentDialServerAddr(o.Config),
+			ServerID:        o.Config.ServerIDOrDefault(),
 		},
 		Gate:         gate,
 		GateSecret:   key,
@@ -252,3 +255,21 @@ func (m *Manager) CA() *pki.CA {
 // outside the manager (token enrollment) and drops the links of machines that
 // were removed or detached.
 func (m *Manager) Reconcile() { m.reconcile() }
+
+// agentDialServerAddr returns <EnrollHost>:<agent_dial port> when both
+// EnrollHost and a valid AgentDialAddr are configured, else "".
+func agentDialServerAddr(cfg config.ServerConfig) string {
+	host := strings.TrimSpace(cfg.EnrollHost)
+	if cfg.AgentDialAddr == "" || host == "" {
+		return ""
+	}
+	_, port, err := net.SplitHostPort(cfg.AgentDialAddr)
+	if err != nil {
+		return ""
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n <= 0 || n > 65535 {
+		return ""
+	}
+	return net.JoinHostPort(host, strconv.Itoa(n))
+}
