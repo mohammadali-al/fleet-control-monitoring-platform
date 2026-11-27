@@ -1,7 +1,7 @@
 ---
 id: T-0042
 title: single-domain-default-choice
-state: ready
+state: merged
 touches: [deploy/install-server.sh, deploy/README.md, deploy/REQUIREMENTS.md]
 tests: []
 after: [T-0039]
