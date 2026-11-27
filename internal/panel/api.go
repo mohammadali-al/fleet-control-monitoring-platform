@@ -23,6 +23,7 @@ type Backend interface {
 	Onboard(ctx context.Context, req fleet.OnboardRequest) (fleet.MachineInfo, *onboard.Result, error)
 	Reprovision(ctx context.Context, id string, creds fleet.Credentials) (fleet.MachineInfo, *onboard.Result, error)
 	Remove(ctx context.Context, id string, creds fleet.Credentials, skipRemote bool) error
+	RefreshPublicIP(ctx context.Context, machine string) error
 
 	Preflight(machine, command string) error
 	Submit(req fleet.SubmitRequest) (string, error)
@@ -50,6 +51,7 @@ func (s *server) routesAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/machines", s.live(s.onboardMachine))
 	mux.HandleFunc("POST /api/machines/{id}/reprovision", s.live(s.reprovisionMachine))
 	mux.HandleFunc("POST /api/machines/{id}/remove", s.live(s.removeMachine))
+	mux.HandleFunc("POST /api/machines/{id}/refresh-public-ip", s.live(s.refreshPublicIP))
 
 	mux.HandleFunc("GET /api/commands", s.live(s.listCommands))
 	mux.HandleFunc("POST /api/commands", s.live(s.submitCommands))
