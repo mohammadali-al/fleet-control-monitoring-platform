@@ -200,7 +200,7 @@ export function WatchdogPage() {
     refreshHostsAndEvents
   );
 
-  // Subscribe to /ws/watchdog for live watchdog events pushed by worker agents.
+  // Subscribe to /ws/watchdog for live watchdog events pushed by worker and monitor agents.
   useEffect(() => {
     if (noBackend) return undefined;
     let closed = false;
@@ -320,6 +320,7 @@ export function WatchdogPage() {
   };
 
   const eff = policyDoc?.effective;
+  const hostById = Object.fromEntries(hosts.map((h) => [h.machine, h]));
   const verText = policyMeta.stored ? `v${policyMeta.version}` : 'no profile';
   const inForceText = policyMeta.stored
     ? `In force on ${policyMeta.in_force} of ${policyMeta.workers} worker agents`
@@ -403,7 +404,7 @@ export function WatchdogPage() {
           <div className="stat__value" id="wd-n-off">
             {summary ? summary.not_reporting : '-'}
           </div>
-          <div className="stat__note">Offline worker agents</div>
+          <div className="stat__note">Offline agents</div>
         </div>
       </section>
 
@@ -413,7 +414,7 @@ export function WatchdogPage() {
           <div className="card__head">
             <div>
               <h2 id="ph-title">Hosts</h2>
-              <p>Escalation stage, guard counters and policy state per worker agent.</p>
+              <p>Escalation stage, guard counters and policy state per agent (workers and headless monitor agents).</p>
             </div>
           </div>
           <div className="table-wrap">
@@ -458,13 +459,14 @@ export function WatchdogPage() {
                 ) : hosts.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="faint">
-                      No worker agents are registered.
+                      No agents are registered.
                     </td>
                   </tr>
                 ) : (
                   hosts.map((h) => {
                     const [tone, label, ic] = COND_MAP[h.condition] || COND_MAP.normal;
                     const notReporting = h.condition === 'not-reporting';
+                    const isMonitor = h.role === 'monitor' || h.headless;
                     const lastEvtKind = h.last_event
                       ? (KIND_MAP[h.last_event.kind] || [null, h.last_event.kind])[1]
                       : '';
@@ -473,7 +475,8 @@ export function WatchdogPage() {
                         <th scope="row" className="cell-primary">
                           {h.machine}
                           <div className="cell-sub">
-                            Worker agent{h.connection === 'online' ? '' : ` (${h.connection})`}
+                            {isMonitor ? 'Monitor agent (headless)' : 'Worker agent'}
+                            {h.connection === 'online' ? '' : ` (${h.connection})`}
                           </div>
                         </th>
                         <td>
@@ -498,10 +501,12 @@ export function WatchdogPage() {
                         </td>
                         <td
                           className={`nowrap${
-                            !h.policy_acked && !h.policy_pushed ? ' faint' : ''
+                            isMonitor || (!h.policy_acked && !h.policy_pushed) ? ' faint' : ''
                           }`}
                         >
-                          {h.policy_acked && h.policy_ok ? (
+                          {isMonitor ? (
+                            'headless'
+                          ) : h.policy_acked && h.policy_ok ? (
                             `v${h.policy_in_force} in force`
                           ) : h.policy_acked ? (
                             <>
@@ -529,14 +534,23 @@ export function WatchdogPage() {
                           {h.last_event ? `${fmtAgo(h.last_event.time)}: ${lastEvtKind}` : 'none'}
                         </td>
                         <td className="actions">
-                          <button
-                            className="btn btn--sm"
-                            type="button"
-                            disabled={resettingHost === h.machine || noBackend}
-                            onClick={() => handleReset(h.machine)}
-                          >
-                            Reset counters
-                          </button>
+                          {isMonitor ? (
+                            <span
+                              className="faint nowrap"
+                              title="Monitor agents run a headless watchdog without remote counter reset"
+                            >
+                              Headless
+                            </span>
+                          ) : (
+                            <button
+                              className="btn btn--sm"
+                              type="button"
+                              disabled={resettingHost === h.machine || noBackend}
+                              onClick={() => handleReset(h.machine)}
+                            >
+                              Reset counters
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
@@ -546,12 +560,12 @@ export function WatchdogPage() {
             </table>
           </div>
           <div className="card__foot">
-            The stage and the day&apos;s counters are rebuilt from the events each agent forwards (restarts and reboots
-            taken today, the last step of the ladder, alert-only when the caps were hit); they are not read from the
-            host, so they start empty after a server restart. The watchdog runs as its own service on each host (
+            The stage and the day&apos;s counters are updated from the events each agent forwards (restarts and reboots
+            taken today, the last step of the ladder, alert-only when the caps were hit) and persisted on the server
+            across restarts (daily counters stay scoped to today). The watchdog runs as its own service on each host (
             <code>Restart=always</code>, with an independent timer checking it every 45 seconds: it restarts a stopped
             service and one whose heartbeat has gone stale, meaning hung). Monitor agents run a headless watchdog and
-            are not shown.
+            are included here alongside worker agents.
           </div>
         </section>
 
@@ -797,10 +811,15 @@ export function WatchdogPage() {
                     }`;
                     const tone =
                       ev.kind === 'action' && (ev.step === 'restart' || ev.step === 'reboot') ? 'danger' : baseTone;
+                    const hostMeta = hostById[ev.machine];
+                    const isMonEv = hostMeta && (hostMeta.role === 'monitor' || hostMeta.headless);
                     return (
                       <tr key={`${ev.machine}-${ev.time}-${ev.kind}-${idx}`}>
                         <td className="nowrap">{fmtDateTime(ev.time)}</td>
-                        <td>{ev.machine}</td>
+                        <td>
+                          {ev.machine}
+                          {isMonEv && <div className="cell-sub">Monitor agent (headless)</div>}
+                        </td>
                         <td>
                           <span className={`chip chip--${tone}`}>{label}</span>
                         </td>

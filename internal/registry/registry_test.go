@@ -38,6 +38,8 @@ func TestValidateRejects(t *testing.T) {
 		"id with space": {ID: "a b", Role: RoleWorker, ConnectMode: ConnectModeServerDial},
 		"id with slash": {ID: "../x", Role: RoleWorker, ConnectMode: ConnectModeServerDial},
 		"bad ip":        {ID: "a", Role: RoleWorker, ConnectMode: ConnectModeServerDial, PrivateIPs: []string{"nope"}},
+		"bad wd stage":  {ID: "a", Role: RoleWorker, ConnectMode: ConnectModeServerDial, WatchdogState: &WatchdogState{Stage: "explode"}},
+		"neg wd count":  {ID: "a", Role: RoleWorker, ConnectMode: ConnectModeServerDial, WatchdogState: &WatchdogState{RestartsToday: -1}},
 	}
 	for name, m := range cases {
 		if err := m.Validate(); err == nil {
@@ -157,7 +159,12 @@ func sample() *Registry {
 	_ = r.Add(Machine{
 		ID: "w-1", Role: RoleWorker, PrivateIPs: []string{"10.0.0.5", "10.0.1.5"},
 		PublicIP: "203.0.113.9", PublicIPAt: &now, CertFingerprint: "abc123", SSHHostKey: "SHA256:xyz",
-		Disk:        DiskState{Status: "ok", TotalBytes: 100, FreeBytes: 40, UpdatedAt: &now},
+		Disk: DiskState{Status: "ok", TotalBytes: 100, FreeBytes: 40, UpdatedAt: &now},
+		WatchdogState: &WatchdogState{
+			Day: "2026-11-24", Stage: "restart", RestartsToday: 2, RebootsToday: 1, AlertOnly: true,
+			Breaches: []string{"machine/cpu_percent"}, Throttled: []string{"session s-1"}, Events: 4,
+			LastEvent: &WatchdogEventRecord{Machine: "w-1", Time: now, Kind: "alert-only", Step: "reboot", Received: now},
+		},
 		Provisioned: true, CreatedAt: now, UpdatedAt: now,
 	})
 	_ = r.Add(Machine{ID: "mon-1", Role: RoleMonitor, ConnectMode: ConnectModeAgentDial, CreatedAt: now, UpdatedAt: now})

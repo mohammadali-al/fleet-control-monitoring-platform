@@ -312,15 +312,30 @@ func TestWatchdogLive(t *testing.T) {
 	eventually(t, "ack in the hosts view", func() bool {
 		hosts.Hosts = nil
 		e.req("GET", "/api/watchdog", nil, &hosts)
-		return len(hosts.Hosts) == 2 && hosts.Hosts[0].PolicyAcked
+		if len(hosts.Hosts) != 3 {
+			return false
+		}
+		for _, h := range hosts.Hosts {
+			if h.Machine == "w1" {
+				return h.PolicyAcked
+			}
+		}
+		return false
 	})
-	if h := hosts.Hosts[0]; h.Machine != "w1" || !h.PolicyOK || h.PolicyInForc != 1 || h.Condition != "normal" || h.RestartsX != 3 || h.RebootsX != 1 {
+	byID := map[string]hostState{}
+	for _, h := range hosts.Hosts {
+		byID[h.Machine] = h
+	}
+	if h := byID["w1"]; h.Machine != "w1" || h.Role != "worker" || h.Headless || !h.PolicyOK || h.PolicyInForc != 1 || h.Condition != "normal" || h.RestartsX != 3 || h.RebootsX != 1 {
 		t.Errorf("w1 = %+v", h)
 	}
-	if h := hosts.Hosts[1]; h.Machine != "w2" || h.Condition != "not-reporting" {
+	if h := byID["w2"]; h.Machine != "w2" || h.Role != "worker" || h.Condition != "not-reporting" {
 		t.Errorf("w2 = %+v", h)
 	}
-	if hosts.Summary.Normal != 1 || hosts.Summary.NotReporting != 1 || hosts.Policy["in_force"].(float64) != 1 || hosts.Policy["version"].(float64) != 1 {
+	if h := byID["mon1"]; h.Machine != "mon1" || h.Role != "monitor" || !h.Headless || h.Condition != "normal" {
+		t.Errorf("mon1 = %+v", h)
+	}
+	if hosts.Summary.Normal != 2 || hosts.Summary.NotReporting != 1 || hosts.Policy["in_force"].(float64) != 1 || hosts.Policy["version"].(float64) != 1 {
 		t.Errorf("summary = %+v policy = %v", hosts.Summary, hosts.Policy)
 	}
 
@@ -348,10 +363,14 @@ func TestWatchdogLive(t *testing.T) {
 	}
 	hosts.Hosts = nil
 	e.req("GET", "/api/watchdog", nil, &hosts)
-	if h := hosts.Hosts[0]; h.Condition != "throttled" || h.Stage != "throttle" || h.Level != 1 || h.LastEvent == nil || h.LastEvent.Kind != watchdog.EventAction {
+	byID = map[string]hostState{}
+	for _, h := range hosts.Hosts {
+		byID[h.Machine] = h
+	}
+	if h := byID["w1"]; h.Condition != "throttled" || h.Stage != "throttle" || h.Level != 1 || h.LastEvent == nil || h.LastEvent.Kind != watchdog.EventAction {
 		t.Errorf("w1 after the throttle = %+v", h)
 	}
-	if hosts.Summary.Acting != 1 || hosts.Summary.Normal != 0 {
+	if hosts.Summary.Acting != 1 || hosts.Summary.Normal != 1 {
 		t.Errorf("summary = %+v", hosts.Summary)
 	}
 	var evs struct{ Events []fleet.WatchdogEvent }

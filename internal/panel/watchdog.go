@@ -91,13 +91,14 @@ func (s *server) wdReset(w http.ResponseWriter, r *http.Request, _ observer, _ *
 	writeJSON(w, http.StatusOK, map[string]any{"reset": reset, "failed": failed})
 }
 
-// hostState is what the page shows for one worker, derived from the policy
-// acknowledgement and the events the agent forwarded. The agent's counters and
-// ladder stage live on the agent (guards.go) and are not reported as such, so
-// they are reconstructed from the event stream: an approximation, labelled so.
+// hostState is what the page shows for one host (worker or headless monitor),
+// backed by persisted registry.WatchdogState and updated live from the policy
+// acknowledgement and forwarded watchdog events.
 type hostState struct {
 	Machine    string `json:"machine"`
-	Connection string `json:"connection"` // the machine's channel state
+	Role       string `json:"role"`               // worker | monitor
+	Headless   bool   `json:"headless,omitempty"` // true for monitor-agent headless watchdog
+	Connection string `json:"connection"`         // the machine's channel state
 	// Condition: normal | breaching | throttled | alert-only | not-reporting.
 	Condition string `json:"condition"`
 	Stage     string `json:"stage"` // last ladder step taken: none | throttle | kill_session | restart | reboot
@@ -122,65 +123,45 @@ var stageLevel = map[string]int{"none": 0, "throttle": 1, "kill_session": 2, "re
 
 // deriveHost folds a machine's events (oldest first) into its state at now.
 func deriveHost(events []fleet.WatchdogEvent, autoReset bool, now time.Time) hostState {
-	h := hostState{Stage: "none", Condition: "normal", Events: len(events)}
-	today := now.In(time.Local).Format("2006-01-02")
-	breaches := map[string]bool{}
-	throttled := map[string]bool{}
-	alertOnly := false
+	var ws registry.WatchdogState
 	for i := range events {
-		ev := events[i]
-		switch ev.Kind {
-		case watchdog.EventBreach:
-			breaches[ev.Scope+"/"+ev.Metric] = true
-		case watchdog.EventRecovered:
-			delete(breaches, ev.Scope+"/"+ev.Metric)
-		case watchdog.EventAction:
-			h.Stage = ev.Step
-			day := ev.Time.In(time.Local).Format("2006-01-02")
-			switch ev.Step {
-			case "throttle":
-				throttled[ev.Target] = true
-			case "restart":
-				if day == today {
-					h.Restarts++
-				}
-			case "reboot":
-				if day == today {
-					h.Reboots++
-				}
-			}
-		case watchdog.EventLifted:
-			delete(throttled, ev.Target)
-		case watchdog.EventAlertOnly:
-			alertOnly = true
-		case watchdog.EventDay:
-			h.Restarts, h.Reboots = 0, 0
-			h.Stage = "none"
-			if autoReset {
-				alertOnly = false
-			}
-		case watchdog.EventCounters:
-			h.Restarts, h.Reboots = 0, 0
-			h.Stage = "none"
-			alertOnly = false
-		}
+		fleet.ApplyWatchdogEvent(&ws, events[i], autoReset, now)
+	}
+	return hostStateFromWatchdogState(&ws, now)
+}
+
+// hostStateFromWatchdogState projects persisted WatchdogState into the API's
+// hostState at now, keeping daily counters scoped to today.
+func hostStateFromWatchdogState(ws *registry.WatchdogState, now time.Time) hostState {
+	h := hostState{Stage: "none", Condition: "normal"}
+	if ws == nil {
+		return h
+	}
+	today := now.In(time.Local).Format("2006-01-02")
+	if ws.Stage != "" {
+		h.Stage = ws.Stage
 	}
 	h.Level = stageLevel[h.Stage]
-	for k := range breaches {
-		h.Breaches = append(h.Breaches, k)
+	if ws.Day == today {
+		h.Restarts = ws.RestartsToday
+		h.Reboots = ws.RebootsToday
 	}
-	sort.Strings(h.Breaches)
+	h.Events = ws.Events
+	if len(ws.Breaches) > 0 {
+		h.Breaches = append([]string(nil), ws.Breaches...)
+		sort.Strings(h.Breaches)
+	}
 	switch {
-	case alertOnly:
+	case ws.AlertOnly:
 		h.Condition = "alert-only"
-	case len(throttled) > 0:
+	case len(ws.Throttled) > 0:
 		h.Condition = "throttled"
-	case len(breaches) > 0:
+	case len(h.Breaches) > 0:
 		h.Condition = "breaching"
 	}
-	if n := len(events); n > 0 {
-		last := events[n-1]
-		h.LastEvent = &last
+	if ws.LastEvent != nil {
+		le := fleet.WatchdogEventFromRecord(*ws.LastEvent)
+		h.LastEvent = &le
 	}
 	return h
 }
@@ -206,24 +187,37 @@ func (s *server) wdHosts(w http.ResponseWriter, _ *http.Request, ob observer, o 
 	pushed := 0
 	workers := 0
 	for _, m := range s.be.Machines() {
-		if m.Role != registry.RoleWorker || m.Removed {
+		if m.Removed || (m.Role != registry.RoleWorker && m.Role != registry.RoleMonitor) {
 			continue
 		}
-		workers++
 		pol := watchdog.DefaultPolicy()
-		if pf != nil {
-			if p, err := pf.Effective(m.ID, nil); err == nil {
-				pol = p
+		if m.Role == registry.RoleWorker {
+			workers++
+			if pf != nil {
+				if p, err := pf.Effective(m.ID, nil); err == nil {
+					pol = p
+				}
 			}
 		}
-		h := deriveHost(ob.WatchdogEvents(m.ID), pol.AutoResetMidnight, now)
-		h.Machine, h.Connection = m.ID, m.State
-		h.RestartsX, h.RebootsX = pol.Caps.RestartsPerDay, pol.Caps.RebootsPerDay
-		if st, ok := ob.WatchdogStatus(m.ID); ok {
-			h.PolicyPushed, h.PolicyInForc, h.PolicyAcked, h.PolicyOK, h.PolicyErr = st.Pushed, st.InForce, st.Acked, st.AckOK, st.AckErr
+		var h hostState
+		evs := ob.WatchdogEvents(m.ID)
+		if m.WatchdogState != nil {
+			h = hostStateFromWatchdogState(m.WatchdogState, now)
+			if len(evs) > h.Events {
+				h.Events = len(evs)
+			}
+		} else {
+			h = deriveHost(evs, pol.AutoResetMidnight, now)
 		}
-		if pf != nil && h.PolicyAcked && h.PolicyOK && h.PolicyInForc == pf.Version {
-			pushed++
+		h.Machine, h.Role, h.Headless, h.Connection = m.ID, m.Role, m.Role == registry.RoleMonitor, m.State
+		h.RestartsX, h.RebootsX = pol.Caps.RestartsPerDay, pol.Caps.RebootsPerDay
+		if m.Role == registry.RoleWorker {
+			if st, ok := ob.WatchdogStatus(m.ID); ok {
+				h.PolicyPushed, h.PolicyInForc, h.PolicyAcked, h.PolicyOK, h.PolicyErr = st.Pushed, st.InForce, st.Acked, st.AckOK, st.AckErr
+			}
+			if pf != nil && h.PolicyAcked && h.PolicyOK && h.PolicyInForc == pf.Version {
+				pushed++
+			}
 		}
 		if m.State != fleet.StateOnline {
 			h.Condition = "not-reporting"
@@ -260,7 +254,7 @@ func (s *server) wdEvents(w http.ResponseWriter, r *http.Request, ob observer, _
 	only := r.URL.Query().Get("machine")
 	var evs []fleet.WatchdogEvent
 	for _, m := range s.be.Machines() {
-		if m.Role != registry.RoleWorker || (only != "" && m.ID != only) {
+		if (m.Role != registry.RoleWorker && m.Role != registry.RoleMonitor) || (only != "" && m.ID != only) {
 			continue
 		}
 		evs = append(evs, ob.WatchdogEvents(m.ID)...)
