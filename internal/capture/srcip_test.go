@@ -2,10 +2,13 @@ package capture
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
 )
 
 // reflectorServer returns a test server that replies with body (or a 500 when
@@ -176,5 +179,85 @@ func TestSourceIPResolver(t *testing.T) {
 	}
 	if got := r.For(net.ParseIP("8.8.8.8")); got != "203.0.113.9" {
 		t.Errorf("public target src = %q, want cached public IP", got)
+	}
+}
+
+func TestPublicIPCacheNetworkChangeTriggerAndBestEffortFallback(t *testing.T) {
+	var mu sync.Mutex
+	curIP := "203.0.113.9"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		ip := curIP
+		mu.Unlock()
+		_, _ = w.Write([]byte(ip))
+	}))
+	defer srv.Close()
+
+	// 1. Network-change event triggers refresh and invokes SetOnRefresh.
+	ref := NewReflector([]string{srv.URL, srv.URL})
+	cache := NewPublicIPCache(ref, time.Hour)
+	triggerNetChange := make(chan struct{}, 1)
+	cache.watchNet = func(ctx context.Context, onChange func()) error {
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-triggerNetChange:
+				onChange()
+			}
+		}
+	}
+	got := make(chan PublicIPResult, 4)
+	cache.SetOnRefresh(func(r PublicIPResult) { got <- r })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cache.Start(ctx)
+	defer cache.Stop()
+
+	res := <-got
+	if res.IP != "203.0.113.9" {
+		t.Fatalf("boot IP = %q, want 203.0.113.9", res.IP)
+	}
+
+	mu.Lock()
+	curIP = "198.51.100.77"
+	mu.Unlock()
+	triggerNetChange <- struct{}{}
+
+	select {
+	case res = <-got:
+		if res.IP != "198.51.100.77" {
+			t.Fatalf("network-change IP = %q, want 198.51.100.77", res.IP)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for network-change refresh")
+	}
+
+	// 2. If network-change watcher fails/is unavailable, boot + manual triggers still work.
+	cache2 := NewPublicIPCache(ref, time.Hour)
+	cache2.watchNet = func(context.Context, func()) error {
+		return errors.New("netlink unavailable")
+	}
+	got2 := make(chan PublicIPResult, 4)
+	cache2.SetOnRefresh(func(r PublicIPResult) { got2 <- r })
+	cache2.Start(ctx)
+	defer cache2.Stop()
+
+	res2 := <-got2
+	if res2.IP != "198.51.100.77" {
+		t.Fatalf("fallback boot IP = %q", res2.IP)
+	}
+	mu.Lock()
+	curIP = "203.0.113.44"
+	mu.Unlock()
+	cache2.TriggerRefresh()
+	select {
+	case res2 = <-got2:
+		if res2.IP != "203.0.113.44" {
+			t.Fatalf("fallback manual IP = %q, want 203.0.113.44", res2.IP)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for manual refresh after watcher error")
 	}
 }

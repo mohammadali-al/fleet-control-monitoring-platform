@@ -134,6 +134,7 @@ func (w *worker) applyCaptureLocked(pushed *config.CaptureConfig) {
 		}
 	}
 	w.bindPublicIP(w.capt)
+	w.bindDiskState(w.capt)
 }
 
 // captureConfig maps the config-file/push shape to capture.Config.
@@ -190,3 +191,9 @@ func (l liveCapturer) Capture(sessionID, cgroupPath string) (SessionCapture, err
 func (l liveCapturer) Close() { l.c.Close() }
 
 func (l liveCapturer) PublicIPCache() *capture.PublicIPCache { return l.c.PublicIPCache() }
+
+func (l liveCapturer) SetOnDiskState(fn func(capture.DiskStatus)) (capture.DiskStatus, bool) {
+	return l.c.SetOnDiskState(fn)
+}
+
+func (l liveCapturer) CheckDisk() (capture.DiskStatus, error) { return l.c.CheckDisk() }

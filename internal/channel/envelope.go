@@ -200,6 +200,23 @@ type PublicIPPayload struct {
 	Confirmed bool      `json:"confirmed,omitempty"`
 }
 
+// Disk-state envelope types (architecture §6.5). Unknown types are ignored by
+// older peers, so adding this is backward-tolerant.
+const (
+	TypeDiskState = "disk-state" // agent -> server: disk usage and 80%/90% guard state (DiskStatePayload)
+)
+
+// DiskStatePayload is the payload of a disk-state envelope (agent -> server).
+type DiskStatePayload struct {
+	Status     string    `json:"status"` // ok | warn | critical
+	TotalBytes uint64    `json:"total_bytes"`
+	FreeBytes  uint64    `json:"free_bytes"`
+	UsedPct    float64   `json:"used_percent,omitempty"`
+	WarnAt     int       `json:"warn_at,omitempty"`
+	PauseAt    int       `json:"pause_at,omitempty"`
+	At         time.Time `json:"at"`
+}
+
 // Path is the URL path the agent serves the channel on.
 const Path = "/v1/channel"
 

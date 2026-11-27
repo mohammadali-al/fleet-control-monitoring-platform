@@ -10,12 +10,16 @@
 package fleet
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
+	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
@@ -105,6 +109,10 @@ type Config struct {
 	// running its last-known (or baked-in default) policy. SetWatchdog can bind
 	// it later.
 	Watchdog WatchdogSource
+	// DataDir is the server's base data directory (D-0006). When set (or
+	// inferred from Provisioner.Store), command session history is persisted
+	// under <DataDir>/commands/history.jsonl and reloaded on start.
+	DataDir string
 }
 
 // MonitorIngestor receives the mon-data envelopes of a monitor agent;
@@ -215,11 +223,15 @@ type Manager struct {
 
 	observeState // the Observe/Admin backends (observe.go)
 
-	omu      sync.Mutex
-	outputs  map[string]*outBuf
-	sessions map[string]string // session id -> machine id
-	order    []string          // session ids, oldest first
-	wg       sync.WaitGroup
+	omu          sync.Mutex
+	outputs      map[string]*outBuf
+	sessions     map[string]string  // session id -> machine id
+	history      map[string]Command // session id -> latest Command snapshot
+	order        []string           // session ids, oldest first
+	historyPath  string
+	hmu          sync.Mutex // serializes appends/compactions to historyPath
+	historyLines int
+	wg           sync.WaitGroup
 }
 
 // New returns a Manager. Call Start to bring the links up.
@@ -239,7 +251,16 @@ func New(cfg Config) (*Manager, error) {
 	if cfg.ConfirmTTL <= 0 {
 		cfg.ConfirmTTL = defaultConfirm
 	}
-	return &Manager{
+	if cfg.DataDir == "" && cfg.Provisioner != nil && cfg.Provisioner.Store != nil {
+		if dir := cfg.Provisioner.Store.Dir(); dir != "" {
+			cfg.DataDir = filepath.Dir(dir)
+		}
+	}
+	var historyPath string
+	if cfg.DataDir != "" {
+		historyPath = filepath.Join(cfg.DataDir, "commands", "history.jsonl")
+	}
+	mgr := &Manager{
 		cfg: cfg, log: cfg.Logger, bus: newBus(), mon: cfg.Monitor, wsrc: cfg.Watchdog,
 		wd:           map[string]*wdState{},
 		scPending:    map[string]chan channel.ServiceControlResultPayload{},
@@ -247,7 +268,13 @@ func New(cfg Config) (*Manager, error) {
 		nodes:        map[string]*node{},
 		outputs:      map[string]*outBuf{},
 		sessions:     map[string]string{},
-	}, nil
+		history:      map[string]Command{},
+		historyPath:  historyPath,
+	}
+	if err := mgr.loadHistory(); err != nil {
+		cfg.Logger.Warn("load command history", "component", "fleet", "err", err)
+	}
+	return mgr, nil
 }
 
 // Bus is the event bus for the panel's WebSocket streams.
@@ -459,6 +486,8 @@ func (m *Manager) agentHandler(n *node, role string, next channel.Handler) chann
 			m.recordServiceControlResult(n, env)
 		case channel.TypePublicIP:
 			m.recordPublicIP(n, env)
+		case channel.TypeDiskState:
+			m.recordDiskState(n, env)
 		default:
 			next(ctx, env)
 		}
@@ -962,8 +991,8 @@ func (m *Manager) ShellConfirm(ctx context.Context, session, line string) error 
 }
 
 // Commands lists queued, running and recently finished commands and shells of
-// every machine, newest first. (History is in memory: it is lost on restart;
-// the evidence store is the durable record.)
+// every machine, newest first. History is kept in memory for fast reads and
+// persisted under <DataDir>/commands/history.jsonl across restarts.
 func (m *Manager) Commands() []Command {
 	m.mu.Lock()
 	nodes := make([]*node, 0, len(m.nodes))
@@ -972,31 +1001,61 @@ func (m *Manager) Commands() []Command {
 	}
 	m.mu.Unlock()
 
+	seen := make(map[string]struct{})
 	var out []Command
 	for _, n := range nodes {
 		pos := 0
 		for _, e := range n.q.Snapshot() {
-			c := Command{
-				Session: e.SessionID, Machine: n.id, Command: e.Command, User: e.User, Mode: e.Mode,
-				State: e.State, CgroupPath: e.CgroupPath, Exit: e.Exit, Queued: e.Queued,
-			}
+			c := commandFromEntry(n.id, e)
 			if e.State == exec.StateQueued {
 				pos++
 				c.Position = pos
 			}
-			if !e.Started.IsZero() {
-				t := e.Started
-				c.Started = &t
-			}
-			if !e.Finished.IsZero() {
-				t := e.Finished
-				c.Finished = &t
-			}
+			seen[c.Session] = struct{}{}
 			out = append(out, c)
 		}
 	}
+	m.omu.Lock()
+	for id, c := range m.history {
+		if _, ok := seen[id]; !ok {
+			out = append(out, cloneCommand(c))
+		}
+	}
+	m.omu.Unlock()
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Queued.After(out[j].Queued) })
 	return out
+}
+
+func commandFromEntry(machine string, e exec.Entry) Command {
+	c := Command{
+		Session: e.SessionID, Machine: machine, Command: e.Command, User: e.User, Mode: e.Mode,
+		State: e.State, CgroupPath: e.CgroupPath, Exit: e.Exit, Queued: e.Queued,
+	}
+	if !e.Started.IsZero() {
+		t := e.Started
+		c.Started = &t
+	}
+	if !e.Finished.IsZero() {
+		t := e.Finished
+		c.Finished = &t
+	}
+	return c
+}
+
+func cloneCommand(c Command) Command {
+	if c.Exit != nil {
+		x := *c.Exit
+		c.Exit = &x
+	}
+	if c.Started != nil {
+		t := *c.Started
+		c.Started = &t
+	}
+	if c.Finished != nil {
+		t := *c.Finished
+		c.Finished = &t
+	}
+	return c
 }
 
 // Command returns one command with its captured output.
@@ -1028,6 +1087,9 @@ func (m *Manager) Output(session string) []OutputSegment {
 func (m *Manager) remember(session, machine string) {
 	m.omu.Lock()
 	defer m.omu.Unlock()
+	if _, ok := m.sessions[session]; ok {
+		return
+	}
 	m.sessions[session] = machine
 	m.order = append(m.order, session)
 	for len(m.order) > maxSessions {
@@ -1035,15 +1097,226 @@ func (m *Manager) remember(session, machine string) {
 		m.order = m.order[1:]
 		delete(m.sessions, old)
 		delete(m.outputs, old)
+		delete(m.history, old)
 	}
 }
 
-// onExec runs on the channel read loop: record one-shot output and publish.
+// onExec runs on the channel read loop: record one-shot output, update command
+// history, and publish.
 func (m *Manager) onExec(machine string, ev exec.Event) {
 	if ev.Kind == exec.EventChunk && ev.Chunk != nil && ev.Entry.Mode == exec.ModeOneShot {
 		m.appendOutput(ev.SessionID, ev.Chunk)
 	}
+	if ev.Kind == exec.EventQueued || ev.Kind == exec.EventRunning || ev.Kind == exec.EventExited {
+		rec, persist := m.recordCommandHistory(machine, ev)
+		if persist {
+			m.appendHistory(rec)
+		}
+	}
 	m.bus.publish(Event{Kind: EventExec, Machine: machine, Exec: &ev})
+}
+
+type persistedCommand struct {
+	Command   Command         `json:"command"`
+	Output    []OutputSegment `json:"output,omitempty"`
+	Truncated bool            `json:"truncated,omitempty"`
+}
+
+func (m *Manager) recordCommandHistory(machine string, ev exec.Event) (persistedCommand, bool) {
+	c := commandFromEntry(machine, ev.Entry)
+	if ev.Kind == exec.EventExited && ev.Exit != nil && c.Exit == nil {
+		x := *ev.Exit
+		c.Exit = &x
+	}
+	m.omu.Lock()
+	m.history[ev.SessionID] = cloneCommand(c)
+	var rec persistedCommand
+	if m.historyPath != "" {
+		rec.Command = cloneCommand(c)
+		if ev.Kind == exec.EventExited {
+			if b := m.outputs[ev.SessionID]; b != nil {
+				rec.Output = append([]OutputSegment(nil), b.segs...)
+				rec.Truncated = b.truncated
+			}
+		}
+	}
+	m.omu.Unlock()
+	return rec, m.historyPath != ""
+}
+
+func (m *Manager) appendHistory(rec persistedCommand) {
+	line, err := json.Marshal(rec)
+	if err != nil {
+		m.log.Warn("encode command history", "component", "fleet", "session", rec.Command.Session, "err", err)
+		return
+	}
+	line = append(line, '\n')
+
+	m.hmu.Lock()
+	defer m.hmu.Unlock()
+	if err := os.MkdirAll(filepath.Dir(m.historyPath), 0o750); err != nil {
+		m.log.Warn("create command history dir", "component", "fleet", "err", err)
+		return
+	}
+	f, err := os.OpenFile(m.historyPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		m.log.Warn("open command history", "component", "fleet", "err", err)
+		return
+	}
+	_, werr := f.Write(line)
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		m.log.Warn("write command history", "component", "fleet", "err", werr)
+		return
+	}
+	m.historyLines++
+	if m.historyLines > 2*maxSessions {
+		m.compactHistoryLocked()
+	}
+}
+
+func (m *Manager) compactHistoryLocked() {
+	m.omu.Lock()
+	order := append([]string(nil), m.order...)
+	recs := make([]persistedCommand, 0, len(order))
+	for _, id := range order {
+		c, ok := m.history[id]
+		if !ok {
+			continue
+		}
+		rec := persistedCommand{Command: cloneCommand(c)}
+		if b := m.outputs[id]; b != nil {
+			rec.Output = append([]OutputSegment(nil), b.segs...)
+			rec.Truncated = b.truncated
+		}
+		recs = append(recs, rec)
+	}
+	m.omu.Unlock()
+
+	dir := filepath.Dir(m.historyPath)
+	tmp, err := os.CreateTemp(dir, "history.*.tmp")
+	if err != nil {
+		return
+	}
+	tmpName := tmp.Name()
+	cleanup := func() { _ = os.Remove(tmpName) }
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		cleanup()
+		return
+	}
+	for _, rec := range recs {
+		b, err := json.Marshal(rec)
+		if err != nil {
+			continue
+		}
+		if _, err := tmp.Write(append(b, '\n')); err != nil {
+			_ = tmp.Close()
+			cleanup()
+			return
+		}
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		cleanup()
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return
+	}
+	if err := os.Rename(tmpName, m.historyPath); err != nil {
+		cleanup()
+		return
+	}
+	m.historyLines = len(recs)
+}
+
+func (m *Manager) loadHistory() error {
+	if m.historyPath == "" {
+		return nil
+	}
+	f, err := os.Open(m.historyPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	byID := make(map[string]persistedCommand)
+	var seq []string
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 64<<10), 2*maxOutputBytes)
+	lines := 0
+	for sc.Scan() {
+		line := sc.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		lines++
+		var rec persistedCommand
+		if err := json.Unmarshal(line, &rec); err != nil || rec.Command.Session == "" {
+			continue
+		}
+		id := rec.Command.Session
+		prev, exists := byID[id]
+		if !exists {
+			seq = append(seq, id)
+		} else if len(rec.Output) == 0 && len(prev.Output) > 0 {
+			rec.Output = prev.Output
+			rec.Truncated = prev.Truncated
+		}
+		byID[id] = rec
+	}
+	if err := sc.Err(); err != nil {
+		return err
+	}
+
+	sort.SliceStable(seq, func(i, j int) bool {
+		return byID[seq[i]].Command.Queued.Before(byID[seq[j]].Command.Queued)
+	})
+	if len(seq) > maxSessions {
+		seq = seq[len(seq)-maxSessions:]
+	}
+
+	now := time.Now()
+	m.omu.Lock()
+	for _, id := range seq {
+		rec := byID[id]
+		c := rec.Command
+		if c.State != exec.StateFinished {
+			c.State = exec.StateFinished
+			if c.Finished == nil {
+				t := now
+				c.Finished = &t
+			}
+			if c.Exit == nil {
+				c.Exit = &exec.ExitPayload{
+					SessionID: c.Session,
+					ExitCode:  -1,
+					Reason:    exec.ReasonLost,
+					Error:     "server restarted",
+				}
+			}
+		}
+		m.sessions[id] = c.Machine
+		m.order = append(m.order, id)
+		m.history[id] = c
+		if len(rec.Output) > 0 || rec.Truncated {
+			size := 0
+			for _, seg := range rec.Output {
+				size += len(seg.Text)
+			}
+			m.outputs[id] = &outBuf{segs: rec.Output, size: size, truncated: rec.Truncated}
+		}
+	}
+	m.omu.Unlock()
+	m.historyLines = lines
+	return nil
 }
 
 func (m *Manager) appendOutput(session string, c *exec.ChunkPayload) {
@@ -1184,6 +1457,43 @@ func (m *Manager) recordPublicIP(n *node, env channel.Envelope) {
 		mc.PublicIPAt = &t
 	}); err != nil {
 		m.log.Warn("update public-ip", "component", "fleet", "machine", n.id, "err", err)
+		return
+	}
+	m.publishMachine(n.id)
+}
+
+// --- disk state --------------------------------------------------------------
+
+func (m *Manager) recordDiskState(n *node, env channel.Envelope) {
+	var p channel.DiskStatePayload
+	if err := json.Unmarshal(env.Payload, &p); err != nil {
+		m.log.Warn("bad disk-state payload", "component", "fleet", "machine", n.id, "err", err)
+		return
+	}
+	switch p.Status {
+	case "ok", "warn", "critical":
+	default:
+		m.log.Warn("invalid disk-state status", "component", "fleet", "machine", n.id, "status", p.Status)
+		return
+	}
+	if p.FreeBytes > p.TotalBytes {
+		m.log.Warn("invalid disk-state bytes", "component", "fleet", "machine", n.id, "total", p.TotalBytes, "free", p.FreeBytes)
+		return
+	}
+	at := p.At
+	if at.IsZero() {
+		at = time.Now()
+	}
+	if err := m.cfg.Registry.Update(n.id, func(mc *registry.Machine) {
+		t := at
+		mc.Disk = registry.DiskState{
+			Status:     p.Status,
+			TotalBytes: p.TotalBytes,
+			FreeBytes:  p.FreeBytes,
+			UpdatedAt:  &t,
+		}
+	}); err != nil {
+		m.log.Warn("update disk-state", "component", "fleet", "machine", n.id, "err", err)
 		return
 	}
 	m.publishMachine(n.id)

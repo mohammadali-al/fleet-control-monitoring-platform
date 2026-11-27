@@ -31,22 +31,82 @@ const (
 // deletes. The packet is not recorded; callers may account it.
 var ErrDiskPaused = errors.New("capture: disk guard paused writes")
 
+// Disk guard states reported to the main server (§6.5).
+const (
+	DiskStatusOK       = "ok"
+	DiskStatusWarn     = "warn"
+	DiskStatusCritical = "critical"
+)
+
+// DiskStatus is one disk-usage and guard-state sample for a path.
+type DiskStatus struct {
+	Status     string
+	TotalBytes uint64
+	FreeBytes  uint64
+	UsedPct    float64
+	WarnAt     int
+	PauseAt    int
+	At         time.Time
+}
+
 // diskUsageFunc reports a path's filesystem usage as a percentage (0..100).
-// Overridable in tests; the production value uses statfs.
+// Overridable in tests; the production path uses statfsDisk.
 type diskUsageFunc func(path string) (float64, error)
 
-func statfsUsagePercent(path string) (float64, error) {
+type diskStatFunc func(path string) (total, free uint64, usedPct float64, err error)
+
+func statfsDisk(path string) (total, free uint64, usedPct float64, err error) {
 	var st unix.Statfs_t
 	if err := unix.Statfs(path, &st); err != nil {
-		return 0, fmt.Errorf("capture: statfs %s: %w", path, err)
+		return 0, 0, 0, fmt.Errorf("capture: statfs %s: %w", path, err)
 	}
-	total := st.Blocks * uint64(st.Bsize)
+	total = st.Blocks * uint64(st.Bsize)
 	if total == 0 {
-		return 0, nil
+		return 0, 0, 0, nil
 	}
-	free := st.Bavail * uint64(st.Bsize)
+	free = st.Bavail * uint64(st.Bsize)
 	used := total - free
-	return float64(used) / float64(total) * 100, nil
+	return total, free, float64(used) / float64(total) * 100, nil
+}
+
+func statfsUsagePercent(path string) (float64, error) {
+	_, _, pct, err := statfsDisk(path)
+	return pct, err
+}
+
+// CheckDisk samples the filesystem at path and classifies it against warnPct
+// (default 80) and pausePct (default 90).
+func CheckDisk(path string, warnPct, pausePct int) (DiskStatus, error) {
+	if warnPct <= 0 {
+		warnPct = DefaultDiskWarnPercent
+	}
+	if pausePct <= 0 {
+		pausePct = DefaultDiskPausePercent
+	}
+	total, free, pct, err := statfsDisk(path)
+	if err != nil {
+		return DiskStatus{}, err
+	}
+	return classifyDisk(total, free, pct, warnPct, pausePct, time.Now()), nil
+}
+
+func classifyDisk(total, free uint64, pct float64, warnPct, pausePct int, at time.Time) DiskStatus {
+	status := DiskStatusOK
+	switch {
+	case pct >= float64(pausePct):
+		status = DiskStatusCritical
+	case pct >= float64(warnPct):
+		status = DiskStatusWarn
+	}
+	return DiskStatus{
+		Status:     status,
+		TotalBytes: total,
+		FreeBytes:  free,
+		UsedPct:    pct,
+		WarnAt:     warnPct,
+		PauseAt:    pausePct,
+		At:         at,
+	}
 }
 
 // SegmentConfig tunes segment rolling and the disk guard.
@@ -99,6 +159,7 @@ type SegmentWriter struct {
 	manifest *Manifest
 	cfg      SegmentConfig
 	diskUse  diskUsageFunc
+	diskStat diskStatFunc
 	log      *slog.Logger
 	now      func() time.Time
 
@@ -107,6 +168,8 @@ type SegmentWriter struct {
 	pendingDropped uint64 // drops counted before/between segments
 	paused         bool
 	warned         bool
+	lastDiskStatus string
+	onDisk         func(DiskStatus)
 }
 
 // NewSegmentWriter creates (if needed) the machine evidence dir, loads its
@@ -127,10 +190,18 @@ func NewSegmentWriter(machineDir, machine string, cfg SegmentConfig, log *slog.L
 		dir:      machineDir,
 		manifest: mf,
 		cfg:      cfg,
-		diskUse:  statfsUsagePercent,
+		diskStat: statfsDisk,
 		log:      log,
 		now:      time.Now,
 	}, nil
+}
+
+// SetOnDiskState registers a callback invoked (outside the writer lock) when
+// the disk guard first evaluates or transitions between ok/warn/critical.
+func (w *SegmentWriter) SetOnDiskState(fn func(DiskStatus)) {
+	w.mu.Lock()
+	w.onDisk = fn
+	w.mu.Unlock()
 }
 
 // Manifest returns the writer's manifest (for verification/reads).
@@ -149,11 +220,24 @@ func (w *SegmentWriter) AddDropped(n uint64) {
 // writes.
 func (w *SegmentWriter) Write(rec Record) error {
 	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	if err := w.checkDiskLocked(); err != nil {
+	st, notify, err := w.checkDiskLocked()
+	cb := w.onDisk
+	if err != nil {
+		w.mu.Unlock()
+		if notify && cb != nil {
+			cb(st)
+		}
 		return err
 	}
+	err = w.writeRecordLocked(rec)
+	w.mu.Unlock()
+	if notify && cb != nil {
+		cb(st)
+	}
+	return err
+}
+
+func (w *SegmentWriter) writeRecordLocked(rec Record) error {
 	now := w.now()
 	if err := w.rollIfNeededLocked(now); err != nil {
 		return err
@@ -178,19 +262,32 @@ func (w *SegmentWriter) Write(rec Record) error {
 
 // checkDiskLocked applies the §6.5 guard: warn at DiskWarnPercent, pause writes
 // at DiskPausePercent. It never deletes.
-func (w *SegmentWriter) checkDiskLocked() error {
-	use, err := w.diskUse(w.dir)
-	if err != nil {
-		return nil // fail open on a stat error: do not block capture on it
+func (w *SegmentWriter) checkDiskLocked() (DiskStatus, bool, error) {
+	var (
+		total, free uint64
+		use         float64
+		err         error
+	)
+	if w.diskUse != nil {
+		use, err = w.diskUse(w.dir)
+	} else {
+		total, free, use, err = w.diskStat(w.dir)
 	}
-	switch {
-	case use >= float64(w.cfg.DiskPausePercent):
+	if err != nil {
+		return DiskStatus{}, false, nil // fail open on a stat error: do not block capture on it
+	}
+	st := classifyDisk(total, free, use, w.cfg.DiskWarnPercent, w.cfg.DiskPausePercent, w.now())
+	changed := st.Status != w.lastDiskStatus
+	w.lastDiskStatus = st.Status
+
+	switch st.Status {
+	case DiskStatusCritical:
 		if !w.paused {
 			w.paused = true
 			w.log.Warn("capture: disk guard paused writes", "used_percent", use, "pause_at", w.cfg.DiskPausePercent)
 		}
-		return ErrDiskPaused
-	case use >= float64(w.cfg.DiskWarnPercent):
+		return st, changed, ErrDiskPaused
+	case DiskStatusWarn:
 		w.paused = false
 		if !w.warned {
 			w.warned = true
@@ -199,7 +296,7 @@ func (w *SegmentWriter) checkDiskLocked() error {
 	default:
 		w.paused, w.warned = false, false
 	}
-	return nil
+	return st, changed, nil
 }
 
 // rollIfNeededLocked opens the first segment, or finalizes and reopens when the

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/capture"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/channel"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/monitor"
@@ -39,6 +40,9 @@ type MonitorConfig struct {
 	Probers []probe.Prober
 	// ServiceController handles service-control envelopes (default: systemctl/launchctl).
 	ServiceController ServiceController
+	// Reflectors overrides the public-IP reflector URLs (empty selects
+	// capture.DefaultReflectors).
+	Reflectors []string
 	// Logger defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -50,11 +54,13 @@ type MonitorConfig struct {
 // and go out, oldest first, when it returns. A monitor agent has no shell, no
 // executor and no evidence capture, and it never stops probing on its own.
 type Monitor struct {
-	cfg MonitorConfig
-	log *slog.Logger
-	ln  *channel.Listener
-	eng *probe.Engine
-	fl  *monitor.Flusher
+	cfg      MonitorConfig
+	log      *slog.Logger
+	ln       *channel.Listener
+	eng      *probe.Engine
+	fl       *monitor.Flusher
+	pipCache *capture.PublicIPCache
+	pip      *publicIPReporter
 
 	mu   sync.Mutex
 	base context.Context // lifetime context, set by Run
@@ -85,6 +91,9 @@ func NewMonitor(cfg MonitorConfig) (*Monitor, error) {
 	for _, p := range cfg.Probers {
 		m.eng.Register(p)
 	}
+	m.pipCache = capture.NewPublicIPCache(capture.NewReflector(cfg.Reflectors), 0)
+	m.pip = newPublicIPReporter(serviceSenderFunc(m.send), cfg.Logger, m.baseCtx)
+	m.pip.bind(m.pipCache)
 	ln, err := channel.Listen(channel.ListenerConfig{
 		Addr:      cfg.ListenAddr,
 		TLS:       cfg.TLS,
@@ -118,6 +127,7 @@ func MonitorFromConfig(ac config.AgentConfig, log *slog.Logger) (*Monitor, error
 		MachineID:  ac.MachineID,
 		ListenAddr: ac.ListenAddrOrDefault(),
 		TLS:        tlsCfg,
+		Reflectors: ac.Capture.Reflectors,
 		Logger:     log,
 	})
 }
@@ -143,6 +153,12 @@ func (m *Monitor) Run(ctx context.Context) error {
 	m.mu.Lock()
 	m.base = ctx
 	m.mu.Unlock()
+
+	m.pipCache.Start(ctx)
+	defer func() {
+		m.pipCache.Stop()
+		m.pip.unbind()
+	}()
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -185,6 +201,7 @@ func (m *Monitor) onConnect(peer string) {
 	if err != nil {
 		m.log.Warn("request config", "component", "fleet-agent", "err", err)
 	}
+	m.pip.reportOnConnect()
 }
 
 func (m *Monitor) serviceController() ServiceController {
@@ -193,14 +210,19 @@ func (m *Monitor) serviceController() ServiceController {
 	return m.svc
 }
 
-// handle is the channel.Handler. A monitor agent handles mon-config and
-// service-control; it has no executor, so run and friends are ignored.
+// handle is the channel.Handler. A monitor agent handles mon-config,
+// service-control, and public-ip-refresh; it has no executor, so run and
+// friends are ignored.
 func (m *Monitor) handle(ctx context.Context, env channel.Envelope) {
-	if env.Type == channel.TypeServiceControl {
+	switch env.Type {
+	case channel.TypeServiceControl:
 		handleServiceControl(ctx, m.log, serviceSenderFunc(m.send), m.serviceController(), env)
 		return
-	}
-	if env.Type != channel.TypeMonConfig {
+	case channel.TypePublicIPRefresh:
+		m.pip.handleRefresh()
+		return
+	case channel.TypeMonConfig:
+	default:
 		m.log.Debug("ignoring envelope a monitor agent does not handle", "component", "fleet-agent", "type", env.Type)
 		return
 	}

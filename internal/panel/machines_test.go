@@ -34,6 +34,8 @@ func TestMachinesPageHasTokenEnrollmentUI(t *testing.T) {
 		"/api/enroll/machines",
 		"/ws/events",
 		"macOS machines can only be monitor agents",
+		"All reported disks OK",
+		"Disk figures update live from agent telemetry.",
 	} {
 		if !strings.Contains(js, want) {
 			t.Errorf("SPA bundle lacks %q", want)
