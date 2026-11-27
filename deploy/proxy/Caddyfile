@@ -8,6 +8,27 @@
 #
 # Hostnames: change fleet.internal here, in deploy/authelia/configuration.yml
 # and in the certificate together.
+#
+# Single-domain option (see --single-domain in deploy/install-server.sh):
+# Instead of a separate auth.fleet.internal server block, serve Authelia under
+# /authelia on the panel domain (note: /authelia* is the single reserved panel
+# path and must not be served by fleet-server):
+#
+# fleet.internal {
+# 	tls /certs/tls.crt /certs/tls.key
+#
+# 	handle /authelia* {
+# 		reverse_proxy 127.0.0.1:9091
+# 	}
+#
+# 	handle {
+# 		forward_auth 127.0.0.1:9091 {
+# 			uri /authelia/api/authz/forward-auth
+# 			copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
+# 		}
+# 		reverse_proxy 127.0.0.1:6789
+# 	}
+# }
 {
 	# No port-80 listener; plain HTTP is not served at all.
 	auto_https disable_redirects

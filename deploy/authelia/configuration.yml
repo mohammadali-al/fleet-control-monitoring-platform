@@ -4,11 +4,18 @@
 # Secrets are NOT in this file. They come from files named by *_FILE environment
 # variables set in compose.yml (jwt secret, session secret, storage key).
 #
-# The names below assume the panel is served at https://fleet.internal and the
-# login portal at https://auth.fleet.internal. Authelia needs a real DNS-style
-# cookie domain (an IP address is not accepted), so give both names to operators'
-# browsers via DNS or /etc/hosts. To use other names, change them here, in
-# deploy/proxy/Caddyfile and in the certificate (see deploy/README.md).
+# The names below assume the default two-subdomain layout: the panel at
+# https://fleet.internal and the login portal at https://auth.fleet.internal.
+# Authelia needs a real DNS-style cookie domain (an IP address is not accepted),
+# so give the name(s) to operators' browsers via DNS or /etc/hosts.
+#
+# Single-domain option (--single-domain in deploy/install-server.sh): to host
+# Authelia under https://fleet.internal/authelia using one DNS name instead:
+#   server.address: 'tcp://:9091/authelia'   # (or 'tcp://127.0.0.1:9091/authelia' native)
+#   session.cookies[].authelia_url: 'https://fleet.internal/authelia'
+#
+# To use other names, change them here, in deploy/proxy/Caddyfile and in the
+# certificate (see deploy/README.md).
 
 server:
   address: 'tcp://:9091/'

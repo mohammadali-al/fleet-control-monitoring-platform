@@ -23,8 +23,10 @@
 #   --token TOKEN            GitHub token for private repos / API rate limits (or GH_TOKEN / GITHUB_TOKEN)
 #
 # Configuration overrides (also settable in --answers FILE):
+#   --single-domain          Serve Authelia under /authelia on the panel domain (one DNS name)
+#   --two-domain             Serve Authelia on separate --auth-domain (default)
 #   --panel-domain DOMAIN    Panel hostname (default prompt: fleet.internal)
-#   --auth-domain DOMAIN     Authelia login hostname (default: auth.<panel-domain>)
+#   --auth-domain DOMAIN     Authelia login hostname (default: auth.<panel-domain>; unused in --single-domain)
 #   --tls-mode internal|acme TLS certificate mode (default: internal)
 #   --acme-email EMAIL       Contact email for public ACME certificates
 #   --admin-user USER        Initial Authelia admin username (default: admin)
@@ -70,6 +72,7 @@ UPGRADE_ARGS=()
 FLEET_REPO="${FLEET_REPO:-$DEFAULT_REPO}"
 FLEET_INSTALL_VERSION="${FLEET_INSTALL_VERSION:-latest}"
 FLEET_PROXY_MODE="${FLEET_PROXY_MODE:-}"
+FLEET_DOMAIN_MODE="${FLEET_DOMAIN_MODE:-}"
 FLEET_PANEL_DOMAIN="${FLEET_PANEL_DOMAIN:-}"
 FLEET_AUTH_DOMAIN="${FLEET_AUTH_DOMAIN:-}"
 FLEET_TLS_MODE="${FLEET_TLS_MODE:-}"
@@ -114,8 +117,10 @@ Release & auth options:
   --token TOKEN            GitHub token for private repos / API rate limits (or GH_TOKEN / GITHUB_TOKEN)
 
 Configuration overrides (also settable in --answers FILE):
+  --single-domain          Serve Authelia under /authelia on the panel domain (one DNS name)
+  --two-domain             Serve Authelia on separate --auth-domain (default)
   --panel-domain DOMAIN    Panel hostname (default prompt: fleet.internal)
-  --auth-domain DOMAIN     Authelia login hostname (default: auth.<panel-domain>)
+  --auth-domain DOMAIN     Authelia login hostname (default: auth.<panel-domain>; unused in --single-domain)
   --tls-mode internal|acme TLS certificate mode (default: internal)
   --acme-email EMAIL       Contact email for public ACME certificates
   --admin-user USER        Initial Authelia admin username (default: admin)
@@ -155,6 +160,8 @@ while [ "$#" -gt 0 ]; do
     --version) need_val "$@"; FLEET_INSTALL_VERSION="$2"; UPGRADE_ARGS+=("--version" "$2"); shift 2 ;;
     --repo) need_val "$@"; FLEET_REPO="$2"; UPGRADE_ARGS+=("--repo" "$2"); shift 2 ;;
     --token) need_val "$@"; TOKEN="$2"; UPGRADE_ARGS+=("--token" "$2"); shift 2 ;;
+    --single-domain) FLEET_DOMAIN_MODE="single"; shift ;;
+    --two-domain) FLEET_DOMAIN_MODE="two"; shift ;;
     --panel-domain) need_val "$@"; FLEET_PANEL_DOMAIN="$2"; shift 2 ;;
     --auth-domain) need_val "$@"; FLEET_AUTH_DOMAIN="$2"; shift 2 ;;
     --tls-mode) need_val "$@"; FLEET_TLS_MODE="$2"; shift 2 ;;
@@ -212,6 +219,7 @@ load_answers_file() {
       FLEET_REPO) [ "$FLEET_REPO" = "$DEFAULT_REPO" ] && FLEET_REPO="$val" ;;
       FLEET_INSTALL_VERSION) [ "$FLEET_INSTALL_VERSION" = "latest" ] && FLEET_INSTALL_VERSION="$val" ;;
       FLEET_PROXY_MODE) [ -z "$FLEET_PROXY_MODE" ] && FLEET_PROXY_MODE="$val" ;;
+      FLEET_DOMAIN_MODE) [ -z "$FLEET_DOMAIN_MODE" ] && FLEET_DOMAIN_MODE="$val" ;;
       FLEET_PANEL_DOMAIN) [ -z "$FLEET_PANEL_DOMAIN" ] && FLEET_PANEL_DOMAIN="$val" ;;
       FLEET_AUTH_DOMAIN) [ -z "$FLEET_AUTH_DOMAIN" ] && FLEET_AUTH_DOMAIN="$val" ;;
       FLEET_TLS_MODE) [ -z "$FLEET_TLS_MODE" ] && FLEET_TLS_MODE="$val" ;;
@@ -289,6 +297,21 @@ case "$FLEET_PROXY_MODE" in
   docker|native) ;;
   *) die "invalid --proxy mode '$FLEET_PROXY_MODE' (want: docker or native)" ;;
 esac
+
+if [ -n "$FLEET_DOMAIN_MODE" ]; then
+  case "$FLEET_DOMAIN_MODE" in
+    two|single) ;;
+    *) die "invalid domain mode '$FLEET_DOMAIN_MODE' (want: two or single)" ;;
+  esac
+fi
+
+is_ip_literal() {
+  local host="$1"
+  if [[ "$host" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || [[ "$host" == *:* ]]; then
+    return 0
+  fi
+  return 1
+}
 
 FLEET_PANEL_PORT="${FLEET_PANEL_PORT:-443}"
 FLEET_SERVER_PORT="${FLEET_SERVER_PORT:-6789}"
@@ -781,12 +804,27 @@ collect_answers() {
   if [ -f "$saved_answers" ]; then
     load_answers_file "$saved_answers"
   fi
+  FLEET_DOMAIN_MODE="${FLEET_DOMAIN_MODE:-two}"
+  case "$FLEET_DOMAIN_MODE" in
+    two|single) ;;
+    *) die "invalid domain mode '$FLEET_DOMAIN_MODE' (want: two or single)" ;;
+  esac
 
   if [ -z "$FLEET_PANEL_DOMAIN" ]; then
     prompt_val "Panel domain (DNS name, e.g. fleet.example.com)" "fleet.internal" FLEET_PANEL_DOMAIN
   fi
-  if [ -z "$FLEET_AUTH_DOMAIN" ]; then
-    prompt_val "Auth portal domain" "auth.$FLEET_PANEL_DOMAIN" FLEET_AUTH_DOMAIN
+  if is_ip_literal "$FLEET_PANEL_DOMAIN"; then
+    die "panel domain '$FLEET_PANEL_DOMAIN' is an IP address; Authelia requires a DNS name (IP-only is unsupported)"
+  fi
+  if [ "$FLEET_DOMAIN_MODE" = "two" ]; then
+    if [ -z "$FLEET_AUTH_DOMAIN" ]; then
+      prompt_val "Auth portal domain" "auth.$FLEET_PANEL_DOMAIN" FLEET_AUTH_DOMAIN
+    fi
+    if is_ip_literal "$FLEET_AUTH_DOMAIN"; then
+      die "auth domain '$FLEET_AUTH_DOMAIN' is an IP address; Authelia requires a DNS name (IP-only is unsupported)"
+    fi
+  else
+    FLEET_AUTH_DOMAIN=""
   fi
   if [ -z "$FLEET_TLS_MODE" ]; then
     prompt_val "TLS mode (internal = self-signed/internal CA, acme = public Let's Encrypt)" "internal" FLEET_TLS_MODE
@@ -844,6 +882,7 @@ write_install_answers() {
 FLEET_REPO=$FLEET_REPO
 FLEET_INSTALL_VERSION=$FLEET_INSTALL_VERSION
 FLEET_PROXY_MODE=$FLEET_PROXY_MODE
+FLEET_DOMAIN_MODE=$FLEET_DOMAIN_MODE
 FLEET_PANEL_DOMAIN=$FLEET_PANEL_DOMAIN
 FLEET_AUTH_DOMAIN=$FLEET_AUTH_DOMAIN
 FLEET_TLS_MODE=$FLEET_TLS_MODE
@@ -894,6 +933,35 @@ render_caddyfile() {
     tls_line="tls ${FLEET_PROXY_STATE_DIR}/certs/tls.crt ${FLEET_PROXY_STATE_DIR}/certs/tls.key"
   fi
 
+  if [ "$FLEET_DOMAIN_MODE" = "single" ]; then
+    cat <<EOF
+# Reverse proxy for the Fleet panel (generated by install-server.sh, single-domain mode).
+# Reserved panel path: /authelia* (Authelia portal + API + forward-auth; fleet-server must not serve it).
+{
+	auto_https disable_redirects
+	https_port ${FLEET_PANEL_PORT}
+}
+
+${FLEET_PANEL_DOMAIN}${port_suffix} {
+	${tls_line}
+
+	handle /authelia* {
+		reverse_proxy 127.0.0.1:${FLEET_AUTH_PORT}
+	}
+
+	handle {
+		forward_auth 127.0.0.1:${FLEET_AUTH_PORT} {
+			uri /authelia/api/authz/forward-auth
+			copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
+		}
+
+		reverse_proxy 127.0.0.1:${FLEET_SERVER_PORT}
+	}
+}
+EOF
+    return 0
+  fi
+
   cat <<EOF
 # Reverse proxy for the Fleet panel (generated by install-server.sh).
 {
@@ -921,13 +989,25 @@ EOF
 
 render_authelia_config() {
   local data_prefix="/data"
+  local bind_host=""
   if [ "$FLEET_PROXY_MODE" = "native" ]; then
     data_prefix="${FLEET_PROXY_STATE_DIR}/authelia"
+    bind_host="127.0.0.1"
+  fi
+  local port_suffix=""
+  [ "$FLEET_PANEL_PORT" != "443" ] && port_suffix=":${FLEET_PANEL_PORT}"
+  local server_path="/"
+  local authelia_url="https://${FLEET_AUTH_DOMAIN}"
+  local redirect_url="https://${FLEET_PANEL_DOMAIN}"
+  if [ "$FLEET_DOMAIN_MODE" = "single" ]; then
+    server_path="/authelia"
+    authelia_url="https://${FLEET_PANEL_DOMAIN}${port_suffix}/authelia"
+    redirect_url="https://${FLEET_PANEL_DOMAIN}${port_suffix}"
   fi
   cat <<EOF
 # Authelia configuration for Fleet panel (Authelia ${AUTHELIA_VERSION}).
 server:
-  address: 'tcp://127.0.0.1:${FLEET_AUTH_PORT}/'
+  address: 'tcp://${bind_host}:${FLEET_AUTH_PORT}${server_path}'
   endpoints:
     authz:
       forward-auth:
@@ -957,8 +1037,8 @@ session:
   inactivity: '1h'
   cookies:
     - domain: '${FLEET_PANEL_DOMAIN}'
-      authelia_url: 'https://${FLEET_AUTH_DOMAIN}'
-      default_redirection_url: 'https://${FLEET_PANEL_DOMAIN}'
+      authelia_url: '${authelia_url}'
+      default_redirection_url: '${redirect_url}'
 
 regulation:
   max_retries: 5
@@ -1169,6 +1249,12 @@ generate_proxy_secrets_and_certs() {
   if [ "$FLEET_TLS_MODE" = "internal" ]; then
     if [ ! -s "$state/certs/tls.crt" ] || [ ! -s "$state/certs/tls.key" ]; then
       make_tmp_dir
+      local san_list="DNS:${FLEET_PANEL_DOMAIN},DNS:${FLEET_AUTH_DOMAIN}"
+      local san_desc="${FLEET_PANEL_DOMAIN}, ${FLEET_AUTH_DOMAIN}"
+      if [ "$FLEET_DOMAIN_MODE" = "single" ]; then
+        san_list="DNS:${FLEET_PANEL_DOMAIN}"
+        san_desc="${FLEET_PANEL_DOMAIN}"
+      fi
       cat >"$TMP_DIR/san.cnf" <<EOF
 [req]
 distinguished_name=dn
@@ -1177,7 +1263,7 @@ prompt=no
 [dn]
 CN=${FLEET_PANEL_DOMAIN}
 [v3_req]
-subjectAltName=DNS:${FLEET_PANEL_DOMAIN},DNS:${FLEET_AUTH_DOMAIN}
+subjectAltName=${san_list}
 basicConstraints=CA:FALSE
 keyUsage=digitalSignature,keyEncipherment
 extendedKeyUsage=serverAuth
@@ -1187,7 +1273,7 @@ EOF
         -config "$TMP_DIR/san.cnf" >/dev/null 2>&1
       chmod 0600 "$state/certs/tls.key"
       chmod 0644 "$state/certs/tls.crt"
-      say "generated self-signed TLS cert at $FLEET_PROXY_STATE_DIR/certs/tls.crt (SANs: $FLEET_PANEL_DOMAIN, $FLEET_AUTH_DOMAIN)"
+      say "generated self-signed TLS cert at $FLEET_PROXY_STATE_DIR/certs/tls.crt (SANs: $san_desc)"
     else
       say "preserving existing TLS cert at $FLEET_PROXY_STATE_DIR/certs/tls.crt"
     fi
@@ -1429,7 +1515,11 @@ if [ "$FLEET_PANEL_PORT" != "443" ]; then
 fi
 say "fleet-server and fleet-proxy ($FLEET_PROXY_MODE) are up!"
 say "panel URL: https://${FLEET_PANEL_DOMAIN}${port_hint}/"
-say "auth URL:  https://${FLEET_AUTH_DOMAIN}${port_hint}/"
+if [ "$FLEET_DOMAIN_MODE" = "single" ]; then
+  say "auth URL:  https://${FLEET_PANEL_DOMAIN}${port_hint}/authelia"
+else
+  say "auth URL:  https://${FLEET_AUTH_DOMAIN}${port_hint}/"
+fi
 if [ "$FLEET_TLS_MODE" = "internal" ]; then
   say "TLS cert:  $FLEET_PROXY_STATE_DIR/certs/tls.crt (trust on operator browsers or replace with CA-signed cert)"
 fi
