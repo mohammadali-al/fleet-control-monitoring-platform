@@ -14,23 +14,26 @@ import (
 
 // pageSpec describes one panel page. Mock pages still show their static
 // mock data and the "Mock data" chip; live pages are wired to the backend.
+// Pages with spa: true are served by the React SPA shell; un-ported pages keep
+// their legacy server-rendered .html handler during the incremental migration.
 type pageSpec struct {
-	name string // URL stem and nav key: /<name>.html
+	name string // URL stem and nav key: /<name> (SPA) or /<name>.html (legacy)
 	mock bool
+	spa  bool
 }
 
 // pages is every panel page, in nav order. The default page is the first.
 var pages = []pageSpec{
-	{"machines", false},
-	{"projects", true},
-	{"commands", false},
-	{"terminal", false},
-	{"baseline", true},
-	{"maneuver", true},
-	{"monitor", false},
-	{"watchdog", false},
-	{"evidence", false},
-	{"backup", false},
+	{"machines", false, true},
+	{"projects", true, false},
+	{"commands", false, false},
+	{"terminal", false, false},
+	{"baseline", true, false},
+	{"maneuver", true, false},
+	{"monitor", false, false},
+	{"watchdog", false, false},
+	{"evidence", false, false},
+	{"backup", false, false},
 }
 
 // fragments are the pieces of live pages that the browser re-fetches as data

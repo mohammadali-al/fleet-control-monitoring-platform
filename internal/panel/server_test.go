@@ -45,10 +45,15 @@ func TestServesPanel(t *testing.T) {
 		ctPrefix string
 		body     string
 	}{
-		{"/", 200, "text/html", "<html"},
-		{"/index.html", 200, "text/html", "<html"},
-		{"/machines.html", 200, "text/html", "<html"},
+		{"/", 200, "text/html", `<div id="root">`},
+		{"/index.html", 200, "text/html", `<div id="root">`},
+		{"/machines", 200, "text/html", `<div id="root">`},
+		{"/projects", 200, "text/html", `<div id="root">`}, // SPA catch-all
+		{"/deep/app/route", 200, "text/html", `<div id="root">`},
+		{"/projects.html", 200, "text/html", "<html"}, // legacy fallback
 		{"/styleguide.html", 200, "text/html", "<html"},
+		{"/assets/dist/app.js", 200, "text/javascript", ""},
+		{"/assets/dist/app.css", 200, "text/css", ".bg-canvas"},
 		{"/assets/css/fonts.css", 200, "text/css", "space mono"},
 		{"/assets/css/tokens.css", 200, "text/css", ""},
 		{"/assets/css/bg.css", 200, "text/css", ".bg-canvas"},
@@ -59,17 +64,19 @@ func TestServesPanel(t *testing.T) {
 		{"/assets/fonts/red-hat-mono-latin.woff2", 200, "", ""},
 		{"/assets/vendor/xterm/xterm.js", 200, "text/javascript", ""},
 		{"/assets/vendor/xterm/xterm.css", 200, "text/css", ""},
-		{"/nope", 404, "", ""},
-		{"/nope.html", 404, "", ""},
+		{"/api/nope", 404, "application/json", "not found"},
 		{"/fragments/nope", 404, "", ""},
-		{"/assets/", 404, "", ""},         // no directory listing
-		{"/assets", 404, "", ""},          // ditto
-		{"/assets/css/", 404, "", ""},     // ditto
-		{"/_src/shell.html", 404, "", ""}, // source templates are not served
+		{"/ws/nope", 404, "", ""},
+		{"/assets/nope.js", 404, "", ""},
+		{"/assets/", 404, "", ""},     // no directory listing
+		{"/assets", 404, "", ""},      // ditto
+		{"/assets/css/", 404, "", ""}, // ditto
+		{"/_src/shell.html", 404, "", ""},
 		{"/pages/machines.html", 404, "", ""},
-		{"/embed.go", 404, "", ""}, // Go sources are not served
+		{"/dist/index.html", 404, "", ""},
+		{"/src/main.jsx", 404, "", ""},
+		{"/embed.go", 404, "", ""},
 		{"/templates.go", 404, "", ""},
-		{"/../go.mod", 404, "", ""},
 	}
 	for _, c := range cases {
 		resp, err := http.Get(srv.URL + c.path)
@@ -92,24 +99,46 @@ func TestServesPanel(t *testing.T) {
 			t.Errorf("GET %s X-Content-Type-Options = %q", c.path, got)
 		}
 	}
+	// Path traversal never leaks repo files.
+	_, _, traversal := body(t, srv.URL+"/../go.mod")
+	if strings.Contains(traversal, "module github.com") {
+		t.Error("path traversal leaked go.mod")
+	}
 }
 
-func TestRootIsMachines(t *testing.T) {
+func TestSPAShellAndCatchAll(t *testing.T) {
 	srv := noBackend(t)
 	_, _, root := body(t, srv.URL+"/")
-	_, _, machines := body(t, srv.URL+"/machines.html")
-	if root != machines {
-		t.Error("GET / does not render the Machines page")
+	_, _, idx := body(t, srv.URL+"/index.html")
+	_, _, machines := body(t, srv.URL+"/machines")
+	_, _, deep := body(t, srv.URL+"/machines/w1")
+	if root != idx || root != machines || root != deep {
+		t.Error("SPA routes did not all serve the identical shell HTML")
+	}
+	for _, must := range []string{
+		`data-theme="dark"`,
+		`data-bg="matrix"`,
+		`localStorage.getItem('fleet-theme')`,
+		`/assets/dist/app.css`,
+		`/assets/dist/app.js`,
+		`<div id="root"></div>`,
+	} {
+		if !strings.Contains(root, must) {
+			t.Errorf("SPA shell missing %q", must)
+		}
+	}
+	if strings.Contains(root, "fonts.googleapis.com") || strings.Contains(root, "fonts.gstatic.com") {
+		t.Error("SPA shell has external Google Fonts reference")
 	}
 }
 
 func TestMethods(t *testing.T) {
 	srv := noBackend(t)
-	resp, err := http.Head(srv.URL + "/machines.html")
+	resp, err := http.Head(srv.URL + "/machines")
 	if err != nil || resp.StatusCode != 200 {
 		t.Errorf("HEAD = %v %v, want 200", resp, err)
 	}
-	resp, err = http.Post(srv.URL+"/machines.html", "text/plain", nil)
+	resp, err = http.Post(srv.URL+"/machines", "text/plain", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,13 +147,14 @@ func TestMethods(t *testing.T) {
 	}
 }
 
-// Every page renders from the Go templates: it carries the shell (sprite, nav,
-// theme toggle), marks exactly its own nav item current, leaves no template
-// action behind, and shows the Mock chip only while it is still mock data.
-func TestAllPagesRender(t *testing.T) {
+// Un-ported legacy pages still render from Go templates during migration.
+func TestLegacyPagesRender(t *testing.T) {
 	srv := noBackend(t)
 	navRe := regexp.MustCompile(`<a class="nav__link" href="([a-z]+)\.html" aria-current="page"`)
 	for _, p := range pages {
+		if p.spa {
+			continue
+		}
 		status, hdr, html := body(t, srv.URL+"/"+p.name+".html")
 		if status != 200 {
 			t.Errorf("%s: status %d", p.name, status)
@@ -158,7 +188,7 @@ func TestAllPagesRender(t *testing.T) {
 
 func TestLivePagesLoadLiveScript(t *testing.T) {
 	srv := noBackend(t)
-	for _, name := range []string{"machines", "commands", "terminal"} {
+	for _, name := range []string{"commands", "terminal"} {
 		_, _, html := body(t, srv.URL+"/"+name+".html")
 		if !strings.Contains(html, "assets/js/live.js") {
 			t.Errorf("%s: live.js not loaded", name)
@@ -214,10 +244,10 @@ func TestAPIWithoutBackend(t *testing.T) {
 			t.Errorf("GET %s = %d %s, want 503 JSON error", path, status, b)
 		}
 	}
-	// Pages still render, saying so.
-	_, _, html := body(t, srv.URL+"/machines.html")
+	// Un-ported legacy pages still render, saying so.
+	_, _, html := body(t, srv.URL+"/commands.html")
 	if !strings.Contains(html, "without a backend") {
-		t.Error("machines page does not say there is no backend")
+		t.Error("commands page does not say there is no backend")
 	}
 }
 
