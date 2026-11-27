@@ -1,36 +1,32 @@
 /* Fleet panel — tiny vanilla JS. No framework, no network, no build step.
-   Loaded synchronously in <head> so the theme is set before first paint.
+   Loaded synchronously in <head> so the theme is wired cleanly.
    Behaviour is limited to UI-only affordances:
-     - theme (light/dark) with persistence
+     - theme (dark default / light) with client-side localStorage persistence
      - mobile nav drawer
-     - data-stub="..."  -> visible "not available yet" toast (visible-by-default, arch. 12.3)
+     - data-stub="..."  -> visible "not available yet" toast
      - data-toggle-panel="#id" -> show/hide a panel
-     - [data-filter-table] -> client-side filter of the mock Machines rows
+     - [data-filter-table] -> client-side filter of the Machines rows
      - tabs, row menus, dialogs, tooltips (hover + focus), mock semantic-zoom levels, switch labels */
 (function () {
   'use strict';
-  var KEY = 'fleet-panel-theme';
+  var KEY = 'fleet-theme';
   var root = document.documentElement;
 
-  /* ---------- Theme ---------- */
+  /* ---------- Theme (client-side only, default dark) ---------- */
   function stored() { try { return localStorage.getItem(KEY); } catch (e) { return null; } }
-  function systemDark() { return window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches; }
   function apply(theme) {
-    root.setAttribute('data-theme', theme);
+    var t = theme === 'light' ? 'light' : 'dark';
+    root.setAttribute('data-theme', t);
     var btn = document.querySelector('.theme-toggle');
     if (btn) {
-      var next = theme === 'dark' ? 'light' : 'dark';
+      var next = t === 'dark' ? 'light' : 'dark';
       btn.setAttribute('aria-label', 'Switch to ' + next + ' theme');
       btn.setAttribute('title', 'Switch to ' + next + ' theme');
+      btn.setAttribute('aria-pressed', String(t === 'dark'));
     }
   }
   var saved = stored();
-  apply(saved === 'light' || saved === 'dark' ? saved : (systemDark() ? 'dark' : 'light'));
-  if (window.matchMedia) {
-    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
-      if (!stored()) apply(e.matches ? 'dark' : 'light');
-    });
-  }
+  apply(saved === 'light' || saved === 'dark' ? saved : 'dark');
 
   document.addEventListener('DOMContentLoaded', function () {
     apply(root.getAttribute('data-theme'));
@@ -39,7 +35,7 @@
     if (toggle) toggle.addEventListener('click', function () {
       var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
       apply(next);
-      try { localStorage.setItem(KEY, next); } catch (e) { /* file:// privacy modes */ }
+      try { localStorage.setItem(KEY, next); } catch (e) { /* storage disabled */ }
     });
 
     /* ---------- Mobile nav drawer ---------- */
@@ -76,6 +72,8 @@
       var f = e.target.closest('form[data-stub-form]');
       if (!f) return;
       e.preventDefault();
+      var dlg = f.closest('dialog');
+      if (dlg && dlg.open) dlg.close();
       toast(f.getAttribute('data-stub-form'));
     });
 
@@ -91,7 +89,7 @@
       });
     });
 
-    /* ---------- Row action menus (stub menus; fixed-position so tables never clip them) ---------- */
+    /* ---------- Row action menus (fixed-position so tables never clip them) ---------- */
     function closeMenus(except) {
       document.querySelectorAll('.menu__pop:not([hidden])').forEach(function (p) {
         if (p === except) return;
@@ -112,7 +110,7 @@
           var r = btn.getBoundingClientRect();
           pop.style.top = Math.min(r.bottom + 4, window.innerHeight - pop.offsetHeight - 8) + 'px';
           pop.style.left = Math.max(8, r.right - pop.offsetWidth) + 'px';
-          var first = pop.querySelector('[role="menuitem"]'); if (first) first.focus({ preventScroll: true }); /* a plain focus() scrolls the page, and the scroll listener below would close the menu */
+          var first = pop.querySelector('[role="menuitem"]'); if (first) first.focus({ preventScroll: true });
         }
         return;
       }
@@ -175,7 +173,7 @@
       select(tabs.filter(function (t) { return t.getAttribute('aria-selected') === 'true'; })[0] || tabs[0], false);
     });
 
-    /* ---------- Tooltip: hover or focus on [data-tip] (command overlay on the monitor timeline) ---------- */
+    /* ---------- Tooltip: hover or focus on [data-tip] ---------- */
     var tip = document.createElement('div');
     tip.className = 'tip'; tip.setAttribute('role', 'tooltip'); tip.hidden = true;
     document.body.appendChild(tip);

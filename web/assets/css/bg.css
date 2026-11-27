@@ -1,0 +1,27 @@
+/* ==========================================================================
+   Fleet panel — swappable background layer
+   Controlled via <html data-bg="matrix|none|..."> so backgrounds can be
+   switched cleanly without touching page templates.
+   ========================================================================== */
+
+.bg-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+}
+
+:root[data-bg="matrix"] .bg-canvas,
+:root:not([data-bg]) .bg-canvas {
+  opacity: var(--matrix-opacity);
+}
+
+:root[data-bg="none"] .bg-canvas {
+  display: none;
+}
+
+@media print {
+  .bg-canvas { display: none; }
+}
