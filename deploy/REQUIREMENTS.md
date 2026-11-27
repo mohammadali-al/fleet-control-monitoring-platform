@@ -29,11 +29,9 @@
 | `6789` | TCP | Loopback only (`127.0.0.1:6789`) | `fleet-server` | Panel HTTP; never expose off loopback (trusts `Remote-User`) |
 | `9091` | TCP | Loopback only (`127.0.0.1:9091`) | Authelia | Forward-auth backend for Caddy |
 | `7443` | TCP | Outbound to agents (and local if co-located) | `fleet-agent` (`server_dial`) | mTLS agent control channel (does not pass through the proxy) |
+| `7444` | TCP | Inbound from agents (`0.0.0.0:7444`) | `fleet-server` (`agent_dial_addr`) | Agent-dial mTLS: agent-initiated connections for token-enrolled agents (on by default; overridable via `FLEET_AGENT_DIAL_PORT`) |
+| `7445` | TCP | Inbound from enrolling agents (`0.0.0.0:7445`) | `fleet-server` (`enroll_addr`) | Token-enrollment HTTPS (server ← enrolling agents; bypasses the proxy; own pinned-pubkey TLS; on by default; overridable via `FLEET_ENROLL_PORT`) |
 | `22` | TCP | Outbound from server / `sshd` on host | SSH | Used once per machine during SSH onboarding (`sshd` on port 22 is allowed) |
-
-Optional listeners (disabled by default, configured in `/etc/fleet-server/config.json`):
-- `7444/tcp`: `server.agent_dial_addr` (agent-initiated mTLS connections)
-- `7445/tcp`: `server.enroll_addr` (token enrollment HTTPS listener)
 
 ## Pinned Proxy Versions
 

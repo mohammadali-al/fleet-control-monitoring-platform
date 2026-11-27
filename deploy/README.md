@@ -8,6 +8,8 @@ operator browser --HTTPS--> Caddy :443 --forward auth--> Authelia 127.0.0.1:9091
                                +--HTTP, loopback only--> fleet-server 127.0.0.1:6789
 
 fleet-server --mTLS (internal CA), server_dial--> fleet-agent <machine IP>:7443   (not via the proxy)
+fleet-agent  --mTLS (internal CA), agent_dial---> fleet-server :7444             (token-enrolled agents)
+new machine  --HTTPS (pinned pubkey + token)----> fleet-server :7445             (token enrollment; bypasses proxy)
 fleet-server --SSH, onboarding only-----------> new machine :22
 ```
 
@@ -79,7 +81,11 @@ sudo deploy/install-server.sh --bin-dir ./bin
 
 ## 4. Onboard the first agent
 
-In the panel open **Machines** -> **Onboard machine** (or use token enrollment). Enter the target machine's IP, an SSH user (root or passwordless `sudo -n`), and its role (`worker` or `monitor`). `fleet-server` pushes the matching `fleet-agent-<os>-<arch>` binary, signs a leaf cert from `/var/lib/fleet-server/ca/`, and connects over mTLS (`TCP 7443` in default `server_dial` mode).
+In the panel open **Machines** -> **Onboard machine** (SSH) or **Add agent (token)**.
+
+- **Token enrollment (on by default):** Fresh installs write all three required fields (`server.enroll_addr: ":7445"`, `server.enroll_host: "<panel-domain>"`, and `server.agent_dial_addr: ":7444"`) into `/etc/fleet-server/config.json`, so **Add agent (token)** works out of the box. Make sure **both `7445/tcp`** (token-enrollment HTTPS with pinned-pubkey TLS, bypassing the proxy) **and `7444/tcp`** (agent-dial mTLS for token-enrolled agents) are reachable from machines you enroll (the installer checks local port availability only and does not add firewall accept rules). Override the default ports via `FLEET_ENROLL_PORT` (default `7445`) and `FLEET_AGENT_DIAL_PORT` (default `7444`) in the environment, `--answers` file, or the interactive custom-ports prompt.
+- **SSH onboarding:** Enter the target machine's IP, an SSH user (root or passwordless `sudo -n`), and its role (`worker` or `monitor`). `fleet-server` pushes the matching `fleet-agent-<os>-<arch>` binary, signs a leaf cert from `/var/lib/fleet-server/ca/`, and connects over mTLS (`TCP 7443` in default `server_dial` mode).
+- **Upgrades / existing installs:** Upgrades preserve live `/etc/fleet-server/config.json` (only `config.json.example` is refreshed), so existing deployments are not auto-flipped. To enable token enrollment on an existing host, add all three fields (`enroll_addr`, `enroll_host`, and `agent_dial_addr`) to `/etc/fleet-server/config.json` and restart `fleet-server` (`systemctl restart fleet-server`), or reinstall fresh.
 
 **Back up `/var/lib/fleet-server/ca/`.** Losing the CA key means every agent must be re-onboarded.
 

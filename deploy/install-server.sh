@@ -83,6 +83,8 @@ FLEET_ADMIN_EMAIL="${FLEET_ADMIN_EMAIL:-}"
 FLEET_PANEL_PORT="${FLEET_PANEL_PORT:-}"
 FLEET_SERVER_PORT="${FLEET_SERVER_PORT:-}"
 FLEET_AGENT_PORT="${FLEET_AGENT_PORT:-}"
+FLEET_AGENT_DIAL_PORT="${FLEET_AGENT_DIAL_PORT:-}"
+FLEET_ENROLL_PORT="${FLEET_ENROLL_PORT:-}"
 FLEET_AUTH_PORT="${FLEET_AUTH_PORT:-}"
 FLEET_DATA_DIR="${FLEET_DATA_DIR:-}"
 FLEET_PROXY_DIR="${FLEET_PROXY_DIR:-}"
@@ -230,6 +232,8 @@ load_answers_file() {
       FLEET_PANEL_PORT) [ -z "$FLEET_PANEL_PORT" ] && FLEET_PANEL_PORT="$val" ;;
       FLEET_SERVER_PORT) [ -z "$FLEET_SERVER_PORT" ] && FLEET_SERVER_PORT="$val" ;;
       FLEET_AGENT_PORT) [ -z "$FLEET_AGENT_PORT" ] && FLEET_AGENT_PORT="$val" ;;
+      FLEET_AGENT_DIAL_PORT) [ -z "$FLEET_AGENT_DIAL_PORT" ] && FLEET_AGENT_DIAL_PORT="$val" ;;
+      FLEET_ENROLL_PORT) [ -z "$FLEET_ENROLL_PORT" ] && FLEET_ENROLL_PORT="$val" ;;
       FLEET_AUTH_PORT) [ -z "$FLEET_AUTH_PORT" ] && FLEET_AUTH_PORT="$val" ;;
       FLEET_DATA_DIR) [ -z "$FLEET_DATA_DIR" ] && FLEET_DATA_DIR="$val" ;;
       FLEET_PROXY_DIR) [ -z "$FLEET_PROXY_DIR" ] && FLEET_PROXY_DIR="$val" ;;
@@ -316,6 +320,8 @@ is_ip_literal() {
 FLEET_PANEL_PORT="${FLEET_PANEL_PORT:-443}"
 FLEET_SERVER_PORT="${FLEET_SERVER_PORT:-6789}"
 FLEET_AGENT_PORT="${FLEET_AGENT_PORT:-7443}"
+FLEET_AGENT_DIAL_PORT="${FLEET_AGENT_DIAL_PORT:-7444}"
+FLEET_ENROLL_PORT="${FLEET_ENROLL_PORT:-7445}"
 FLEET_AUTH_PORT="${FLEET_AUTH_PORT:-9091}"
 FLEET_DATA_DIR="${FLEET_DATA_DIR:-/var/lib/fleet-server}"
 FLEET_PROXY_DIR="${FLEET_PROXY_DIR:-/opt/fleet/proxy}"
@@ -609,6 +615,8 @@ run_preflight() {
     check_port_state "$FLEET_PANEL_PORT" "service" || p_fail=1
     check_port_state "$FLEET_SERVER_PORT" "service" || p_fail=1
     check_port_state "$FLEET_AGENT_PORT" "service" || p_fail=1
+    check_port_state "$FLEET_AGENT_DIAL_PORT" "service" || p_fail=1
+    check_port_state "$FLEET_ENROLL_PORT" "service" || p_fail=1
     check_port_state "$FLEET_AUTH_PORT" "service" || p_fail=1
     check_port_state 22 "ssh" || p_fail=1
     [ "$p_fail" -eq 0 ] || die "one or more required ports are already occupied"
@@ -872,13 +880,15 @@ collect_answers() {
 
   if [ "$NON_INTERACTIVE" -eq 0 ] && has_tty; then
     local custom_ports=""
-    printf "Customize default ports/paths (443, 6789, 7443, 9091, %s)? [y/N]: " "$FLEET_DATA_DIR" >/dev/tty
+    printf "Customize default ports/paths (443, 6789, 7443, 7444, 7445, 9091, %s)? [y/N]: " "$FLEET_DATA_DIR" >/dev/tty
     IFS= read -r custom_ports </dev/tty || true
     case "$custom_ports" in
       y|Y|yes|YES)
         prompt_val "Proxy HTTPS port" "$FLEET_PANEL_PORT" FLEET_PANEL_PORT
         prompt_val "Loopback fleet-server port" "$FLEET_SERVER_PORT" FLEET_SERVER_PORT
         prompt_val "Agent channel port" "$FLEET_AGENT_PORT" FLEET_AGENT_PORT
+        prompt_val "Agent dial mTLS port" "$FLEET_AGENT_DIAL_PORT" FLEET_AGENT_DIAL_PORT
+        prompt_val "Token enrollment HTTPS port" "$FLEET_ENROLL_PORT" FLEET_ENROLL_PORT
         prompt_val "Loopback Authelia port" "$FLEET_AUTH_PORT" FLEET_AUTH_PORT
         prompt_val "Server data directory" "$FLEET_DATA_DIR" FLEET_DATA_DIR
         prompt_val "Proxy config directory" "$FLEET_PROXY_DIR" FLEET_PROXY_DIR
@@ -908,6 +918,8 @@ FLEET_ADMIN_EMAIL=$FLEET_ADMIN_EMAIL
 FLEET_PANEL_PORT=$FLEET_PANEL_PORT
 FLEET_SERVER_PORT=$FLEET_SERVER_PORT
 FLEET_AGENT_PORT=$FLEET_AGENT_PORT
+FLEET_AGENT_DIAL_PORT=$FLEET_AGENT_DIAL_PORT
+FLEET_ENROLL_PORT=$FLEET_ENROLL_PORT
 FLEET_AUTH_PORT=$FLEET_AUTH_PORT
 FLEET_DATA_DIR=$FLEET_DATA_DIR
 FLEET_PROXY_DIR=$FLEET_PROXY_DIR
@@ -930,6 +942,9 @@ render_server_config_example() {
     "agent_binary_dir": "${FLEET_AGENT_DIR}",
     "agent_binary_path": "${FLEET_AGENT_BIN}",
     "channel_port": ${FLEET_AGENT_PORT},
+    "agent_dial_addr": ":${FLEET_AGENT_DIAL_PORT}",
+    "enroll_addr": ":${FLEET_ENROLL_PORT}",
+    "enroll_host": "${FLEET_PANEL_DOMAIN}",
     "log": { "level": "info", "format": "text" }
   }
 }
