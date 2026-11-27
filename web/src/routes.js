@@ -3,6 +3,7 @@ import { BaselinePage } from './pages/BaselinePage';
 import { CommandsPage } from './pages/CommandsPage';
 import { EvidencePage } from './pages/EvidencePage';
 import { MachinesPage } from './pages/MachinesPage';
+import { MonitorPage } from './pages/MonitorPage';
 import { TerminalPage } from './pages/TerminalPage';
 import { WatchdogPage } from './pages/WatchdogPage';
 
@@ -87,7 +88,7 @@ export const ROUTES = [
     group: 'Observe',
     label: 'Monitor data',
     icon: 'i-activity',
-    component: null,
+    component: MonitorPage,
   },
   {
     id: 'watchdog',
