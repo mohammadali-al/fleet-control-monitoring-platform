@@ -30,6 +30,7 @@ type Backend interface {
 	Preflight(machine, command string) error
 	Submit(req fleet.SubmitRequest) (string, error)
 	OpenShell(req fleet.ShellRequest) (string, error)
+	AttachShell(req fleet.AttachRequest) (*fleet.ShellAttachment, error)
 	Cancel(ctx context.Context, session string) error
 	ShellInput(ctx context.Context, session string, data []byte) error
 	ShellResize(ctx context.Context, session string, cols, rows uint16) error
@@ -143,6 +144,8 @@ func statusFor(err error) int {
 		return http.StatusServiceUnavailable
 	case errors.Is(err, fleet.ErrUnknown), errors.Is(err, registry.ErrNotFound):
 		return http.StatusNotFound
+	case errors.Is(err, fleet.ErrForbidden):
+		return http.StatusForbidden
 	case errors.Is(err, fleet.ErrNoShell):
 		return http.StatusUnprocessableEntity
 	case errors.Is(err, fleet.ErrOffline), errors.Is(err, fleet.ErrBusy),

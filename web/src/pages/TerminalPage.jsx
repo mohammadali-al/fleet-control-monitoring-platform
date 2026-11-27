@@ -38,6 +38,9 @@ function TermChip({ state }) {
       </span>
     );
   }
+  if (state === 'detached') {
+    return <span className="chip chip--outline">Detached</span>;
+  }
   if (state === 'ended') {
     return <span className="chip chip--outline">Ended</span>;
   }
@@ -57,6 +60,8 @@ function TerminalTabPanel({
   xtermApi,
   onUpdate,
   onRemove,
+  onTerminate,
+  onReattach,
   onRefusedLine,
   onError,
   onSessionsChanged,
@@ -120,9 +125,13 @@ function TerminalTabPanel({
     setSizeText(`${term.cols} x ${term.rows}`);
 
     const proto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-    const url = `${proto}${window.location.host}/ws/shell?machine=${encodeURIComponent(
-      session.machine
-    )}&cols=${term.cols}&rows=${term.rows}`;
+    const url = session.attachSessionId
+      ? `${proto}${window.location.host}/ws/shell?session=${encodeURIComponent(session.attachSessionId)}${
+          session.machine ? `&machine=${encodeURIComponent(session.machine)}` : ''
+        }&cols=${term.cols}&rows=${term.rows}`
+      : `${proto}${window.location.host}/ws/shell?machine=${encodeURIComponent(
+          session.machine
+        )}&cols=${term.cols}&rows=${term.rows}`;
     const ws = new WebSocket(url);
     ws.binaryType = 'arraybuffer';
     wsRef.current = ws;
@@ -150,7 +159,10 @@ function TerminalTabPanel({
       }
       switch (m.type) {
         case 'session':
-          callbacksRef.current.onUpdate(session.key, { sessionId: m.session });
+          callbacksRef.current.onUpdate(session.key, {
+            sessionId: m.session,
+            machine: m.machine || session.machine,
+          });
           callbacksRef.current.onSessionsChanged();
           break;
         case 'state':
@@ -186,6 +198,8 @@ function TerminalTabPanel({
           }
           break;
         case 'exit':
+          stateRef.current = 'ended';
+          callbacksRef.current.onUpdate(session.key, { state: 'ended' });
           term.write(
             `\r\n\x1b[2m[fleet] session ended (${m.reason || 'exited'}${
               m.code != null ? `, code ${m.code}` : ''
@@ -202,9 +216,9 @@ function TerminalTabPanel({
     ws.onclose = () => {
       if (disposed) return;
       if (stateRef.current !== 'ended') {
-        stateRef.current = 'ended';
-        callbacksRef.current.onUpdate(session.key, { state: 'ended' });
-        term.write('\r\n\x1b[2m[fleet] disconnected\x1b[0m\r\n');
+        stateRef.current = 'detached';
+        callbacksRef.current.onUpdate(session.key, { state: 'detached' });
+        term.write('\r\n\x1b[2m[fleet] detached (shell remains active on server)\x1b[0m\r\n');
       }
       callbacksRef.current.onSessionsChanged();
     };
@@ -254,7 +268,7 @@ function TerminalTabPanel({
       wsRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.key, session.machine, xtermApi]);
+  }, [session.key, session.machine, session.attachSessionId, xtermApi]);
 
   // Refit (and optionally focus) when switching tabs.
   useEffect(() => {
@@ -297,21 +311,15 @@ function TerminalTabPanel({
     }
   };
 
-  const handleStopOrClose = () => {
-    if (session.state === 'ended') {
-      onRemove(session.key);
-      return;
-    }
-    try {
-      wsRef.current?.close();
-    } catch {
-      // already closed
-    }
+  const handleDetachOrClose = () => {
+    onRemove(session.key);
   };
 
   const titleText = session.sessionId
     ? `${session.machine} · session ${session.sessionId}`
     : `${session.machine} · opening`;
+
+  const isLive = session.state === 'opening' || session.state === 'queued' || session.state === 'running';
 
   return (
     <div
@@ -337,14 +345,36 @@ function TerminalTabPanel({
             <svg className="icon icon--sm" aria-hidden="true"><use href="#i-copy" /></svg>
             Copy
           </button>
+          {session.state === 'detached' && session.sessionId && (
+            <button
+              className="btn btn--sm"
+              type="button"
+              data-term-reattach
+              onClick={() => onReattach({ session: session.sessionId, machine: session.machine }, session.key)}
+            >
+              <svg className="icon icon--sm" aria-hidden="true"><use href="#i-refresh" /></svg>
+              Reattach
+            </button>
+          )}
+          {session.state !== 'ended' && session.sessionId && (
+            <button
+              className="btn btn--sm btn--danger"
+              type="button"
+              data-term-terminate
+              onClick={() => onTerminate(session.sessionId)}
+            >
+              <svg className="icon icon--sm" aria-hidden="true"><use href="#i-stop" /></svg>
+              Terminate
+            </button>
+          )}
           <button
-            className="btn btn--sm btn--danger"
+            className="btn btn--sm"
             type="button"
             data-term-stop
-            onClick={handleStopOrClose}
+            onClick={handleDetachOrClose}
           >
-            <svg className="icon icon--sm" aria-hidden="true"><use href="#i-stop" /></svg>
-            {session.state === 'ended' ? 'Close tab' : 'Terminate session'}
+            <svg className="icon icon--sm" aria-hidden="true"><use href="#i-x" /></svg>
+            {isLive ? 'Detach' : 'Close tab'}
           </button>
         </div>
       </div>
@@ -472,7 +502,41 @@ export function TerminalPage() {
       if (!xtermApi) return;
       setFormError('');
       const key = `k${++seqRef.current}`;
-      setTabs((prev) => [...prev, { key, machine, sessionId: '', state: 'opening' }]);
+      setTabs((prev) => [...prev, { key, machine, sessionId: '', attachSessionId: '', state: 'opening' }]);
+      setActiveKey(key);
+      setFocusTick(0);
+    },
+    [xtermApi]
+  );
+
+  const reattachShell = useCallback(
+    (sess, replaceKey = null) => {
+      if (!xtermApi || !sess?.session) return;
+      setFormError('');
+      if (!replaceKey) {
+        const existing = tabsRef.current.find(
+          (t) =>
+            t.sessionId === sess.session &&
+            (t.state === 'opening' || t.state === 'queued' || t.state === 'running')
+        );
+        if (existing) {
+          setActiveKey(existing.key);
+          setFocusTick((n) => n + 1);
+          return;
+        }
+      }
+      const key = `k${++seqRef.current}`;
+      const nextTab = {
+        key,
+        machine: sess.machine || '',
+        sessionId: sess.session,
+        attachSessionId: sess.session,
+        state: 'opening',
+      };
+      setTabs((prev) => [
+        ...prev.filter((t) => t.key !== replaceKey && !(t.sessionId === sess.session && t.state === 'detached')),
+        nextTab,
+      ]);
       setActiveKey(key);
       setFocusTick(0);
     },
@@ -646,6 +710,8 @@ export function TerminalPage() {
                 xtermApi={xtermApi}
                 onUpdate={updateTab}
                 onRemove={removeTab}
+                onTerminate={handleTerminateSession}
+                onReattach={reattachShell}
                 onRefusedLine={handleRefusedLine}
                 onError={setFormError}
                 onSessionsChanged={refreshSessions}
@@ -719,7 +785,7 @@ export function TerminalPage() {
             <div className="card__head">
               <div>
                 <h2 id="ss-title">Sessions</h2>
-                <p>Every open or waiting shell, with terminate.</p>
+                <p>Every open or waiting shell; reattach or terminate.</p>
               </div>
               <span className="muted" data-session-count>{`${activeSessions.length} open`}</span>
             </div>
@@ -742,14 +808,24 @@ export function TerminalPage() {
                         {`${c.state === 'queued' ? 'waiting' : `open since ${fmtTime(c.started_at)}`} · ${c.user || 'operator'}`}
                       </small>
                     </div>
-                    <button
-                      className="btn btn--sm btn--danger"
-                      type="button"
-                      aria-label={`Terminate session ${c.session} on ${c.machine}`}
-                      onClick={() => handleTerminateSession(c.session)}
-                    >
-                      Terminate
-                    </button>
+                    <div className="row">
+                      <button
+                        className="btn btn--sm"
+                        type="button"
+                        aria-label={`Reattach to session ${c.session} on ${c.machine}`}
+                        onClick={() => reattachShell(c)}
+                      >
+                        Reattach
+                      </button>
+                      <button
+                        className="btn btn--sm btn--danger"
+                        type="button"
+                        aria-label={`Terminate session ${c.session} on ${c.machine}`}
+                        onClick={() => handleTerminateSession(c.session)}
+                      >
+                        Terminate
+                      </button>
+                    </div>
                   </li>
                 ))
               )}

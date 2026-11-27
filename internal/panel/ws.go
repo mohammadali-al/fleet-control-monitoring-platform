@@ -236,7 +236,7 @@ func writeJSONFrame(ctx context.Context, c *websocket.Conn, v any) error {
 //	browser -> server  binary: keystrokes (sent to the PTY)
 //	                   text:   {"type":"resize","cols":N,"rows":N}
 //	                           {"type":"confirm","line":"..."}  (operator confirmed a refused line)
-//	server -> browser  binary: terminal output
+//	server -> browser  binary: terminal output (replayed scrollback on attach, then live)
 //	                   text:   {"type":"session","session":"s-..","machine":".."}
 //	                           {"type":"state","state":"queued|running"}
 //	                           {"type":"refused","line":"..","reason":".."}
@@ -260,15 +260,19 @@ type shellOut struct {
 	Error   string `json:"error,omitempty"`
 }
 
+const shellReplayChunkBytes = 16 << 10
+
 func (s *server) wsShell(w http.ResponseWriter, r *http.Request) {
 	if s.be == nil {
 		writeJSON(w, http.StatusServiceUnavailable, errBody("the panel has no backend configured"))
 		return
 	}
 	q := r.URL.Query()
+	session := q.Get("session")
 	machine := q.Get("machine")
 	cols, rows := dim(q.Get("cols")), dim(q.Get("rows"))
 	user := operatorFrom(r)
+	reattach := session != ""
 
 	c, err := websocket.Accept(w, r, nil)
 	if err != nil {
@@ -279,36 +283,47 @@ func (s *server) wsShell(w http.ResponseWriter, r *http.Request) {
 	ctx, stop := context.WithCancel(r.Context())
 	defer stop()
 
-	// Subscribe before queueing so the queued/running events cannot be missed.
-	session := exec.NewSessionID()
-	sub := s.be.Bus().Subscribe(func(ev fleet.Event) bool {
-		return ev.Kind == fleet.EventExec && ev.Exec != nil && ev.Exec.SessionID == session
-	})
-	defer sub.Close()
+	if !reattach {
+		session = exec.NewSessionID()
+		if _, err := s.be.OpenShell(fleet.ShellRequest{Machine: machine, User: user, Session: session, Cols: cols, Rows: rows}); err != nil {
+			_ = writeJSONFrame(ctx, c, shellOut{Type: "error", Error: err.Error()})
+			_ = c.Close(websocket.StatusNormalClosure, "not opened")
+			return
+		}
+		s.log.Info("shell opened", "component", "panel", "operator", user, "machine", machine, "session", session)
+	}
 
-	if _, err := s.be.OpenShell(fleet.ShellRequest{Machine: machine, User: user, Session: session, Cols: cols, Rows: rows}); err != nil {
+	att, err := s.be.AttachShell(fleet.AttachRequest{Session: session, User: user, Machine: machine})
+	if err != nil {
 		_ = writeJSONFrame(ctx, c, shellOut{Type: "error", Error: err.Error()})
-		_ = c.Close(websocket.StatusNormalClosure, "not opened")
+		_ = c.Close(websocket.StatusNormalClosure, "not attached")
 		return
 	}
-	s.log.Info("shell opened", "component", "panel", "operator", user, "machine", machine, "session", session)
-	// However this handler ends, the shell ends with it.
 	defer func() {
-		cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = s.be.Cancel(cctx, session) // unknown session = already over
-		s.log.Info("shell closed", "component", "panel", "machine", machine, "session", session)
+		att.Detach()
+		s.log.Info("shell detached", "component", "panel", "operator", user, "machine", att.Machine, "session", att.Session)
 	}()
+	if reattach {
+		s.log.Info("shell reattached", "component", "panel", "operator", user, "machine", att.Machine, "session", att.Session)
+	}
 
-	if err := writeJSONFrame(ctx, c, shellOut{Type: "session", Session: session, Machine: machine}); err != nil {
+	if err := writeJSONFrame(ctx, c, shellOut{Type: "session", Session: att.Session, Machine: att.Machine}); err != nil {
 		return
+	}
+	if att.State != "" {
+		if err := writeJSONFrame(ctx, c, shellOut{Type: "state", State: att.State}); err != nil {
+			return
+		}
 	}
 
 	lt := &lineTracker{}
 	done := make(chan struct{})
 	go func() { // server -> browser
-		defer close(done)
-		s.pumpShell(ctx, c, sub, lt)
+		defer func() {
+			stop()
+			close(done)
+		}()
+		s.pumpShell(ctx, c, att, lt)
 	}()
 
 	// browser -> server
@@ -321,7 +336,7 @@ func (s *server) wsShell(w http.ResponseWriter, r *http.Request) {
 		switch typ {
 		case websocket.MessageBinary:
 			lt.feed(data)
-			err = s.be.ShellInput(opCtx, session, data)
+			err = s.be.ShellInput(opCtx, att.Session, data)
 		case websocket.MessageText:
 			var ctl shellCtl
 			if json.Unmarshal(data, &ctl) != nil {
@@ -330,11 +345,11 @@ func (s *server) wsShell(w http.ResponseWriter, r *http.Request) {
 			switch ctl.Type {
 			case "resize":
 				if ctl.Cols > 0 && ctl.Rows > 0 {
-					err = s.be.ShellResize(opCtx, session, ctl.Cols, ctl.Rows)
+					err = s.be.ShellResize(opCtx, att.Session, ctl.Cols, ctl.Rows)
 				}
 			case "confirm":
-				s.log.Warn("dangerous shell line confirmed", "component", "panel", "operator", user, "machine", machine, "session", session, "line", ctl.Line)
-				err = s.be.ShellConfirm(opCtx, session, ctl.Line)
+				s.log.Warn("dangerous shell line confirmed", "component", "panel", "operator", user, "machine", att.Machine, "session", att.Session, "line", ctl.Line)
+				err = s.be.ShellConfirm(opCtx, att.Session, ctl.Line)
 			}
 		}
 		cancel()
@@ -342,7 +357,7 @@ func (s *server) wsShell(w http.ResponseWriter, r *http.Request) {
 			_ = writeJSONFrame(ctx, c, shellOut{Type: "error", Error: err.Error()})
 		}
 	}
-	stop() // end the pump; the deferred cleanup then ends the session
+	stop() // end the pump; detaches without cancelling the agent PTY
 	_ = c.Close(websocket.StatusNormalClosure, "")
 	<-done
 }
@@ -355,42 +370,59 @@ func dim(v string) uint16 {
 	return uint16(n)
 }
 
-// pumpShell relays the session's events to the browser until the session ends
-// or the socket does.
-func (s *server) pumpShell(ctx context.Context, c *websocket.Conn, sub *fleet.Subscription, lt *lineTracker) {
+// pumpShell replays the session's scrollback buffer and then relays live
+// events to the browser until the session ends, another viewer takes over, or
+// the socket closes.
+func (s *server) pumpShell(ctx context.Context, c *websocket.Conn, att *fleet.ShellAttachment, lt *lineTracker) {
+	for off := 0; off < len(att.Scrollback); off += shellReplayChunkBytes {
+		end := off + shellReplayChunkBytes
+		if end > len(att.Scrollback) {
+			end = len(att.Scrollback)
+		}
+		wctx, cancel := context.WithTimeout(ctx, wsWriteTimeout)
+		err := c.Write(wctx, websocket.MessageBinary, att.Scrollback[off:end])
+		cancel()
+		if err != nil {
+			return
+		}
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case ev, ok := <-sub.C:
+		case <-att.Evicted:
+			_ = writeJSONFrame(ctx, c, shellOut{Type: "error", Error: "session attached elsewhere"})
+			_ = c.Close(websocket.StatusNormalClosure, "attached elsewhere")
+			return
+		case ev, ok := <-att.Events:
 			if !ok {
 				_ = c.Close(websocket.StatusTryAgainLater, "lagging")
 				return
 			}
-			x := ev.Exec
 			var err error
-			switch x.Kind {
+			switch ev.Kind {
 			case exec.EventQueued:
 				err = writeJSONFrame(ctx, c, shellOut{Type: "state", State: "queued"})
 			case exec.EventRunning:
 				err = writeJSONFrame(ctx, c, shellOut{Type: "state", State: "running"})
 			case exec.EventChunk:
-				if x.Chunk != nil {
+				if ev.Chunk != nil {
 					wctx, cancel := context.WithTimeout(ctx, wsWriteTimeout)
-					err = c.Write(wctx, websocket.MessageBinary, x.Chunk.Data)
+					err = c.Write(wctx, websocket.MessageBinary, ev.Chunk.Data)
 					cancel()
 				}
 			case exec.EventRefused:
 				reason := ""
-				if x.State != nil {
-					reason = x.State.Detail
+				if ev.State != nil {
+					reason = ev.State.Detail
 				}
 				err = writeJSONFrame(ctx, c, shellOut{Type: "refused", Line: lt.last(), Reason: reason})
 			case exec.EventExited:
 				out := shellOut{Type: "exit"}
-				if x.Exit != nil {
-					code := x.Exit.ExitCode
-					out.Code, out.Reason, out.Error = &code, x.Exit.Reason, x.Exit.Error
+				if ev.Exit != nil {
+					code := ev.Exit.ExitCode
+					out.Code, out.Reason, out.Error = &code, ev.Exit.Reason, ev.Exit.Error
 				}
 				_ = writeJSONFrame(ctx, c, out)
 				_ = c.Close(websocket.StatusNormalClosure, "shell ended")
