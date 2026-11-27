@@ -1,0 +1,111 @@
+diff --git a/deploy/systemd/fleet-agent-liveness.service b/deploy/systemd/fleet-agent-liveness.service
+index eb17fd2..7ddc048 100644
+--- a/deploy/systemd/fleet-agent-liveness.service
++++ b/deploy/systemd/fleet-agent-liveness.service
+@@ -1,4 +1,4 @@
+-# One-shot run by fleet-agent-liveness.timer every 45 s (T-0027). It (1) starts
++# One-shot run by fleet-agent-liveness.timer every 1 min (T-0027). It (1) starts
+ # fleet-agent.service if it is not active, and (2) restarts it if its heartbeat
+ # file is older than the pushed heartbeat_threshold, i.e. the agent is hung
+ # (deadlocked yet still "active"). Both are logged. The ExecStart line is
+diff --git a/deploy/systemd/fleet-agent-liveness.timer b/deploy/systemd/fleet-agent-liveness.timer
+index f368f20..4e980d3 100644
+--- a/deploy/systemd/fleet-agent-liveness.timer
++++ b/deploy/systemd/fleet-agent-liveness.timer
+@@ -1,13 +1,13 @@
+ # Independent liveness check for fleet-agent.service (T-0027): runs
+-# fleet-agent-liveness.service every 45 s. The cadence is fixed (it is not a policy
++# fleet-agent-liveness.service every 1 min. The cadence is fixed (it is not a policy
+ # setting); heartbeat_threshold is never below it. Enable this timer and
+ # fleet-agent.service at boot.
+ [Unit]
+-Description=Fleet agent liveness check (every 45 s)
++Description=Fleet agent liveness check (every 1 min)
+ 
+ [Timer]
+ OnBootSec=1min
+-OnUnitActiveSec=45s
++OnUnitActiveSec=1min
+ AccuracySec=5s
+ Unit=fleet-agent-liveness.service
+ 
+diff --git a/deploy/systemd/fleet-watchdog-liveness.service b/deploy/systemd/fleet-watchdog-liveness.service
+index 2df4dfc..002b419 100644
+--- a/deploy/systemd/fleet-watchdog-liveness.service
++++ b/deploy/systemd/fleet-watchdog-liveness.service
+@@ -1,4 +1,4 @@
+-# One-shot run by fleet-watchdog-liveness.timer every 45 s (T-0027). It (1) starts
++# One-shot run by fleet-watchdog-liveness.timer every 1 min (T-0027). It (1) starts
+ # fleet-watchdog.service if it is not active, and (2) restarts it if its
+ # heartbeat file is older than the pushed heartbeat_threshold, i.e. the service is
+ # hung (deadlocked yet still "active"). Both are logged (trust model: such events
+diff --git a/internal/enroll/install.go b/internal/enroll/install.go
+index 007df21..2f77a2c 100644
+--- a/internal/enroll/install.go
++++ b/internal/enroll/install.go
+@@ -200,9 +200,9 @@ func RenderAgentLivenessService() string {
+ 		watchdog.HeartbeatPath(StateDir, watchdog.HeartbeatAgent))
+ }
+ 
+-// RenderAgentLivenessTimer fires fleet-agent-liveness.service every 45 s.
++// RenderAgentLivenessTimer fires fleet-agent-liveness.service every 1 min.
+ func RenderAgentLivenessTimer() string {
+-	return renderLivenessTimer("Fleet agent liveness check (every 45 s)", AgentLivenessService)
++	return renderLivenessTimer("Fleet agent liveness check (every 1 min)", AgentLivenessService)
+ }
+ 
+ // RenderWatchdogLivenessService is the one-shot that checks fleet-watchdog.service.
+@@ -211,9 +211,9 @@ func RenderWatchdogLivenessService() string {
+ 		watchdog.HeartbeatPath(StateDir, watchdog.HeartbeatWatchdog))
+ }
+ 
+-// RenderWatchdogLivenessTimer fires fleet-watchdog-liveness.service every 45 s.
++// RenderWatchdogLivenessTimer fires fleet-watchdog-liveness.service every 1 min.
+ func RenderWatchdogLivenessTimer() string {
+-	return renderLivenessTimer("Fleet watchdog liveness check (every 45 s)", WatchdogLivenessService)
++	return renderLivenessTimer("Fleet watchdog liveness check (every 1 min)", WatchdogLivenessService)
+ }
+ 
+ func renderLivenessService(desc, unit, hbPath string) string {
+@@ -227,19 +227,26 @@ ExecStart=%s
+ `, desc, watchdog.LivenessExecStart(unit, hbPath))
+ }
+ 
++func formatSystemdDuration(d time.Duration) string {
++	if d >= time.Minute && d%time.Minute == 0 {
++		return fmt.Sprintf("%dmin", int(d/time.Minute))
++	}
++	return fmt.Sprintf("%ds", int(d/time.Second))
++}
++
+ func renderLivenessTimer(desc, targetService string) string {
+ 	return fmt.Sprintf(`[Unit]
+ Description=%s
+ 
+ [Timer]
+ OnBootSec=1min
+-OnUnitActiveSec=%ds
++OnUnitActiveSec=%s
+ AccuracySec=5s
+ Unit=%s
+ 
+ [Install]
+ WantedBy=timers.target
+-`, desc, int(watchdog.HeartbeatCheckEvery/time.Second), targetService)
++`, desc, formatSystemdDuration(watchdog.HeartbeatCheckEvery), targetService)
+ }
+ 
+ // RenderLaunchdPlist is the macOS service (a launch daemon, so it runs at boot
+diff --git a/internal/watchdog/policy.go b/internal/watchdog/policy.go
+index 3cb7ee7..9976085 100644
+--- a/internal/watchdog/policy.go
++++ b/internal/watchdog/policy.go
+@@ -155,7 +155,7 @@ type Policy struct {
+ 	// heartbeat file from their main loop; HeartbeatThreshold is how old the
+ 	// file may get before the liveness timer calls the service hung and
+ 	// restarts it (T-0027). Bounds: see ValidateHeartbeat. The liveness
+-	// timer's own 45 s cadence is fixed and not a policy field.
++	// timer's own 1 min cadence is fixed and not a policy field.
+ 	HeartbeatWrite     Duration `json:"heartbeat_write"`
+ 	HeartbeatThreshold Duration `json:"heartbeat_threshold"`
+ }

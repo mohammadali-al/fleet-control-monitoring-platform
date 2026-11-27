@@ -23,7 +23,7 @@ func TestProvisionInstallsAgentLiveness(t *testing.T) {
 		t.Fatalf("liveness service not installed: %+v", svc)
 	}
 	tim, ok := f.fm.file("/etc/systemd/system/fleet-agent-liveness.timer")
-	if !ok || !strings.Contains(string(tim.data), "OnUnitActiveSec=45s\n") || !strings.Contains(string(tim.data), "Unit=fleet-agent-liveness.service\n") {
+	if !ok || !strings.Contains(string(tim.data), "OnUnitActiveSec=1min\n") || !strings.Contains(string(tim.data), "Unit=fleet-agent-liveness.service\n") {
 		t.Fatalf("liveness timer: %q", tim.data)
 	}
 	if !strings.Contains(string(svc.data), "/var/lib/fleet-agent/watchdog/heartbeat-agent") || !strings.Contains(string(svc.data), "fleet-agent.service") {

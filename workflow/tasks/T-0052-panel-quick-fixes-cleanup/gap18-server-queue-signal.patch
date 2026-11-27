@@ -1,0 +1,258 @@
+diff --git a/internal/agent/evidence_test.go b/internal/agent/evidence_test.go
+index c254075..f483b49 100644
+--- a/internal/agent/evidence_test.go
++++ b/internal/agent/evidence_test.go
+@@ -267,3 +267,37 @@ func TestBusyWorkerDoesNotPush(t *testing.T) {
+ 	})
+ 	e.verifyArchived(t, want)
+ }
++
++// GAP-18: when a command is queued in the server's FIFO behind a running one,
++// the server's queue-state signal keeps the agent from idle-pushing even
++// during the transition between commands until the FIFO drains completely.
++func TestQueuedServerCommandBlocksIdlePush(t *testing.T) {
++	defer agent.SetEvidencePushInterval(20 * time.Millisecond)()
++	e := newEvEnv(t)
++	sub := e.subscribe()
++	defer sub.Close()
++
++	id1, err := e.m.Submit(fleet.SubmitRequest{Machine: "w1", Command: "sleep 0.4"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	id2, err := e.m.Submit(fleet.SubmitRequest{Machine: "w1", Command: "sleep 0.4"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	waitRunning(t, sub, id1)
++	want := e.capturedSegments(t, "sess-1", 10, 1024, 0)
++
++	// Wait for cmd 1 to exit and cmd 2 to start, verifying no push happened in between.
++	waitRunning(t, sub, id2)
++	if segs, _ := e.archive.Segments("w1"); len(segs) != 0 {
++		t.Fatalf("pushed %d segments while server FIFO queue still had a second command", len(segs))
++	}
++
++	// Wait for cmd 2 to finish; once the FIFO is empty, idle push delivers.
++	eventually(t, "idle push after server FIFO queue drained", func() bool {
++		segs, _ := e.archive.Segments("w1")
++		return len(segs) == len(want)
++	})
++	e.verifyArchived(t, want)
++}
+diff --git a/internal/agent/worker.go b/internal/agent/worker.go
+index e64be47..1adbc2d 100644
+--- a/internal/agent/worker.go
++++ b/internal/agent/worker.go
+@@ -150,8 +150,8 @@ func (w *worker) handle(ctx context.Context, env channel.Envelope) {
+ 			defer w.wg.Done()
+ 			w.runWhenConfigured(env)
+ 		}()
+-	case channel.TypeEvManifestReq, channel.TypeEvRange, channel.TypeEvVerify:
+-		w.handleEvidence(ctx, env) // evidence sync: pull and idle-push exchanges
++	case channel.TypeEvManifestReq, channel.TypeEvRange, channel.TypeEvVerify, channel.TypeQueueState:
++		w.handleEvidence(ctx, env) // evidence sync: pull, idle-push and queue-state exchanges
+ 	case channel.TypeServiceControl:
+ 		handleServiceControl(ctx, w.log, w.sender, w.serviceController(), env)
+ 	default:
+@@ -239,6 +239,7 @@ func (w *worker) shutdown() {
+ 	for _, c := range capts {
+ 		c.Close()
+ 	}
++	w.setServerQueueEmpty(true)
+ }
+ 
+ // --- evidence capture ------------------------------------------------------------
+diff --git a/internal/channel/envelope.go b/internal/channel/envelope.go
+index ca5cc70..494f40c 100644
+--- a/internal/channel/envelope.go
++++ b/internal/channel/envelope.go
+@@ -48,8 +48,15 @@ const (
+ 	TypeEvRange       = "ev-range"        // server -> agent: send bytes of one segment from an offset
+ 	TypeEvChunk       = "ev-chunk"        // agent -> server: a slice of a segment (last one is flagged)
+ 	TypeEvVerify      = "ev-verify"       // server -> agent: the segment verified (or was rejected)
++	TypeQueueState    = "queue-state"     // server -> agent: whether the server FIFO queue is empty (QueueStatePayload)
+ )
+ 
++// QueueStatePayload reports whether the main server's per-machine command FIFO
++// queue is empty (§7.2 idle-push gate).
++type QueueStatePayload struct {
++	Empty bool `json:"empty"`
++}
++
+ // Monitor envelope types (payload shapes live in internal/probe and
+ // internal/monitor). Monitor data is a separate path from evidence: it never
+ // rides the ev-* types.
+diff --git a/internal/exec/queue.go b/internal/exec/queue.go
+index 1eb3cb9..3a17432 100644
+--- a/internal/exec/queue.go
++++ b/internal/exec/queue.go
+@@ -31,17 +31,19 @@ import (
+ // the channel Dialer as its Handler; run q.Run(ctx) in a goroutine; call
+ // q.ConnectionLost() when the channel drops.
+ type Queue struct {
+-	machineID string
+-	tr        Sender
+-	onEvent   func(Event)
+-
+-	mu       sync.Mutex
+-	pending  []*entry // one-shot FIFO, waiting
+-	current  *entry   // the running one-shot, if any
+-	busy     bool     // a one-shot is in flight (set with current, cleared when its goroutine ends)
+-	shells   []*entry // open shells (queued for an instant, then running), start order
+-	finished []Entry  // most recent first, capped
+-	wake     chan struct{}
++	machineID     string
++	tr            Sender
++	onEvent       func(Event)
++	onQueueChange func(empty bool)
++
++	mu        sync.Mutex
++	pending   []*entry // one-shot FIFO, waiting
++	current   *entry   // the running one-shot, if any
++	busy      bool     // a one-shot is in flight (set with current, cleared when its goroutine ends)
++	lastEmpty bool     // last reported FIFOEmpty state
++	shells    []*entry // open shells (queued for an instant, then running), start order
++	finished  []Entry  // most recent first, capped
++	wake      chan struct{}
+ }
+ 
+ type entry struct {
+@@ -102,7 +104,31 @@ const (
+ // NewQueue returns a queue for machineID that sends through tr. onEvent may be
+ // nil; it is called synchronously and must not block for long.
+ func NewQueue(machineID string, tr Sender, onEvent func(Event)) *Queue {
+-	return &Queue{machineID: machineID, tr: tr, onEvent: onEvent, wake: make(chan struct{}, 1)}
++	return &Queue{machineID: machineID, tr: tr, onEvent: onEvent, lastEmpty: true, wake: make(chan struct{}, 1)}
++}
++
++// SetOnQueueChange registers a callback invoked when FIFOEmpty transitions.
++func (q *Queue) SetOnQueueChange(fn func(empty bool)) {
++	q.mu.Lock()
++	q.onQueueChange = fn
++	q.mu.Unlock()
++}
++
++// FIFOEmpty reports whether the one-shot FIFO queue has no queued or running
++// commands. Interactive shells (ModePTY) live outside the FIFO.
++func (q *Queue) FIFOEmpty() bool {
++	q.mu.Lock()
++	defer q.mu.Unlock()
++	return len(q.pending) == 0 && !q.busy && q.current == nil
++}
++
++func (q *Queue) queueChangeLocked() (func(bool), bool) {
++	empty := len(q.pending) == 0 && !q.busy && q.current == nil
++	if empty == q.lastEmpty {
++		return nil, empty
++	}
++	q.lastEmpty = empty
++	return q.onQueueChange, empty
+ }
+ 
+ // NewSessionID returns a fresh random session id.
+@@ -149,8 +175,12 @@ func (q *Queue) Submit(req RunPayload) (string, error) {
+ 		q.pending = append(q.pending, e)
+ 	}
+ 	snap := e.Entry
++	qfn, qempty := q.queueChangeLocked()
+ 	q.mu.Unlock()
+ 
++	if qfn != nil {
++		qfn(qempty)
++	}
+ 	q.emit(Event{Kind: EventQueued, SessionID: req.SessionID, Entry: snap})
+ 	q.kick()
+ 	return req.SessionID, nil
+@@ -211,7 +241,11 @@ func (q *Queue) Run(ctx context.Context) {
+ 				if e.Mode != ModePTY {
+ 					q.mu.Lock()
+ 					q.busy = false
++					qfn, qempty := q.queueChangeLocked()
+ 					q.mu.Unlock()
++					if qfn != nil {
++						qfn(qempty)
++					}
+ 					q.kick() // the FIFO may advance
+ 				}
+ 			}()
+@@ -387,7 +421,11 @@ func (q *Queue) Cancel(ctx context.Context, id string) error {
+ 	for i, e := range q.pending {
+ 		if e.SessionID == id {
+ 			q.pending = append(q.pending[:i], q.pending[i+1:]...)
++			qfn, qempty := q.queueChangeLocked()
+ 			q.mu.Unlock()
++			if qfn != nil {
++				qfn(qempty)
++			}
+ 			q.finish(e, ExitPayload{SessionID: id, ExitCode: -1, Reason: ReasonCancelled})
+ 			return nil
+ 		}
+diff --git a/internal/fleet/fleet.go b/internal/fleet/fleet.go
+index 654f1c6..0a4d849 100644
+--- a/internal/fleet/fleet.go
++++ b/internal/fleet/fleet.go
+@@ -175,6 +175,7 @@ type node struct {
+ 	key      string // what the link was built for: the machine's IP, or keyAgentDial; a change restarts it
+ 	link     Link
+ 	q        *exec.Queue
++	qmu      sync.Mutex
+ 	cancel   context.CancelFunc
+ 	done     chan struct{}
+ 	online   bool
+@@ -385,13 +386,19 @@ func (m *Manager) startNode(mc registry.Machine, key string) (*node, error) {
+ 	n.q = exec.NewQueue(mc.ID, senderFunc(func(ctx context.Context, env channel.Envelope) error {
+ 		return n.link.Send(ctx, env)
+ 	}), func(ev exec.Event) { m.onExec(mc.ID, ev) })
++	ctx, cancel := context.WithCancel(m.ctx)
++	n.cancel = cancel
++	if mc.Role == registry.RoleWorker {
++		n.q.SetOnQueueChange(func(bool) {
++			go m.sendQueueState(ctx, n)
++		})
++	}
+ 	link, err := newLink(mc, m.agentHandler(n, mc.Role, n.q.Handle))
+ 	if err != nil {
++		cancel()
+ 		return nil, err
+ 	}
+ 	n.link = link
+-	ctx, cancel := context.WithCancel(m.ctx)
+-	n.cancel = cancel
+ 	go func() {
+ 		defer close(n.done)
+ 		var wg sync.WaitGroup
+@@ -415,6 +422,7 @@ func (m *Manager) agentHandler(n *node, role string, next channel.Handler) chann
+ 			case registry.RoleWorker:
+ 				m.pushConfig(ctx, n)
+ 				m.pushPolicy(ctx, n)
++				m.sendQueueState(ctx, n)
+ 			case registry.RoleMonitor:
+ 				m.pushMonitorConfig(ctx, n)
+ 			}
+@@ -451,6 +459,25 @@ func (m *Manager) agentHandler(n *node, role string, next channel.Handler) chann
+ 	}
+ }
+ 
++// sendQueueState tells a connected worker agent whether its server FIFO queue
++// is empty so idle evidence push stays gated on both session and queue state.
++func (m *Manager) sendQueueState(ctx context.Context, n *node) {
++	n.qmu.Lock()
++	defer n.qmu.Unlock()
++	if n.link == nil || !n.link.Online() {
++		return
++	}
++	sctx, cancel := context.WithTimeout(ctx, 5*time.Second)
++	defer cancel()
++	env, err := channel.NewEnvelope(channel.TypeQueueState, "", channel.QueueStatePayload{Empty: n.q.FIFOEmpty()})
++	if err == nil {
++		err = n.link.Send(sctx, env)
++	}
++	if err != nil && !errors.Is(err, channel.ErrNotConnected) && !errors.Is(err, context.Canceled) {
++		m.log.Debug("send queue state", "component", "fleet", "machine", n.id, "err", err)
++	}
++}
++
+ // pushConfig sends a worker agent its configuration: the gate secret (so the
+ // agent can verify the tokens this manager mints) and the capture settings.
+ // Nothing is sent when the manager has no secret to push. The payload carries

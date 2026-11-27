@@ -1,4 +1,4 @@
-# One-shot run by fleet-agent-liveness.timer every 45 s (T-0027). It (1) starts
+# One-shot run by fleet-agent-liveness.timer every 1 min (T-0027). It (1) starts
 # fleet-agent.service if it is not active, and (2) restarts it if its heartbeat
 # file is older than the pushed heartbeat_threshold, i.e. the agent is hung
 # (deadlocked yet still "active"). Both are logged. The ExecStart line is

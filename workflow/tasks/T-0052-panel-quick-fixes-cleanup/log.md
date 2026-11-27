@@ -1,0 +1,23 @@
+# T-0052 backend-correctness-cleanup: log
+
+## 2026-11-28: four backend correctness fixes (GAP-05, GAP-18, GAP-32, GAP-34)
+
+**Built (inside `touches` + `*_test.go` in those packages).**
+
+- **GAP-05 (`internal/fleet/open.go`, `internal/fleet/open_test.go`).** Updated `NewDialerFactory` and `Open` (`newDialerFactory`, `serverCertIPs`, `localInterfaceIPs`) so `ca.IssuePeer` issues the main server's mTLS channel cert with the server's IP SANs (configured `EnrollHost`, `ListenAddr`, `AgentDialAddr` host IPs when explicit, plus local unicast interface IPs via `net.InterfaceAddrs`), mirroring how `internal/onboard/ssh.go` populates agent IP SANs. `Subject.CommonName` and `DNSNames` remain `serverID`, keeping handshakes with already-enrolled agents (`pki.ServerTLSConfig` + `pki.PeerID`) backward-compatible. Added `TestServerChannelCertHasIPSANAndStaysCompatible` verifying IP SAN presence, pre-enrolled agent mTLS handshake compatibility, `Open()` configured IP SANs, and `pki.DialTLSConfig` IP SAN validation.
+- **GAP-18 (`internal/agent/evidence.go`, `internal/agent/evidence_internal_test.go`).** Updated `worker.idle()` to require both `len(w.live) == 0` and `w.serverQueueEmpty()`, and extended `handleEvidence` to consume `queue-state` (`{"empty": bool}`) envelopes. Added `TestIdleChecksServerQueueEmpty` verifying `PushIfIdle` stays suppressed when `len(w.live) == 0` while the server FIFO is non-empty and pushes once drained.
+- **GAP-32 (`deploy/systemd/fleet-watchdog-liveness.timer`, `internal/onboard/ssh.go`, `internal/watchdog/heartbeat.go`, `internal/watchdog/heartbeat_test.go`, `internal/onboard/liveness_test.go`, `internal/panel/watchdog_heartbeat_test.go`).** Changed `HeartbeatCheckEvery` from `45 * time.Second` to `time.Minute` (updating `MinHeartbeatThreshold` floor to `1 min` / `60 s`), updated `deploy/systemd/fleet-watchdog-liveness.timer` to `OnUnitActiveSec=1min` (`every 1 min`), and updated `internal/onboard/ssh.go` timer rendering (`formatSystemdDuration`) so `OnUnitActiveSec` renders `1min` consistently. Updated bounds and timer unit tests in `internal/watchdog/heartbeat_test.go`, `internal/panel/watchdog_heartbeat_test.go`, and `internal/onboard/liveness_test.go`.
+- **GAP-34 (`internal/panel/evidence.go`, `internal/panel/evidence_test.go`).** Added `PayloadHead []byte` (`json:"payload_head,omitempty"`) to `evRecord` and populated it in `decodeRecords`. Updated `evSessions` to open shared segments (`len(ids) > 1`) via `o.Archive.OpenSegment` and sum exact per-session record counts (`sessionPacketCounts`) rather than whole-segment `seg.Records`. Added `TestEvidenceRecordsIncludePayloadHead` and `TestEvidenceSharedSegmentExactSessionCounts`.
+
+**Outside `touches` (saved as `.patch` under this task folder; `git apply --check` clean).**
+
+- `workflow/tasks/T-0052-panel-quick-fixes-cleanup/gap18-server-queue-signal.patch`: threads the server FIFO queue-empty signal from `internal/exec/queue.go` (`FIFOEmpty`, `SetOnQueueChange`) through `internal/fleet/fleet.go` (`sendQueueState` on `TypeConfigReq` and queue transitions) and `internal/channel/envelope.go` (`TypeQueueState`, `QueueStatePayload`) to `internal/agent/worker.go`, plus end-to-end `TestQueuedServerCommandBlocksIdlePush` in `internal/agent/evidence_test.go`.
+- `workflow/tasks/T-0052-panel-quick-fixes-cleanup/gap32-liveness-cadence-out-of-touches.patch`: updates the remaining out-of-touches `45 s` references to `1 min` for consistency: `deploy/systemd/fleet-agent-liveness.timer` (`OnUnitActiveSec=1min`), `deploy/systemd/fleet-agent-liveness.service` and `deploy/systemd/fleet-watchdog-liveness.service` comments, `internal/enroll/install.go` (`every 1 min` and `OnUnitActiveSec=1min`), and `internal/watchdog/policy.go` comment.
+
+**Verification.**
+
+- **Touches-only branch:** `gofmt -l .` empty, `go vet ./...` clean, `go build ./...` ok. `internal/fleet`, `internal/panel`, `internal/agent`, `internal/watchdog`, and 15 other packages in `./scripts/test.sh server` pass; `internal/enroll` (`TestWatchdogRenderedUnits`) and `internal/onboard` (`TestProvisionInstallsAgentLiveness`) fail on the unpatched tree strictly because `deploy/systemd/fleet-agent-liveness.timer` and `internal/enroll/install.go` are outside `touches` and live in `gap32-liveness-cadence-out-of-touches.patch`.
+- **Patched tree (both `.patch` files applied):** `go vet ./...` clean, `go build ./...` ok, and `./scripts/test.sh server` passes all packages (`cmd/fleet-server` and all `internal/...` including `internal/enroll`, `internal/onboard`, and `TestQueuedServerCommandBlocksIdlePush`).
+
+<!-- wf: left=- tests=server:partial(patched:pass) blocked=no -->
+wf: T-0052 done

@@ -1,13 +1,13 @@
 # Independent liveness check for fleet-agent.service (T-0027): runs
-# fleet-agent-liveness.service every 45 s. The cadence is fixed (it is not a policy
+# fleet-agent-liveness.service every 1 min. The cadence is fixed (it is not a policy
 # setting); heartbeat_threshold is never below it. Enable this timer and
 # fleet-agent.service at boot.
 [Unit]
-Description=Fleet agent liveness check (every 45 s)
+Description=Fleet agent liveness check (every 1 min)
 
 [Timer]
 OnBootSec=1min
-OnUnitActiveSec=45s
+OnUnitActiveSec=1min
 AccuracySec=5s
 Unit=fleet-agent-liveness.service
 

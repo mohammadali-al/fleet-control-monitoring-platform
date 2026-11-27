@@ -66,7 +66,7 @@ func Open(o Options) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	links, err := NewDialerFactory(ca, o.Config.ServerIDOrDefault(), o.Config.ChannelPortOrDefault())
+	links, err := newDialerFactory(ca, o.Config.ServerIDOrDefault(), o.Config.ChannelPortOrDefault(), serverCertIPs(o.Config))
 	if err != nil {
 		return nil, err
 	}
@@ -131,9 +131,14 @@ func loadOrCreateGateKey(path string) ([]byte, error) {
 
 // NewDialerFactory returns the production LinkFactory: an mTLS channel Dialer
 // to <machine IP>:port, authenticated with a certificate for serverID issued
-// by ca, and verifying the agent's certificate (IP SAN and CN = machine ID).
+// by ca (carrying the host's local IP SANs as well as serverID as CN/DNS SAN),
+// and verifying the agent's certificate (IP SAN and CN = machine ID).
 func NewDialerFactory(ca *pki.CA, serverID string, port int) (LinkFactory, error) {
-	certPEM, keyPEM, err := ca.IssuePeer(serverID, nil, serverCertValidity)
+	return newDialerFactory(ca, serverID, port, localInterfaceIPs())
+}
+
+func newDialerFactory(ca *pki.CA, serverID string, port int, ips []net.IP) (LinkFactory, error) {
+	certPEM, keyPEM, err := ca.IssuePeer(serverID, ips, serverCertValidity)
 	if err != nil {
 		return nil, fmt.Errorf("fleet: issue the server's channel certificate: %w", err)
 	}
@@ -158,6 +163,63 @@ func NewDialerFactory(ca *pki.CA, serverID string, port int) (LinkFactory, error
 		}
 		return &dialerLink{d: d, id: mc.ID}, nil
 	}, nil
+}
+
+// serverCertIPs gathers the server's IP SANs from config (EnrollHost,
+// ListenAddr, AgentDialAddr if they name a specific IP) and local interfaces,
+// mirroring how onboard issues agent certs with IP SANs.
+func serverCertIPs(cfg config.ServerConfig) []net.IP {
+	var out []net.IP
+	seen := map[string]bool{}
+	if ip := net.ParseIP(strings.TrimSpace(cfg.EnrollHost)); ip != nil {
+		out = appendServerIP(out, seen, ip)
+	}
+	for _, addr := range []string{cfg.ListenAddr, cfg.AgentDialAddr} {
+		if host, _, err := net.SplitHostPort(addr); err == nil {
+			if ip := net.ParseIP(strings.TrimSpace(host)); ip != nil {
+				out = appendServerIP(out, seen, ip)
+			}
+		}
+	}
+	for _, ip := range localInterfaceIPs() {
+		out = appendServerIP(out, seen, ip)
+	}
+	return out
+}
+
+func localInterfaceIPs() []net.IP {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil
+	}
+	var out []net.IP
+	seen := map[string]bool{}
+	for _, a := range addrs {
+		var ip net.IP
+		switch v := a.(type) {
+		case *net.IPNet:
+			ip = v.IP
+		case *net.IPAddr:
+			ip = v.IP
+		}
+		out = appendServerIP(out, seen, ip)
+	}
+	return out
+}
+
+func appendServerIP(out []net.IP, seen map[string]bool, ip net.IP) []net.IP {
+	if ip == nil || ip.IsUnspecified() || ip.IsMulticast() || ip.IsLinkLocalMulticast() || ip.IsLinkLocalUnicast() {
+		return out
+	}
+	if ip4 := ip.To4(); ip4 != nil {
+		ip = ip4
+	}
+	k := ip.String()
+	if seen[k] {
+		return out
+	}
+	seen[k] = true
+	return append(out, ip)
 }
 
 // dialerLink adapts a channel.Dialer to Link. The agent must be who the

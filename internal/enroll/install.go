@@ -200,9 +200,9 @@ func RenderAgentLivenessService() string {
 		watchdog.HeartbeatPath(StateDir, watchdog.HeartbeatAgent))
 }
 
-// RenderAgentLivenessTimer fires fleet-agent-liveness.service every 45 s.
+// RenderAgentLivenessTimer fires fleet-agent-liveness.service every 1 min.
 func RenderAgentLivenessTimer() string {
-	return renderLivenessTimer("Fleet agent liveness check (every 45 s)", AgentLivenessService)
+	return renderLivenessTimer("Fleet agent liveness check (every 1 min)", AgentLivenessService)
 }
 
 // RenderWatchdogLivenessService is the one-shot that checks fleet-watchdog.service.
@@ -211,9 +211,9 @@ func RenderWatchdogLivenessService() string {
 		watchdog.HeartbeatPath(StateDir, watchdog.HeartbeatWatchdog))
 }
 
-// RenderWatchdogLivenessTimer fires fleet-watchdog-liveness.service every 45 s.
+// RenderWatchdogLivenessTimer fires fleet-watchdog-liveness.service every 1 min.
 func RenderWatchdogLivenessTimer() string {
-	return renderLivenessTimer("Fleet watchdog liveness check (every 45 s)", WatchdogLivenessService)
+	return renderLivenessTimer("Fleet watchdog liveness check (every 1 min)", WatchdogLivenessService)
 }
 
 func renderLivenessService(desc, unit, hbPath string) string {
@@ -227,19 +227,26 @@ ExecStart=%s
 `, desc, watchdog.LivenessExecStart(unit, hbPath))
 }
 
+func formatSystemdDuration(d time.Duration) string {
+	if d >= time.Minute && d%time.Minute == 0 {
+		return fmt.Sprintf("%dmin", int(d/time.Minute))
+	}
+	return fmt.Sprintf("%ds", int(d/time.Second))
+}
+
 func renderLivenessTimer(desc, targetService string) string {
 	return fmt.Sprintf(`[Unit]
 Description=%s
 
 [Timer]
 OnBootSec=1min
-OnUnitActiveSec=%ds
+OnUnitActiveSec=%s
 AccuracySec=5s
 Unit=%s
 
 [Install]
 WantedBy=timers.target
-`, desc, int(watchdog.HeartbeatCheckEvery/time.Second), targetService)
+`, desc, formatSystemdDuration(watchdog.HeartbeatCheckEvery), targetService)
 }
 
 // RenderLaunchdPlist is the macOS service (a launch daemon, so it runs at boot

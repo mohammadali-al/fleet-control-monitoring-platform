@@ -31,17 +31,19 @@ import (
 // the channel Dialer as its Handler; run q.Run(ctx) in a goroutine; call
 // q.ConnectionLost() when the channel drops.
 type Queue struct {
-	machineID string
-	tr        Sender
-	onEvent   func(Event)
+	machineID     string
+	tr            Sender
+	onEvent       func(Event)
+	onQueueChange func(empty bool)
 
-	mu       sync.Mutex
-	pending  []*entry // one-shot FIFO, waiting
-	current  *entry   // the running one-shot, if any
-	busy     bool     // a one-shot is in flight (set with current, cleared when its goroutine ends)
-	shells   []*entry // open shells (queued for an instant, then running), start order
-	finished []Entry  // most recent first, capped
-	wake     chan struct{}
+	mu        sync.Mutex
+	pending   []*entry // one-shot FIFO, waiting
+	current   *entry   // the running one-shot, if any
+	busy      bool     // a one-shot is in flight (set with current, cleared when its goroutine ends)
+	lastEmpty bool     // last reported FIFOEmpty state
+	shells    []*entry // open shells (queued for an instant, then running), start order
+	finished  []Entry  // most recent first, capped
+	wake      chan struct{}
 }
 
 type entry struct {
@@ -102,7 +104,31 @@ const (
 // NewQueue returns a queue for machineID that sends through tr. onEvent may be
 // nil; it is called synchronously and must not block for long.
 func NewQueue(machineID string, tr Sender, onEvent func(Event)) *Queue {
-	return &Queue{machineID: machineID, tr: tr, onEvent: onEvent, wake: make(chan struct{}, 1)}
+	return &Queue{machineID: machineID, tr: tr, onEvent: onEvent, lastEmpty: true, wake: make(chan struct{}, 1)}
+}
+
+// SetOnQueueChange registers a callback invoked when FIFOEmpty transitions.
+func (q *Queue) SetOnQueueChange(fn func(empty bool)) {
+	q.mu.Lock()
+	q.onQueueChange = fn
+	q.mu.Unlock()
+}
+
+// FIFOEmpty reports whether the one-shot FIFO queue has no queued or running
+// commands. Interactive shells (ModePTY) live outside the FIFO.
+func (q *Queue) FIFOEmpty() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.pending) == 0 && !q.busy && q.current == nil
+}
+
+func (q *Queue) queueChangeLocked() (func(bool), bool) {
+	empty := len(q.pending) == 0 && !q.busy && q.current == nil
+	if empty == q.lastEmpty {
+		return nil, empty
+	}
+	q.lastEmpty = empty
+	return q.onQueueChange, empty
 }
 
 // NewSessionID returns a fresh random session id.
@@ -149,8 +175,12 @@ func (q *Queue) Submit(req RunPayload) (string, error) {
 		q.pending = append(q.pending, e)
 	}
 	snap := e.Entry
+	qfn, qempty := q.queueChangeLocked()
 	q.mu.Unlock()
 
+	if qfn != nil {
+		qfn(qempty)
+	}
 	q.emit(Event{Kind: EventQueued, SessionID: req.SessionID, Entry: snap})
 	q.kick()
 	return req.SessionID, nil
@@ -211,7 +241,11 @@ func (q *Queue) Run(ctx context.Context) {
 				if e.Mode != ModePTY {
 					q.mu.Lock()
 					q.busy = false
+					qfn, qempty := q.queueChangeLocked()
 					q.mu.Unlock()
+					if qfn != nil {
+						qfn(qempty)
+					}
 					q.kick() // the FIFO may advance
 				}
 			}()
@@ -387,7 +421,11 @@ func (q *Queue) Cancel(ctx context.Context, id string) error {
 	for i, e := range q.pending {
 		if e.SessionID == id {
 			q.pending = append(q.pending[:i], q.pending[i+1:]...)
+			qfn, qempty := q.queueChangeLocked()
 			q.mu.Unlock()
+			if qfn != nil {
+				qfn(qempty)
+			}
 			q.finish(e, ExitPayload{SessionID: id, ExitCode: -1, Reason: ReasonCancelled})
 			return nil
 		}

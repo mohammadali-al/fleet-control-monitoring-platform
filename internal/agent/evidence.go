@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"sync"
 	"time"
 
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/capture"
@@ -49,23 +51,62 @@ func (w *worker) initEvidence() {
 	w.ev = ev
 }
 
-// idle reports that no command session is running, the condition for an idle
-// push (the agent keeps no queue of its own; the server's queue is not an
-// agent-side busy signal).
-func (w *worker) idle() bool {
-	w.cmu.Lock()
-	defer w.cmu.Unlock()
-	return len(w.live) == 0
+// typeQueueState mirrors channel.TypeQueueState so evidence.go can receive the
+// server FIFO queue-empty signal without out-of-touches edits to channel or
+// worker.go on this branch.
+const typeQueueState = "queue-state"
+
+type queueStatePayload struct {
+	Empty bool `json:"empty"`
 }
 
-// handleEvidence routes an ev-* envelope from the main server to the sync
-// agent. It reports whether the envelope was an evidence message.
+var (
+	serverQueueMu   sync.Mutex
+	serverQueueBusy = map[*worker]bool{}
+)
+
+func (w *worker) setServerQueueEmpty(empty bool) {
+	serverQueueMu.Lock()
+	if empty {
+		delete(serverQueueBusy, w)
+	} else {
+		serverQueueBusy[w] = true
+	}
+	serverQueueMu.Unlock()
+}
+
+func (w *worker) serverQueueEmpty() bool {
+	serverQueueMu.Lock()
+	busy := serverQueueBusy[w]
+	serverQueueMu.Unlock()
+	return !busy
+}
+
+// idle reports that no command session is running and the server's FIFO queue
+// is empty, the conditions for an idle push (§7.2).
+func (w *worker) idle() bool {
+	w.cmu.Lock()
+	liveEmpty := len(w.live) == 0
+	w.cmu.Unlock()
+	return liveEmpty && w.serverQueueEmpty()
+}
+
+// handleEvidence routes an ev-* or queue-state envelope from the main server
+// to the sync agent. It reports whether the envelope was handled.
 func (w *worker) handleEvidence(ctx context.Context, env channel.Envelope) bool {
 	switch env.Type {
 	case channel.TypeEvManifestReq, channel.TypeEvRange, channel.TypeEvVerify:
 		if w.ev != nil {
 			w.ev.Handle(ctx, env)
 		}
+		return true
+	case typeQueueState:
+		var p queueStatePayload
+		if err := json.Unmarshal(env.Payload, &p); err != nil {
+			w.log.Warn("evidence: bad queue-state payload", "component", "fleet-agent", "err", err)
+			return true
+		}
+		w.setServerQueueEmpty(p.Empty)
 		return true
 	}
 	return false
