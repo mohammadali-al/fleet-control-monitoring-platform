@@ -23,8 +23,8 @@
 #   --token TOKEN            GitHub token for private repos / API rate limits (or GH_TOKEN / GITHUB_TOKEN)
 #
 # Configuration overrides (also settable in --answers FILE):
-#   --single-domain          Serve Authelia under /authelia on the panel domain (one DNS name)
-#   --two-domain             Serve Authelia on separate --auth-domain (default)
+#   --single-domain          Serve Authelia under /authelia on the panel domain (one DNS name; default)
+#   --two-domain             Serve Authelia on separate --auth-domain
 #   --panel-domain DOMAIN    Panel hostname (default prompt: fleet.internal)
 #   --auth-domain DOMAIN     Authelia login hostname (default: auth.<panel-domain>; unused in --single-domain)
 #   --tls-mode internal|acme TLS certificate mode (default: internal)
@@ -117,8 +117,8 @@ Release & auth options:
   --token TOKEN            GitHub token for private repos / API rate limits (or GH_TOKEN / GITHUB_TOKEN)
 
 Configuration overrides (also settable in --answers FILE):
-  --single-domain          Serve Authelia under /authelia on the panel domain (one DNS name)
-  --two-domain             Serve Authelia on separate --auth-domain (default)
+  --single-domain          Serve Authelia under /authelia on the panel domain (one DNS name; default)
+  --two-domain             Serve Authelia on separate --auth-domain
   --panel-domain DOMAIN    Panel hostname (default prompt: fleet.internal)
   --auth-domain DOMAIN     Authelia login hostname (default: auth.<panel-domain>; unused in --single-domain)
   --tls-mode internal|acme TLS certificate mode (default: internal)
@@ -804,7 +804,22 @@ collect_answers() {
   if [ -f "$saved_answers" ]; then
     load_answers_file "$saved_answers"
   fi
-  FLEET_DOMAIN_MODE="${FLEET_DOMAIN_MODE:-two}"
+  if [ -z "$FLEET_DOMAIN_MODE" ] && [ "$NON_INTERACTIVE" -eq 0 ] && has_tty; then
+    local layout_ans=""
+    printf "DNS layout: [1] one name (panel + Authelia under /authelia)  [2] two names (separate auth subdomain) [1]: " >/dev/tty
+    IFS= read -r layout_ans </dev/tty || true
+    layout_ans="${layout_ans#"${layout_ans%%[![:space:]]*}"}"
+    layout_ans="${layout_ans%"${layout_ans##*[![:space:]]}"}"
+    case "${layout_ans,,}" in
+      ""|1|single|s|one) FLEET_DOMAIN_MODE="single" ;;
+      2|two|t) FLEET_DOMAIN_MODE="two" ;;
+      *)
+        warn "unrecognized DNS layout '$layout_ans'; defaulting to single-domain"
+        FLEET_DOMAIN_MODE="single"
+        ;;
+    esac
+  fi
+  FLEET_DOMAIN_MODE="${FLEET_DOMAIN_MODE:-single}"
   case "$FLEET_DOMAIN_MODE" in
     two|single) ;;
     *) die "invalid domain mode '$FLEET_DOMAIN_MODE' (want: two or single)" ;;

@@ -16,10 +16,10 @@
 | Fetch / Verify tools | `curl`, `tar`, `sha256sum`, `ss` | `command -v` | Yes (`curl`, `tar`, `coreutils`, `iproute2`) |
 | Proxy runtime (`--proxy=native`, default) | Standalone `caddy` + `authelia` binaries (no Docker) | Installed & verified by installer | Downloaded with checksum verification |
 | Proxy runtime (`--proxy=docker`) | Docker Engine + Compose v2 (`docker compose`) | `docker info` + `docker compose version` | Yes (`docker.io` / `docker-ce` + compose plugin) |
-| DNS / domain names | 2 DNS names by default (`<panel-domain>` + `<auth-domain>`), or **1 DNS name** with `--single-domain` (`<panel-domain>`) | Validated by installer (rejects raw IPs) | No |
+| DNS / domain names | **1 DNS name** by default (`<panel-domain>`; interactive install asks and defaults to single-domain, or pass `--single-domain`), or 2 DNS names with `--two-domain` (`<panel-domain>` + `<auth-domain>`) | Validated by installer (rejects raw IPs) | No |
 | Disk space | `>= 2 GiB` free on `/var/lib`, `>= 500 MiB` on `/usr/local` & `/opt` | `df -Pm` | No |
 
-> **One-DNS-name vs IP-only:** `--single-domain` removes the second `auth.<panel-domain>` subdomain by hosting Authelia under `https://<panel-domain>/authelia` (reserving `/authelia*` on the panel domain), which works with single-hostname setups such as Tailscale `*.ts.net`, DuckDNS, or single-SAN certs. It still requires **one real DNS name**: Authelia rejects raw-IP cookie domains, so IP-only deployments remain unsupported.
+> **One-DNS-name vs IP-only:** Single-domain mode (the default) removes the second `auth.<panel-domain>` subdomain by hosting Authelia under `https://<panel-domain>/authelia` (reserving `/authelia*` on the panel domain), which works with single-hostname setups such as Tailscale `*.ts.net`, DuckDNS, or single-SAN certs. Interactive installs ask whether to use one or two names and default to one; pass `--single-domain` or `--two-domain` to force a layout without prompting. It still requires **one real DNS name**: Authelia rejects raw-IP cookie domains, so IP-only deployments remain unsupported.
 
 ## Ports
 
