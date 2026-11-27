@@ -53,3 +53,5 @@ Both `--proxy=docker` and `--proxy=native` pin identical Caddy and Authelia vers
 - `pacman` (Arch Linux)
 
 If the host uses an unsupported package manager, or lacks `systemd` / `cgroup v2` / minimum kernel, preflight exits with a clear error before modifying the system.
+
+> **Uninstall note:** OS packages auto-installed by `install-server.sh` (`nftables`, `openssl`, `curl`, `tar`, `coreutils`, `iproute2`, `docker.io` / `docker-compose-plugin`) are treated as shared host dependencies and are **not** removed by `deploy/uninstall-server.sh`. Only Fleet-owned units, binaries, configs, and (only when `--purge-data` is passed) data directories are removed.

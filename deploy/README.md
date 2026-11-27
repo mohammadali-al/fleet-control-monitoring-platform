@@ -101,6 +101,39 @@ The upgrader:
 
 > **Note on switching domain modes:** `upgrade-server.sh` preserves live `/opt/fleet/proxy/Caddyfile` and `/opt/fleet/proxy/authelia/configuration.yml` and does not migrate an existing two-subdomain host to `--single-domain` (or vice versa). To switch layouts on an existing host, update those two files (or remove them and re-run `install-server.sh --single-domain` / `--two-domain` to regenerate them and refresh the TLS cert if using `--tls-mode internal`).
 
+## 6. Uninstalling
+
+Always preview with `--dry-run` first — nothing is deleted until you confirm:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mohammadali-al/fleet-control-monitoring-platform/main/deploy/uninstall-server.sh \
+  | sudo bash -s -- --dry-run
+```
+
+Run an interactive uninstall (stops/disables/removes Fleet systemd units, binaries, `/etc/fleet-server`, `/opt/fleet/proxy`, and the `fleet-agent` wrapper if present; **keeps** `/var/lib/fleet-server`, `/var/lib/fleet-proxy`, and `/var/backups/fleet-server` by default):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mohammadali-al/fleet-control-monitoring-platform/main/deploy/uninstall-server.sh \
+  | sudo bash
+# or from a local repo clone:
+sudo deploy/uninstall-server.sh
+```
+
+To also destroy persistent data (the internal CA private key in `/var/lib/fleet-server/ca/`, machine registry, upgrade backups, and Authelia users/secrets/TLS certs in `/var/lib/fleet-proxy/`), pass `--purge-data` explicitly:
+
+```bash
+sudo deploy/uninstall-server.sh --purge-data
+```
+
+> **Warning:** Deleting `/var/lib/fleet-server/ca/` destroys the internal CA private key and invalidates every enrolled agent certificate; all agents will need to be re-onboarded after a future reinstall.
+
+Common options:
+- `--dry-run`: print every unit/path that would be affected and delete nothing.
+- `--yes` / `-y`: skip the interactive confirmation prompt for removing units, binaries, and configs (**still preserves data dirs** unless `--purge-data` is also passed).
+- `--purge-data` / `--keep-data`: opt in to deleting persistent data dirs + backups (requires typing the panel hostname interactively unless `--yes` is also passed) or explicitly keep them (default).
+- `--proxy native|docker`, `--data-dir DIR`, `--proxy-dir DIR`, `--proxy-state-dir DIR`: override values discovered from `/etc/fleet-server/install-answers.env`.
+- Shared OS packages (`docker`, `openssl`, `nftables`, `curl`, etc.) and remote agents on other machines are **not** removed.
+
 ## Operations notes
 
 - **Logs:** `journalctl -u fleet-server -f`, `journalctl -u fleet-proxy -f` (or `docker compose -f /opt/fleet/proxy/compose.yml logs -f`).
