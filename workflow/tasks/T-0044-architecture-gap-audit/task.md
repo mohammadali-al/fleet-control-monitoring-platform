@@ -1,7 +1,7 @@
 ---
 id: T-0044
 title: architecture-gap-audit
-state: ready
+state: merged
 touches: [workflow/tasks/T-0044-architecture-gap-audit/log.md]
 tests: []
 after: []

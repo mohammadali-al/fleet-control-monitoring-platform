@@ -1,7 +1,7 @@
 ---
 id: T-0055
 title: monitor-timeseries-store
-state: ready
+state: merged
 touches: [internal/fleet/series.go, internal/fleet/, internal/monitor/, internal/panel/monitor.go,
           internal/config/config.go, deploy/install-server.sh, deploy/REQUIREMENTS.md]
 tests: [fleet, monitor, server]

@@ -53,6 +53,8 @@ _none_
 - **T-0047** panel-spa-foundation  `after: [T-0040, T-0045]`
 - **T-0052** backend-correctness-cleanup  `after: []`
 - **T-0045** public-ip-refresh  `after: [T-0023]`
+- **T-0044** architecture-gap-audit  `after: []`
+- **T-0055** monitor-timeseries-store  `after: []`
 
 ## Blocked
 _none_
