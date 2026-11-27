@@ -267,3 +267,37 @@ func TestBusyWorkerDoesNotPush(t *testing.T) {
 	})
 	e.verifyArchived(t, want)
 }
+
+// GAP-18: when a command is queued in the server's FIFO behind a running one,
+// the server's queue-state signal keeps the agent from idle-pushing even
+// during the transition between commands until the FIFO drains completely.
+func TestQueuedServerCommandBlocksIdlePush(t *testing.T) {
+	defer agent.SetEvidencePushInterval(20 * time.Millisecond)()
+	e := newEvEnv(t)
+	sub := e.subscribe()
+	defer sub.Close()
+
+	id1, err := e.m.Submit(fleet.SubmitRequest{Machine: "w1", Command: "sleep 0.4"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id2, err := e.m.Submit(fleet.SubmitRequest{Machine: "w1", Command: "sleep 0.4"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRunning(t, sub, id1)
+	want := e.capturedSegments(t, "sess-1", 10, 1024, 0)
+
+	// Wait for cmd 1 to exit and cmd 2 to start, verifying no push happened in between.
+	waitRunning(t, sub, id2)
+	if segs, _ := e.archive.Segments("w1"); len(segs) != 0 {
+		t.Fatalf("pushed %d segments while server FIFO queue still had a second command", len(segs))
+	}
+
+	// Wait for cmd 2 to finish; once the FIFO is empty, idle push delivers.
+	eventually(t, "idle push after server FIFO queue drained", func() bool {
+		segs, _ := e.archive.Segments("w1")
+		return len(segs) == len(want)
+	})
+	e.verifyArchived(t, want)
+}

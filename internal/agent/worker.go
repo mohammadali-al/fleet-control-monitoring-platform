@@ -150,8 +150,8 @@ func (w *worker) handle(ctx context.Context, env channel.Envelope) {
 			defer w.wg.Done()
 			w.runWhenConfigured(env)
 		}()
-	case channel.TypeEvManifestReq, channel.TypeEvRange, channel.TypeEvVerify:
-		w.handleEvidence(ctx, env) // evidence sync: pull and idle-push exchanges
+	case channel.TypeEvManifestReq, channel.TypeEvRange, channel.TypeEvVerify, channel.TypeQueueState:
+		w.handleEvidence(ctx, env) // evidence sync: pull, idle-push and queue-state exchanges
 	case channel.TypeServiceControl:
 		handleServiceControl(ctx, w.log, w.sender, w.serviceController(), env)
 	default:
@@ -239,6 +239,7 @@ func (w *worker) shutdown() {
 	for _, c := range capts {
 		c.Close()
 	}
+	w.setServerQueueEmpty(true)
 }
 
 // --- evidence capture ------------------------------------------------------------

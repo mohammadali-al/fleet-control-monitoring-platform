@@ -48,7 +48,14 @@ const (
 	TypeEvRange       = "ev-range"        // server -> agent: send bytes of one segment from an offset
 	TypeEvChunk       = "ev-chunk"        // agent -> server: a slice of a segment (last one is flagged)
 	TypeEvVerify      = "ev-verify"       // server -> agent: the segment verified (or was rejected)
+	TypeQueueState    = "queue-state"     // server -> agent: whether the server FIFO queue is empty (QueueStatePayload)
 )
+
+// QueueStatePayload reports whether the main server's per-machine command FIFO
+// queue is empty (§7.2 idle-push gate).
+type QueueStatePayload struct {
+	Empty bool `json:"empty"`
+}
 
 // Monitor envelope types (payload shapes live in internal/probe and
 // internal/monitor). Monitor data is a separate path from evidence: it never

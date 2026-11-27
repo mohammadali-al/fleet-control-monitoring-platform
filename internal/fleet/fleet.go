@@ -175,6 +175,7 @@ type node struct {
 	key      string // what the link was built for: the machine's IP, or keyAgentDial; a change restarts it
 	link     Link
 	q        *exec.Queue
+	qmu      sync.Mutex
 	cancel   context.CancelFunc
 	done     chan struct{}
 	online   bool
@@ -385,13 +386,19 @@ func (m *Manager) startNode(mc registry.Machine, key string) (*node, error) {
 	n.q = exec.NewQueue(mc.ID, senderFunc(func(ctx context.Context, env channel.Envelope) error {
 		return n.link.Send(ctx, env)
 	}), func(ev exec.Event) { m.onExec(mc.ID, ev) })
+	ctx, cancel := context.WithCancel(m.ctx)
+	n.cancel = cancel
+	if mc.Role == registry.RoleWorker {
+		n.q.SetOnQueueChange(func(bool) {
+			go m.sendQueueState(ctx, n)
+		})
+	}
 	link, err := newLink(mc, m.agentHandler(n, mc.Role, n.q.Handle))
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 	n.link = link
-	ctx, cancel := context.WithCancel(m.ctx)
-	n.cancel = cancel
 	go func() {
 		defer close(n.done)
 		var wg sync.WaitGroup
@@ -415,6 +422,7 @@ func (m *Manager) agentHandler(n *node, role string, next channel.Handler) chann
 			case registry.RoleWorker:
 				m.pushConfig(ctx, n)
 				m.pushPolicy(ctx, n)
+				m.sendQueueState(ctx, n)
 			case registry.RoleMonitor:
 				m.pushMonitorConfig(ctx, n)
 			}
@@ -448,6 +456,25 @@ func (m *Manager) agentHandler(n *node, role string, next channel.Handler) chann
 		default:
 			next(ctx, env)
 		}
+	}
+}
+
+// sendQueueState tells a connected worker agent whether its server FIFO queue
+// is empty so idle evidence push stays gated on both session and queue state.
+func (m *Manager) sendQueueState(ctx context.Context, n *node) {
+	n.qmu.Lock()
+	defer n.qmu.Unlock()
+	if n.link == nil || !n.link.Online() {
+		return
+	}
+	sctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	env, err := channel.NewEnvelope(channel.TypeQueueState, "", channel.QueueStatePayload{Empty: n.q.FIFOEmpty()})
+	if err == nil {
+		err = n.link.Send(sctx, env)
+	}
+	if err != nil && !errors.Is(err, channel.ErrNotConnected) && !errors.Is(err, context.Canceled) {
+		m.log.Debug("send queue state", "component", "fleet", "machine", n.id, "err", err)
 	}
 }
 

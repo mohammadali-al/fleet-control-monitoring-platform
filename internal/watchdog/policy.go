@@ -155,7 +155,7 @@ type Policy struct {
 	// heartbeat file from their main loop; HeartbeatThreshold is how old the
 	// file may get before the liveness timer calls the service hung and
 	// restarts it (T-0027). Bounds: see ValidateHeartbeat. The liveness
-	// timer's own 45 s cadence is fixed and not a policy field.
+	// timer's own 1 min cadence is fixed and not a policy field.
 	HeartbeatWrite     Duration `json:"heartbeat_write"`
 	HeartbeatThreshold Duration `json:"heartbeat_threshold"`
 }
