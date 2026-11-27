@@ -170,6 +170,13 @@ type Provisioner struct {
 	// AgentBinaryPath is the single-platform fallback fleet-agent binary for
 	// the server's own OS/arch (from config, ServerConfig.AgentBinaryPath).
 	AgentBinaryPath string
+	// ServerAddr is the main server's reachable host:port for the agent_dial
+	// listener (derived from ServerConfig.EnrollHost and AgentDialAddr). Empty
+	// when agent_dial is not configured on the server.
+	ServerAddr string
+	// ServerID is the main server's control-channel identity (certificate CN),
+	// written into agent_dial agent configs (from ServerConfig.ServerIDOrDefault).
+	ServerID string
 	// CertValidity is the client cert lifetime (default 1 year).
 	CertValidity time.Duration
 	// Layout overrides DefaultLayout when ServiceUser is set.
@@ -182,6 +189,10 @@ type Provisioner struct {
 	mu  sync.Mutex // one provisioning/removal at a time
 	now func() time.Time
 }
+
+// ErrAgentDialNotConfigured is returned when onboarding an agent_dial machine
+// while the server has no reachable agent_dial endpoint configured.
+var ErrAgentDialNotConfigured = errors.New("onboard: agent_dial endpoint is not configured on the server (set server.agent_dial_addr and server.enroll_host)")
 
 // Result describes a completed Provision.
 type Result struct {
@@ -247,6 +258,9 @@ func (p *Provisioner) Provision(ctx context.Context, t Target) (*Result, error) 
 		return nil, errors.New("onboard: provisioner needs a CA and a registry")
 	}
 	if err := validateTarget(&t); err != nil {
+		return nil, err
+	}
+	if err := p.preflightAgentDial(t); err != nil {
 		return nil, err
 	}
 	// Fail fast on missing/invalid agent binary configuration before touching
@@ -393,22 +407,39 @@ func (p *Provisioner) loadBinaryForPlatform(targetOS, targetArch string) ([]byte
 	return loadAgentBinary(binPath)
 }
 
-func (p *Provisioner) pinnedHostKey(t Target) string {
-	if t.HostKeyFingerprint != "" {
-		return t.HostKeyFingerprint
-	}
-	if t.MachineID != "" {
-		if m, ok := p.Registry.Get(t.MachineID); ok {
-			return m.SSHHostKey
+func (p *Provisioner) preflightAgentDial(t Target) error {
+	mode := t.ConnectMode
+	if mode == "" {
+		if m, ok := p.findMachine(t); ok {
+			mode = m.ConnectMode
 		}
-		return ""
+	}
+	if mode == config.ConnectModeAgentDial && strings.TrimSpace(p.ServerAddr) == "" {
+		return ErrAgentDialNotConfigured
+	}
+	return nil
+}
+
+func (p *Provisioner) findMachine(t Target) (registry.Machine, bool) {
+	if t.MachineID != "" {
+		return p.Registry.Get(t.MachineID)
 	}
 	for _, m := range p.Registry.List() {
 		for _, ip := range m.PrivateIPs {
 			if sameIP(ip, t.Host) {
-				return m.SSHHostKey
+				return m, true
 			}
 		}
+	}
+	return registry.Machine{}, false
+}
+
+func (p *Provisioner) pinnedHostKey(t Target) string {
+	if t.HostKeyFingerprint != "" {
+		return t.HostKeyFingerprint
+	}
+	if m, ok := p.findMachine(t); ok {
+		return m.SSHHostKey
 	}
 	return ""
 }
@@ -629,7 +660,7 @@ func stepWriteCA(ctx context.Context, j *job) error {
 }
 
 func stepWriteConfig(ctx context.Context, j *job) error {
-	data, err := renderAgentConfig(j.m, j.l)
+	data, err := renderAgentConfig(j.m, j.l, j.p.ServerAddr, j.p.ServerID)
 	if err != nil {
 		return err
 	}
@@ -690,18 +721,33 @@ func stepEnableStart(ctx context.Context, j *job) error {
 
 // renderAgentConfig builds the agent's config file: role, machine id, the
 // connect_mode flag and the paths of the pinned CA and the client cert/key.
-// It uses config.AgentConfig, so the agent's own loader accepts it.
-func renderAgentConfig(m registry.Machine, l Layout) ([]byte, error) {
-	doc := struct {
-		Agent config.AgentConfig `json:"agent"`
-	}{Agent: config.AgentConfig{
+// For agent_dial machines it also sets server_addr and server_id; for
+// server_dial it leaves them empty. It uses config.AgentConfig, so the agent's
+// own loader accepts it.
+func renderAgentConfig(m registry.Machine, l Layout, serverAddr, serverID string) ([]byte, error) {
+	cfg := config.AgentConfig{
 		Role:        m.Role,
 		MachineID:   m.ID,
 		ConnectMode: m.ConnectMode,
 		CAFile:      l.caFile(),
 		CertFile:    l.certFile(),
 		KeyFile:     l.keyFile(),
-	}}
+	}
+	if m.ConnectMode == config.ConnectModeAgentDial {
+		serverAddr = strings.TrimSpace(serverAddr)
+		if serverAddr == "" {
+			return nil, ErrAgentDialNotConfigured
+		}
+		serverID = strings.TrimSpace(serverID)
+		if serverID == "" {
+			serverID = config.DefaultServerID
+		}
+		cfg.ServerAddr = serverAddr
+		cfg.ServerID = serverID
+	}
+	doc := struct {
+		Agent config.AgentConfig `json:"agent"`
+	}{Agent: cfg}
 	data, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("onboard: render agent config: %w", err)
