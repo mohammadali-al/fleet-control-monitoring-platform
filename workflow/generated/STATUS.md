@@ -55,6 +55,9 @@ _none_
 - **T-0045** public-ip-refresh  `after: [T-0023]`
 - **T-0044** architecture-gap-audit  `after: []`
 - **T-0055** monitor-timeseries-store  `after: []`
+- **T-0048** operate-pages-react  `after: [T-0047]`
+- **T-0050** observe-pages-react  `after: [T-0047, T-0052]`
+- **T-0051** administer-pages-react  `after: [T-0047]`
 
 ## Blocked
 _none_

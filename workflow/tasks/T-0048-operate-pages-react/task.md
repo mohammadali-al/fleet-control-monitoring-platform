@@ -1,7 +1,7 @@
 ---
 id: T-0048
 title: operate-pages-react
-state: ready
+state: merged
 touches: [web/, internal/panel/server_test.go]
 tests: [server]
 after: [T-0047]

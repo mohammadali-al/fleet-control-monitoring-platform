@@ -1,7 +1,7 @@
 ---
 id: T-0050
 title: observe-pages-react
-state: ready
+state: merged
 touches: [web/, internal/panel/server_test.go]
 tests: [server]
 after: [T-0047, T-0052]
