@@ -2,7 +2,11 @@ package fleet_test
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -195,4 +199,182 @@ func TestOpenLoadsPersistedRegistry(t *testing.T) {
 	if len(got) != 1 || got[0].ID != "kept" || got[0].State != fleet.StateOffline {
 		t.Errorf("machines = %+v", got)
 	}
+}
+
+// GAP-05: the server's channel certificate must carry IP SANs (mirroring
+// agent certs) while remaining compatible with already-enrolled agents whose
+// listener verifies only the CA chain and server CN.
+func TestServerChannelCertHasIPSANAndStaysCompatible(t *testing.T) {
+	ca, err := pki.NewCA(pki.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Pre-enrolled agent cert issued before the server cert exists.
+	loop := net.ParseIP("127.0.0.1")
+	agentCert, agentKey, err := ca.IssuePeer("agent-enrolled", []net.IP{loop}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srvTLS, err := pki.ServerTLSConfig(agentCert, agentKey, ca.CertPEM())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var peerCert *x509.Certificate
+	origVerify := srvTLS.VerifyPeerCertificate
+	srvTLS.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+		if len(verifiedChains) > 0 && len(verifiedChains[0]) > 0 {
+			peerCert = verifiedChains[0][0]
+		}
+		if origVerify != nil {
+			return origVerify(rawCerts, verifiedChains)
+		}
+		return nil
+	}
+
+	gate, err := exec.NewGate([]byte("shared-secret"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ex *exec.Executor
+	ln, err := channel.Listen(channel.ListenerConfig{
+		Addr: "127.0.0.1:0", TLS: srvTLS, MachineID: "agent-enrolled",
+		Handler: func(ctx context.Context, env channel.Envelope) { ex.Handle(ctx, env) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ex, err = exec.New(exec.Config{MachineID: "agent-enrolled", Sender: ln, Gate: gate, TermGrace: 300 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	served := make(chan struct{})
+	go func() { defer close(served); _ = ln.Serve(ctx) }()
+	t.Cleanup(func() { cancel(); <-served; ex.Shutdown() })
+
+	reg := registry.New()
+	if err := reg.Add(registry.Machine{ID: "agent-enrolled", Role: registry.RoleWorker, PrivateIPs: []string{"127.0.0.1"}, Provisioned: true}); err != nil {
+		t.Fatal(err)
+	}
+	links, err := fleet.NewDialerFactory(ca, "fleet-server", ln.Addr().(*net.TCPAddr).Port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := fleet.New(fleet.Config{Registry: reg, Gate: gate, NewLink: links, PollInterval: 20 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Start(ctx)
+	t.Cleanup(m.Close)
+
+	eventually(t, "pre-enrolled agent online with server IP SAN cert", func() bool {
+		info, _ := m.Machine("agent-enrolled")
+		return info.State == fleet.StateOnline
+	})
+	if peerCert == nil {
+		t.Fatal("agent did not observe server certificate")
+	}
+	if peerCert.Subject.CommonName != "fleet-server" {
+		t.Errorf("server cert CN = %q, want fleet-server", peerCert.Subject.CommonName)
+	}
+	if len(peerCert.IPAddresses) == 0 {
+		t.Fatal("server cert has no IP SANs")
+	}
+	hasLoopback := false
+	for _, ip := range peerCert.IPAddresses {
+		if ip.Equal(loop) {
+			hasLoopback = true
+			break
+		}
+	}
+	if !hasLoopback {
+		t.Errorf("server cert IP SANs = %v, expected 127.0.0.1", peerCert.IPAddresses)
+	}
+
+	// Verify Open() also attaches configured server IPs (e.g. EnrollHost) to the
+	// server channel cert while remaining compatible with pre-enrolled agents.
+	dir := t.TempDir()
+	store := registry.NewStore(dir)
+	if err := store.Save(reg); err != nil {
+		t.Fatal(err)
+	}
+	caDir := filepath.Join(dir, config.CADirName)
+	if err := ca.Save(caDir); err != nil {
+		t.Fatal(err)
+	}
+	peerCert = nil
+	cancel()
+	<-served
+	ex.Shutdown()
+
+	ln2, err := channel.Listen(channel.ListenerConfig{
+		Addr: "127.0.0.1:0", TLS: srvTLS, MachineID: "agent-enrolled",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	served2 := make(chan struct{})
+	go func() { defer close(served2); _ = ln2.Serve(ctx2) }()
+	t.Cleanup(func() { cancel2(); <-served2 })
+
+	m2, err := fleet.Open(fleet.Options{
+		Config:  config.ServerConfig{EnrollHost: "192.0.2.55", ChannelPort: ln2.Addr().(*net.TCPAddr).Port},
+		DataDir: dir,
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	m2.Start(ctx2)
+	t.Cleanup(m2.Close)
+	eventually(t, "Open() server cert observed by pre-enrolled agent", func() bool {
+		info, _ := m2.Machine("agent-enrolled")
+		return info.State == fleet.StateOnline
+	})
+	if peerCert == nil {
+		t.Fatal("agent did not observe Open() server certificate")
+	}
+	wantConfigured := net.ParseIP("192.0.2.55")
+	hasConfigured := false
+	for _, ip := range peerCert.IPAddresses {
+		if ip.Equal(wantConfigured) {
+			hasConfigured = true
+			break
+		}
+	}
+	if !hasConfigured {
+		t.Errorf("Open() server cert IP SANs = %v, expected 192.0.2.55", peerCert.IPAddresses)
+	}
+
+	// Quick TLS sanity check: a client validating IP SAN via DialTLSConfig accepts
+	// a cert issued with the peer's IP SAN.
+	cliCert, cliKey, err := ca.IssuePeer("probe-client", []net.IP{loop}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dialTLS, err := pki.DialTLSConfig(cliCert, cliKey, ca.CertPEM(), loop)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srvCert, srvKey, err := ca.IssuePeer("fleet-server", []net.IP{loop}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pair, err := tls.X509KeyPair(srvCert, srvKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	ts.TLS = &tls.Config{Certificates: []tls.Certificate{pair}}
+	ts.StartTLS()
+	defer ts.Close()
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: dialTLS}}
+	resp, err := client.Get(ts.URL)
+	if err != nil {
+		t.Fatalf("client validating IP SAN failed: %v", err)
+	}
+	resp.Body.Close()
 }
