@@ -1,7 +1,7 @@
 ---
 id: T-0060
 title: watchdog-groups
-state: ready
+state: merged
 touches: [internal/registry/registry.go, internal/onboard/ssh.go, internal/watchdog/watchdog.go,
           internal/panel/api.go, internal/panel/watchdog.go, web/src/pages/WatchdogPage.jsx,
           web/src/pages/MachinesPage.jsx, internal/panel/watchdog_test.go]

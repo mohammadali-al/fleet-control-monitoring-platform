@@ -63,3 +63,4 @@
 - [ ] T-0058 monitor-page-react — Monitor is a React route; DNS probe targets + probe-type selector (GAP-19); overlay per-interval + exact shared-segment packet counts (GAP-22). Confirm to close.
 - [ ] T-0059 machine-details-view — Machines Details drawer + GET /api/machines/{id}; live, read-only (GAP-33). Confirm to close.
 - [ ] T-0061 watchdog-visibility-persistence — monitor-agent watchdogs shown; host stage/counters persisted on registry, survive restart (GAP-35). Confirm to close.
+- [ ] T-0060 watchdog-groups — machines assignable to watchdog groups (registry Groups field); host>group>default policy resolution; POST /api/machines/{id}/groups + group editing in Machines drawer + Watchdog effective-policy display. Note: live agents pick up group changes on reprovision. Confirm to close.
