@@ -52,6 +52,7 @@ func TestServesPanel(t *testing.T) {
 		{"/terminal", 200, "text/html", `<div id="root">`},
 		{"/watchdog", 200, "text/html", `<div id="root">`},
 		{"/evidence", 200, "text/html", `<div id="root">`},
+		{"/backup", 200, "text/html", `<div id="root">`},
 		{"/projects", 200, "text/html", `<div id="root">`}, // SPA catch-all
 		{"/deep/app/route", 200, "text/html", `<div id="root">`},
 		{"/projects.html", 200, "text/html", "<html"}, // legacy fallback
@@ -119,8 +120,9 @@ func TestSPAShellAndCatchAll(t *testing.T) {
 	_, _, terminal := body(t, srv.URL+"/terminal")
 	_, _, watchdog := body(t, srv.URL+"/watchdog")
 	_, _, evidence := body(t, srv.URL+"/evidence")
+	_, _, backup := body(t, srv.URL+"/backup")
 	_, _, deep := body(t, srv.URL+"/machines/w1")
-	if root != idx || root != machines || root != commands || root != terminal || root != watchdog || root != evidence || root != deep {
+	if root != idx || root != machines || root != commands || root != terminal || root != watchdog || root != evidence || root != backup || root != deep {
 		t.Error("SPA routes did not all serve the identical shell HTML")
 	}
 	for _, must := range []string{
@@ -224,6 +226,41 @@ func TestObserveSPARoutesInBundle(t *testing.T) {
 	}
 	if strings.Contains(js, "when a segment also holds other sessions it is an upper bound") {
 		t.Error("SPA bundle contains stale shared-segment upper-bound copy")
+	}
+}
+
+func TestAdministerSPARouteInBundle(t *testing.T) {
+	srv := noBackend(t)
+	status, _, page := body(t, srv.URL+"/backup")
+	if status != 200 {
+		t.Fatalf("GET /backup = %d", status)
+	}
+	for _, want := range []string{`<div id="root"></div>`, `/assets/dist/app.css`, `/assets/dist/app.js`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("/backup SPA shell lacks %q", want)
+		}
+	}
+
+	status, _, js := body(t, srv.URL+"/assets/dist/app.js")
+	if status != 200 || len(js) == 0 {
+		t.Fatalf("GET /assets/dist/app.js = %d (len=%d)", status, len(js))
+	}
+	for _, want := range []string{
+		"Backup server",
+		"/api/backup",
+		"/api/backup/diff",
+		"/api/backup/server",
+		"/api/backup/run",
+		"/api/backup/import",
+		"/api/backup/schedule",
+		"/api/backup/reminder/dismiss",
+		"Back up now",
+		"Import from backup",
+		"Add or replace backup server",
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("SPA bundle lacks %q", want)
+		}
 	}
 }
 

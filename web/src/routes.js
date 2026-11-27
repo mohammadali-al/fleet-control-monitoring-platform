@@ -1,3 +1,4 @@
+import { BackupPage } from './pages/BackupPage';
 import { CommandsPage } from './pages/CommandsPage';
 import { EvidencePage } from './pages/EvidencePage';
 import { MachinesPage } from './pages/MachinesPage';
@@ -113,7 +114,7 @@ export const ROUTES = [
     group: 'Administer',
     label: 'Backup',
     icon: 'i-database',
-    component: null,
+    component: BackupPage,
   },
 ];
 
