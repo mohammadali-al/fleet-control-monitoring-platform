@@ -1,32 +1,34 @@
 /* ==========================================================================
-   Fleet panel — design tokens (light + dark)
-   Theme switch: <html data-theme="light|dark">. With no attribute (or no JS)
-   the OS preference applies via prefers-color-scheme.
+   Fleet panel — design tokens (Round 5 / Dark default + Light)
+   Fonts: Space Mono (display/headings/nav/stats) + Red Hat Mono (body/tables/code)
+   Theme switch: <html data-theme="dark|light"> (default dark, client-side only).
    Never use raw hex outside this file.
    ========================================================================== */
 
 :root {
-  /* ---- Typography (system stacks: the panel must work offline) ---- */
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: ui-monospace, "Fira Code", "JetBrains Mono", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-  --fs-xs: 0.75rem;     /* 12px  chips, table header, captions (floor) */
-  --fs-sm: 0.8125rem;   /* 13px  secondary text */
-  --fs-base: 0.875rem;  /* 14px  body, tables, controls (dense ops UI) */
-  --fs-md: 1rem;        /* 16px  card titles */
-  --fs-lg: 1.25rem;     /* 20px  section heads */
-  --fs-xl: 1.5rem;      /* 24px  page title */
+  /* ---- Typography (self-hosted offline fonts; see fonts.css) ---- */
+  --font-sans: "Red Hat Mono", ui-monospace, Consolas, "Liberation Mono", monospace;
+  --font-mono: "Red Hat Mono", ui-monospace, Consolas, "Liberation Mono", monospace;
+  --font-display: "Space Mono", "Red Hat Mono", ui-monospace, monospace;
+
+  --fs-xs: 0.75rem;      /* 12px chips, table header, captions */
+  --fs-sm: 0.8125rem;    /* 13px secondary text, dense controls */
+  --fs-base: 0.875rem;   /* 14px body */
+  --fs-md: 0.95rem;      /* ~15.2px card titles */
+  --fs-lg: 1.2rem;       /* ~19.2px section heads */
+  --fs-xl: 1.5rem;       /* 24px stat values */
   --lh: 1.5;
-  --lh-tight: 1.25;
+  --lh-tight: 1.2;
 
   /* ---- Spacing (4px base) ---- */
   --sp-1: 0.25rem;  --sp-2: 0.5rem;  --sp-3: 0.75rem;
   --sp-4: 1rem;     --sp-5: 1.5rem;  --sp-6: 2rem;   --sp-7: 3rem;
 
   /* ---- Shape / depth / motion ---- */
-  --radius-sm: 4px;  --radius: 8px;  --radius-lg: 12px;
-  --control-h: 2.25rem;            /* 36px; 44px on coarse pointers (see base.css) */
+  --radius-sm: 0px;  --radius: 2px;  --radius-lg: 2px;
+  --control-h: 2.25rem;             /* 36px; 44px on coarse pointers */
   --focus-width: 2px;
-  --dur-fast: 120ms;  --dur: 200ms;
+  --dur-fast: 90ms;  --dur: 160ms;
   --ease: cubic-bezier(0.2, 0, 0, 1);
 
   /* ---- Layout ---- */
@@ -34,101 +36,143 @@
   --topbar-h: 3.5rem;
   --content-max: 90rem;
   --page-pad: var(--sp-5);
-
-  /* ---- Terminal placeholder is dark in BOTH themes ---- */
-  --term-bg: #0a0f1a;
-  --term-fg: #d6deeb;
-  --term-dim: #7f8ea3;
-  --term-accent: #7dd3a8;
-  --term-border: #263248;
-  --term-err: #ff9d94;
 }
 
-/* ===== LIGHT (default) ===== */
+/* ===== DARK (default) — Void Black, Bone-White & Signal Red ===== */
 :root,
-:root[data-theme="light"] {
-  color-scheme: light;
-  --bg: #f4f6fa;              /* app background */
-  --surface: #ffffff;         /* cards, table, inputs */
-  --surface-2: #eef1f7;       /* table header, hover, chart bg */
-  --surface-3: #e3e8f1;       /* pressed / sunken */
-  --border: #d3d9e4;
-  --border-strong: #818da3;   /* input borders: >= 3:1 on surface */
-  --text: #0f172a;
-  --text-muted: #475569;
-  --text-faint: #5b6a7f;      /* still >= 4.5:1 on --bg */
-
-  --accent: #2158d6;          /* primary action / selected nav */
-  --accent-hover: #1a47b0;
-  --accent-soft: #e2eaff;
-  --on-accent: #ffffff;
-  --focus: #1d4ed8;
-
-  --ok: #15703a;       --ok-soft: #dcf5e4;
-  --warn: #8f4a05;     --warn-soft: #fdecc8;
-  --danger: #b42318;   --danger-soft: #fde4e1;
-  --info: #1d5aa8;     --info-soft: #dcebfb;
-  --neutral: #475569;  --neutral-soft: #e6eaf1;
-
-  --shadow-1: 0 1px 2px rgb(15 23 42 / 0.06), 0 1px 1px rgb(15 23 42 / 0.04);
-  --shadow-2: 0 8px 24px rgb(15 23 42 / 0.14);
-  --scrim: rgb(15 23 42 / 0.45);
-
-  /* chart series: distinguishable by lightness + dash as well as hue */
-  --series-1: #2158d6;  --series-2: #b45309;  --series-3: #0f766e;
-  --series-4: #7c3aed;  --series-5: #be185d;
-  --grid-line: #d3d9e4;
-}
-
-/* ===== DARK ===== */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0b1220;
-  --surface: #141d30;
-  --surface-2: #1b263c;
-  --surface-3: #243250;
-  --border: #2a3753;
-  --border-strong: #6a7a98;
-  --text: #f1f5f9;
-  --text-muted: #aab7cb;
-  --text-faint: #8d9bb2;
+  --bg: #09090b;
+  --bg-pattern: none;
+  --matrix-opacity: 0.18;
+  --matrix-fade: rgb(9 9 11 / 0.11);
+  --matrix-head: #dcdce4;
+  --matrix-trail: #6e6e7a;
 
-  --accent: #6aa5ff;
-  --accent-hover: #8dbaff;
-  --accent-soft: #1b2f57;
-  --on-accent: #08101f;
-  --focus: #9cc2ff;
+  --head-dot: rgb(244 244 240 / 0.09);
+  --surface: #101014;
+  --surface-2: #17171c;
+  --surface-3: #222229;
+  --foot-bg: #0c0c0f;
+  --border: #272730;
+  --border-strong: #858594;
+  --rule: #f4f4f0;
+  --text: #f4f4f0;
+  --text-muted: #9c9ca6;
+  --text-faint: #676773;
 
-  --ok: #5fd38a;       --ok-soft: #12301f;
-  --warn: #f2b84b;     --warn-soft: #382a0d;
-  --danger: #ff8b82;   --danger-soft: #3d1a19;
-  --info: #7db8ff;     --info-soft: #14284a;
-  --neutral: #aab7cb;  --neutral-soft: #222d45;
+  --accent: #ff2a3c;
+  --accent-hover: #ff5462;
+  --accent-soft: #2e0d12;
+  --on-accent: #ffffff;
+  --focus: #ff2a3c;
+  --link: #f4f4f0;
 
-  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
-  --shadow-2: 0 8px 24px rgb(0 0 0 / 0.55);
-  --scrim: rgb(2 6 15 / 0.65);
+  --ok: #34d399;     --ok-soft: #0c261c;     --ok-border: rgb(52 211 153 / 0.4);
+  --warn: #f59e0b;   --warn-soft: #291c06;   --warn-border: rgb(245 158 11 / 0.45);
+  --danger: #ff2a3c; --danger-soft: #2e0d12; --danger-hover-bg: #ff2a3c; --danger-hover-fg: #ffffff;
+  --info: #d4d4d8;   --info-soft: #1f1f24;   --info-fg: #f4f4f0;   --info-border: #858594;
+  --neutral: #9c9ca6; --neutral-soft: #1a1a20;
 
-  --series-1: #6aa5ff;  --series-2: #f2b84b;  --series-3: #4fd1c5;
-  --series-4: #b794f6;  --series-5: #f472b6;
-  --grid-line: #2a3753;
+  --chip-accent-bg: #222229; --chip-accent-fg: #f4f4f0; --chip-accent-border: #858594;
+  --stat-alert-value: var(--accent);
+  --meter-fill: var(--text);
+  --table-hover: #19191f;
+  --input-hover-border: var(--rule);
+  --tab-active-fg: var(--text);
+  --nav-active-bg: var(--text);
+  --nav-active-fg: var(--bg);
+  --toast-bg: var(--text);
+  --toast-fg: var(--bg);
+
+  --series-1: #ff2a3c;  --series-2: #f4f4f0;  --series-3: #34d399;
+  --series-4: #f59e0b;  --series-5: #60a5fa;
+  --grid-line: rgb(244 244 240 / 0.10);
+
+  --term-bg: #050507;
+  --term-fg: #f4f4f0;
+  --term-dim: #6c6c78;
+  --term-accent: #ff2a3c;
+  --term-err: #ff6b7a;
+  --term-border: #858594;
+  --term-bar-bg: #101014;
+  --term-bar-fg: #9c9ca6;
+  --term-bar-border: #272730;
+
+  --ink-shadow: 3px 3px 0 #383844;
+  --ink-shadow-sm: 2px 2px 0 #383844;
+  --shadow-1: var(--ink-shadow-sm);
+  --shadow-2: var(--ink-shadow);
+  --scrim: rgb(5 5 7 / 0.82);
+  --icon-moon-display: none;
+  --icon-sun-display: block;
 }
 
-/* No data-theme and no JS: follow the OS (keep in sync with the block above) */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme]) {
-    color-scheme: dark;
-    --bg: #0b1220;  --surface: #141d30;  --surface-2: #1b263c;  --surface-3: #243250;
-    --border: #2a3753;  --border-strong: #6a7a98;
-    --text: #f1f5f9;  --text-muted: #aab7cb;  --text-faint: #8d9bb2;
-    --accent: #6aa5ff;  --accent-hover: #8dbaff;  --accent-soft: #1b2f57;
-    --on-accent: #08101f;  --focus: #9cc2ff;
-    --ok: #5fd38a;  --ok-soft: #12301f;  --warn: #f2b84b;  --warn-soft: #382a0d;
-    --danger: #ff8b82;  --danger-soft: #3d1a19;  --info: #7db8ff;  --info-soft: #14284a;
-    --neutral: #aab7cb;  --neutral-soft: #222d45;
-    --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);  --shadow-2: 0 8px 24px rgb(0 0 0 / 0.55);
-    --scrim: rgb(2 6 15 / 0.65);
-    --series-1: #6aa5ff;  --series-2: #f2b84b;  --series-3: #4fd1c5;
-    --series-4: #b794f6;  --series-5: #f472b6;  --grid-line: #2a3753;
-  }
+/* ===== LIGHT — Warm Paper & Carbon Ink ===== */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f3efe6;
+  --bg-pattern: none;
+  --matrix-opacity: 0.13;
+  --matrix-fade: rgb(243 239 230 / 0.14);
+  --matrix-head: #181a18;
+  --matrix-trail: #5c5950;
+
+  --head-dot: transparent;
+  --surface: #fbf9f3;
+  --surface-2: #ede8dc;
+  --surface-3: #e2dbcb;
+  --foot-bg: #ede8dc;
+  --border: #c5bdb0;
+  --border-strong: #181a18;
+  --rule: #181a18;
+  --text: #181a18;
+  --text-muted: #525049;
+  --text-faint: #7d796f;
+
+  --accent: #d9480f;
+  --accent-hover: #b83808;
+  --accent-soft: #fdebe2;
+  --on-accent: #fbf9f3;
+  --focus: #1d4ed8;
+  --link: #1d4ed8;
+
+  --ok: #146c43;     --ok-soft: #e0f2e8;     --ok-border: #146c43;
+  --warn: #a65e00;   --warn-soft: #fdf0d5;   --warn-border: #a65e00;
+  --danger: #c92a2a; --danger-soft: #fce8e8; --danger-hover-bg: #fad4d4; --danger-hover-fg: #a51d1d;
+  --info: #1d4ed8;   --info-soft: #e6eefc;   --info-fg: #1d4ed8;   --info-border: #1d4ed8;
+  --neutral: #525049; --neutral-soft: #e7e2d6;
+
+  --chip-accent-bg: #fdebe2; --chip-accent-fg: #d9480f; --chip-accent-border: #d9480f;
+  --stat-alert-value: var(--text);
+  --meter-fill: var(--ok);
+  --table-hover: var(--accent-soft);
+  --input-hover-border: var(--accent);
+  --tab-active-fg: var(--accent);
+  --nav-active-bg: var(--text);
+  --nav-active-fg: var(--surface);
+  --toast-bg: var(--text);
+  --toast-fg: var(--surface);
+
+  --series-1: #d9480f;  --series-2: #1d4ed8;  --series-3: #146c43;
+  --series-4: #7c3aed;  --series-5: #be185d;
+  --grid-line: rgb(24 26 24 / 0.12);
+
+  --term-bg: #121512;
+  --term-fg: #e6f4e4;
+  --term-dim: #799177;
+  --term-accent: #ff7b47;
+  --term-err: #ff6b6b;
+  --term-border: #181a18;
+  --term-bar-bg: #1b201b;
+  --term-bar-fg: #a7b8a5;
+  --term-bar-border: #283028;
+
+  --ink-shadow: 3px 3px 0 #181a18;
+  --ink-shadow-sm: 2px 2px 0 #181a18;
+  --shadow-1: var(--ink-shadow-sm);
+  --shadow-2: var(--ink-shadow);
+  --scrim: rgb(24 26 24 / 0.52);
+  --icon-moon-display: block;
+  --icon-sun-display: none;
 }

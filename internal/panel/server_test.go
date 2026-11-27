@@ -49,9 +49,14 @@ func TestServesPanel(t *testing.T) {
 		{"/index.html", 200, "text/html", "<html"},
 		{"/machines.html", 200, "text/html", "<html"},
 		{"/styleguide.html", 200, "text/html", "<html"},
+		{"/assets/css/fonts.css", 200, "text/css", "space mono"},
 		{"/assets/css/tokens.css", 200, "text/css", ""},
+		{"/assets/css/bg.css", 200, "text/css", ".bg-canvas"},
 		{"/assets/js/app.js", 200, "text/javascript", ""},
+		{"/assets/js/bg.js", 200, "text/javascript", ""},
 		{"/assets/js/live.js", 200, "text/javascript", ""},
+		{"/assets/fonts/space-mono-700-latin.woff2", 200, "", ""},
+		{"/assets/fonts/red-hat-mono-latin.woff2", 200, "", ""},
 		{"/assets/vendor/xterm/xterm.js", 200, "text/javascript", ""},
 		{"/assets/vendor/xterm/xterm.css", 200, "text/css", ""},
 		{"/nope", 404, "", ""},
@@ -131,10 +136,13 @@ func TestAllPagesRender(t *testing.T) {
 		if !strings.HasPrefix(strings.ToLower(html), "<!doctype html>") {
 			t.Errorf("%s: no doctype", p.name)
 		}
-		for _, must := range []string{`<symbol id="i-fleet"`, `class="sidebar"`, `class="topbar"`, `theme-toggle`, `id="main"`, `assets/js/app.js`, `data-page="` + p.name + `"`, `<h1>`} {
+		for _, must := range []string{`data-theme="dark"`, `data-bg="matrix"`, `localStorage.getItem('fleet-theme')`, `id="bg-canvas"`, `assets/css/fonts.css`, `assets/css/bg.css`, `assets/js/bg.js`, `<symbol id="i-fleet"`, `class="sidebar"`, `class="topbar"`, `theme-toggle`, `id="main"`, `assets/js/app.js`, `data-page="` + p.name + `"`, `<h1>`} {
 			if !strings.Contains(html, must) {
 				t.Errorf("%s: missing %q", p.name, must)
 			}
+		}
+		if strings.Contains(html, "fonts.googleapis.com") || strings.Contains(html, "fonts.gstatic.com") {
+			t.Errorf("%s: external Google Fonts reference found (must be self-hosted)", p.name)
 		}
 		if strings.Contains(html, "{{") || strings.Contains(html, "}}") {
 			t.Errorf("%s: unresolved template action in output", p.name)

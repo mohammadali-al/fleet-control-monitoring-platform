@@ -1,22 +1,37 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark" data-bg="matrix">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Style guide · Fleet panel</title>
-  <meta name="color-scheme" content="light dark">
+  <meta name="color-scheme" content="dark light">
+  <script>
+  (function () {
+    try {
+      var t = localStorage.getItem('fleet-theme');
+      document.documentElement.setAttribute('data-theme', t === 'light' || t === 'dark' ? t : 'dark');
+    } catch (e) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    }
+  })();
+  </script>
+  <link rel="stylesheet" href="assets/css/fonts.css">
   <link rel="stylesheet" href="assets/css/tokens.css">
   <link rel="stylesheet" href="assets/css/base.css">
   <link rel="stylesheet" href="assets/css/components.css">
+  <link rel="stylesheet" href="assets/css/bg.css">
+  <link rel="stylesheet" href="assets/css/live.css">
   <script src="assets/js/app.js"></script>
+  <script src="assets/js/bg.js" defer></script>
 </head>
 <body>
+<canvas class="bg-canvas" id="bg-canvas" aria-hidden="true"></canvas>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
   <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
   <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4 6.5 6.5 0 0 0 20 14.5z"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></symbol>
-  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.6L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0z"/></symbol>
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.5-4M4 4v4h4M4 13a8 8 0 0 0 14.5 4M20 20v-4h-4"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
@@ -28,7 +43,7 @@
   <strong>Fleet panel &middot; Style guide</strong>
   <span class="topbar__spacer"></span>
   <a href="machines.html">Machines</a>&nbsp;&nbsp;<a href="maneuver.html">Maneuver</a>
-  <button class="icon-btn icon-btn--bordered theme-toggle" type="button" aria-label="Switch to dark theme" title="Switch to dark theme">
+  <button class="icon-btn icon-btn--bordered theme-toggle" type="button" aria-label="Switch to light theme" title="Switch to light theme">
     <svg class="icon icon-moon" aria-hidden="true"><use href="#i-moon"/></svg><svg class="icon icon-sun" aria-hidden="true"><use href="#i-sun"/></svg>
   </button>
 </header>
@@ -79,7 +94,7 @@
         <div class="legend"><span class="legend__item"><span class="legend__swatch"></span>Availability</span><span class="legend__item"><span class="legend__swatch legend__swatch--dot" style="border-top-color:var(--series-3)"></span>Response time</span></div></div>
     </div></div>
     <div class="card col-6"><div class="card__head"><h2>Terminal placeholder</h2><span class="chip chip--outline">xterm.js later</span></div><div class="card__body">
-      <div class="term-ph" role="img" aria-label="Terminal placeholder"><div class="term-ph__bar"><span>wrk-01 &middot; session s-0042</span></div><div class="term-ph__body"><span class="term-ph__prompt">operator@wrk-01:~$</span> uptime
+      <div class="term-ph" role="img" aria-label="Terminal placeholder"><div class="term-ph__bar"><span>wrk-01 &middot; session s-0042</span><span class="term-ph__rec">EVIDENCE RECORDING</span></div><div class="term-ph__body"><span class="term-ph__prompt">operator@wrk-01:~$</span> uptime
  14:02:11 up 12 days,  3:41,  1 user,  load average: 0.12, 0.09, 0.05
 <span class="term-ph__prompt">operator@wrk-01:~$</span> <span class="term-ph__cursor"></span></div></div>
     </div></div>

@@ -1,5 +1,4 @@
-/* Fleet panel - additions for the live (backend-wired) pages. Loaded after components.css.
-   Kept separate so the approved component sheets stay untouched. */
+/* Fleet panel - additions for the live (backend-wired) pages. Loaded after components.css. */
 
 /* The hidden attribute must win over component display rules (.alert, .check, ...). */
 [hidden] { display: none !important; }
@@ -8,6 +7,7 @@
 .tag-reason { display: block; margin-top: var(--sp-1); color: var(--text-muted); }
 .tag-reason strong { color: var(--text); }
 
-/* xterm.js fills the always-dark terminal box. */
+/* xterm.js fills the terminal chrome cleanly. */
+.term-ph [data-term-mount] { padding: var(--sp-2) var(--sp-3); min-height: 22rem; background: var(--term-bg); }
 .term-ph .xterm { padding: 0; }
 .term-ph .xterm-viewport { background-color: transparent !important; }
