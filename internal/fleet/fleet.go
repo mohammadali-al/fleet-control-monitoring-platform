@@ -30,6 +30,7 @@ import (
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/onboard"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/probe"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/registry"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/watchdog"
 )
 
 // Machine states shown in the panel.
@@ -231,6 +232,8 @@ type Manager struct {
 	historyPath  string
 	hmu          sync.Mutex // serializes appends/compactions to historyPath
 	historyLines int
+	regStore     *registry.Store
+	regSaveMu    sync.Mutex
 	wg           sync.WaitGroup
 }
 
@@ -260,6 +263,12 @@ func New(cfg Config) (*Manager, error) {
 	if cfg.DataDir != "" {
 		historyPath = filepath.Join(cfg.DataDir, "commands", "history.jsonl")
 	}
+	var regStore *registry.Store
+	if cfg.Provisioner != nil && cfg.Provisioner.Store != nil {
+		regStore = cfg.Provisioner.Store
+	} else if cfg.DataDir != "" {
+		regStore = registry.NewStore(cfg.DataDir)
+	}
 	mgr := &Manager{
 		cfg: cfg, log: cfg.Logger, bus: newBus(), mon: cfg.Monitor, wsrc: cfg.Watchdog,
 		wd:           map[string]*wdState{},
@@ -270,6 +279,7 @@ func New(cfg Config) (*Manager, error) {
 		sessions:     map[string]string{},
 		history:      map[string]Command{},
 		historyPath:  historyPath,
+		regStore:     regStore,
 	}
 	if err := mgr.loadHistory(); err != nil {
 		cfg.Logger.Warn("load command history", "component", "fleet", "err", err)
@@ -466,8 +476,8 @@ func (m *Manager) agentHandler(n *node, role string, next channel.Handler) chann
 				m.recordPolicyAck(n, env)
 			}
 		case channel.TypeWatchdogEv:
-			if role == registry.RoleWorker {
-				m.recordWatchdogEvent(n, env)
+			if role == registry.RoleWorker || role == registry.RoleMonitor {
+				m.handleWatchdogEvent(n, env)
 			}
 		case channel.TypeEvManifest, channel.TypeEvChunk:
 			if role == registry.RoleWorker {
@@ -1524,4 +1534,183 @@ func (m *Manager) RefreshPublicIP(ctx context.Context, machine string) error {
 	}
 	m.log.Info("pushed public-ip refresh", "component", "fleet", "machine", machine)
 	return nil
+}
+
+// --- watchdog host state persistence -----------------------------------------
+
+func (m *Manager) handleWatchdogEvent(n *node, env channel.Envelope) {
+	var p channel.WatchdogEventPayload
+	if err := json.Unmarshal(env.Payload, &p); err != nil {
+		m.recordWatchdogEvent(n, env)
+		return
+	}
+	for _, old := range m.WatchdogEvents(n.id) {
+		if sameWatchdogPayload(old.WatchdogEventPayload, p) {
+			return
+		}
+	}
+	m.recordWatchdogEvent(n, env)
+
+	evs := m.WatchdogEvents(n.id)
+	if len(evs) == 0 {
+		return
+	}
+	ev := evs[len(evs)-1]
+
+	autoReset := true
+	if mc, ok := m.cfg.Registry.Get(n.id); ok {
+		autoReset = m.watchdogAutoReset(mc.ID, mc.Role)
+	}
+	now := time.Now()
+	if err := m.cfg.Registry.Update(n.id, func(mc *registry.Machine) {
+		if mc.WatchdogState == nil {
+			mc.WatchdogState = &registry.WatchdogState{}
+		}
+		if mc.WatchdogState.LastEvent != nil && sameWatchdogPayload(WatchdogEventFromRecord(*mc.WatchdogState.LastEvent).WatchdogEventPayload, ev.WatchdogEventPayload) {
+			return
+		}
+		ApplyWatchdogEvent(mc.WatchdogState, ev, autoReset, now)
+	}); err != nil {
+		m.log.Warn("update watchdog state", "component", "fleet", "machine", n.id, "err", err)
+		return
+	}
+	m.persistRegistry()
+}
+
+func (m *Manager) persistRegistry() {
+	if m.regStore == nil {
+		return
+	}
+	m.regSaveMu.Lock()
+	defer m.regSaveMu.Unlock()
+	if err := m.regStore.Save(m.cfg.Registry); err != nil {
+		m.log.Warn("persist watchdog state", "component", "fleet", "err", err)
+	}
+}
+
+func (m *Manager) watchdogAutoReset(machine, role string) bool {
+	def := watchdog.DefaultPolicy().AutoResetMidnight
+	if role != registry.RoleWorker {
+		return def
+	}
+	o := m.Observe()
+	if o == nil || o.Profile == nil {
+		return def
+	}
+	pf, err := o.Profile.Current()
+	if err != nil || pf == nil {
+		return def
+	}
+	pol, err := pf.Effective(machine, nil)
+	if err != nil {
+		return def
+	}
+	return pol.AutoResetMidnight
+}
+
+func sameWatchdogPayload(a, b channel.WatchdogEventPayload) bool {
+	return a == b || (a.Time.Equal(b.Time) && a.Kind == b.Kind && a.Scope == b.Scope &&
+		a.Metric == b.Metric && a.Target == b.Target && a.Step == b.Step && a.Detail == b.Detail && a.Value == b.Value)
+}
+
+// WatchdogEventFromRecord converts a persisted registry.WatchdogEventRecord
+// back into a fleet.WatchdogEvent.
+func WatchdogEventFromRecord(r registry.WatchdogEventRecord) WatchdogEvent {
+	return WatchdogEvent{
+		Machine: r.Machine,
+		WatchdogEventPayload: channel.WatchdogEventPayload{
+			Time:   r.Time,
+			Kind:   r.Kind,
+			Scope:  r.Scope,
+			Metric: r.Metric,
+			Value:  r.Value,
+			Target: r.Target,
+			Step:   r.Step,
+			Detail: r.Detail,
+		},
+		Received: r.Received,
+	}
+}
+
+// ApplyWatchdogEvent folds one watchdog event into ws at now, keeping daily
+// restart/reboot counters scoped to now's local date.
+func ApplyWatchdogEvent(ws *registry.WatchdogState, ev WatchdogEvent, autoReset bool, now time.Time) {
+	today := now.In(time.Local).Format("2006-01-02")
+	if ws.Day != "" && ws.Day != today {
+		ws.RestartsToday, ws.RebootsToday = 0, 0
+	}
+	ws.Day = today
+	if ws.Stage == "" {
+		ws.Stage = "none"
+	}
+	ws.Events++
+	ws.LastEvent = &registry.WatchdogEventRecord{
+		Machine:  ev.Machine,
+		Time:     ev.Time,
+		Kind:     ev.Kind,
+		Scope:    ev.Scope,
+		Metric:   ev.Metric,
+		Value:    ev.Value,
+		Target:   ev.Target,
+		Step:     ev.Step,
+		Detail:   ev.Detail,
+		Received: ev.Received,
+	}
+	switch ev.Kind {
+	case watchdog.EventBreach:
+		ws.Breaches = addUniqueString(ws.Breaches, ev.Scope+"/"+ev.Metric)
+	case watchdog.EventRecovered:
+		ws.Breaches = removeString(ws.Breaches, ev.Scope+"/"+ev.Metric)
+	case watchdog.EventAction:
+		ws.Stage = ev.Step
+		day := ev.Time.In(time.Local).Format("2006-01-02")
+		switch ev.Step {
+		case "throttle":
+			ws.Throttled = addUniqueString(ws.Throttled, ev.Target)
+		case "restart":
+			if day == today {
+				ws.RestartsToday++
+			}
+		case "reboot":
+			if day == today {
+				ws.RebootsToday++
+			}
+		}
+	case watchdog.EventLifted:
+		ws.Throttled = removeString(ws.Throttled, ev.Target)
+	case watchdog.EventAlertOnly:
+		ws.AlertOnly = true
+	case watchdog.EventDay:
+		ws.RestartsToday, ws.RebootsToday = 0, 0
+		ws.Stage = "none"
+		if autoReset {
+			ws.AlertOnly = false
+		}
+	case watchdog.EventCounters:
+		ws.RestartsToday, ws.RebootsToday = 0, 0
+		ws.Stage = "none"
+		ws.AlertOnly = false
+	}
+}
+
+func addUniqueString(list []string, val string) []string {
+	for _, x := range list {
+		if x == val {
+			return list
+		}
+	}
+	return append(list, val)
+}
+
+func removeString(list []string, val string) []string {
+	out := list[:0]
+	for _, x := range list {
+		if x != val {
+			out = append(out, x)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

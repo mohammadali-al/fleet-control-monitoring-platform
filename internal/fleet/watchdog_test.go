@@ -11,6 +11,7 @@ import (
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/exec"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/fleet"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/registry"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/watchdog"
 )
 
 func newWatchdogMgr(t *testing.T, src fleet.WatchdogSource, late bool) (*fleet.Manager, map[string]*recLink) {
@@ -153,22 +154,22 @@ func TestWatchdogEventsStoredUnderVerifiedIDAndDeduplicated(t *testing.T) {
 	ev2 := ev
 	ev2.Time, ev2.Kind = at.Add(time.Second), "alert-only"
 	links["w1"].h(ctx, envOf(t, channel.TypeWatchdogEv, ev2))
-	links["mon1"].h(ctx, envOf(t, channel.TypeWatchdogEv, ev)) // a monitor agent has no watchdog
+	links["mon1"].h(ctx, envOf(t, channel.TypeWatchdogEv, ev)) // monitor agents run a headless watchdog too
 
 	got := m.WatchdogEvents("w1")
 	if len(got) != 2 || got[0].Kind != "action" || got[1].Kind != "alert-only" || got[0].Machine != "w1" ||
 		got[0].Step != "throttle" || got[0].Value != 97 || got[0].Received.IsZero() {
 		t.Errorf("stored %+v, want the two distinct events in order", got)
 	}
-	if n := len(m.WatchdogEvents("mon1")); n != 0 {
-		t.Errorf("a monitor agent's event was stored (%d)", n)
+	if monGot := m.WatchdogEvents("mon1"); len(monGot) != 1 || monGot[0].Machine != "mon1" || monGot[0].Kind != "action" {
+		t.Errorf("monitor agent events = %+v, want 1 stored event under mon1", monGot)
 	}
 	if n := len(m.WatchdogEvents("w2")); n != 0 {
 		t.Errorf("w2 has %d events", n)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(seen) != 2 || seen[0] != "w1:action" || seen[1] != "w1:alert-only" {
+	if len(seen) != 3 || seen[0] != "w1:action" || seen[1] != "w1:alert-only" || seen[2] != "mon1:action" {
 		t.Errorf("OnEvent saw %v", seen)
 	}
 }
@@ -195,5 +196,104 @@ func TestWatchdogWithoutSourceIsHarmless(t *testing.T) {
 	}
 	if _, ok := m.WatchdogStatus("w1"); ok {
 		t.Error("status recorded without a push")
+	}
+}
+
+func TestWatchdogStatePersistedAndReloaded(t *testing.T) {
+	dataDir := t.TempDir()
+	store := registry.NewStore(dataDir)
+	reg := registry.New()
+	for id, role := range map[string]string{"mon1": registry.RoleMonitor, "w1": registry.RoleWorker} {
+		if err := reg.Add(registry.Machine{ID: id, Role: role, PrivateIPs: []string{"10.0.0.1"}, Provisioned: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.Save(reg); err != nil {
+		t.Fatal(err)
+	}
+	gate, err := exec.NewGate([]byte("s"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	links := map[string]*recLink{}
+	var lmu sync.Mutex
+	mkMgr := func(r *registry.Registry) *fleet.Manager {
+		lmu.Lock()
+		links = map[string]*recLink{}
+		lmu.Unlock()
+		m, err := fleet.New(fleet.Config{
+			Registry: r, Gate: gate, DataDir: dataDir, PollInterval: 10 * time.Millisecond,
+			NewLink: func(mc registry.Machine, h channel.Handler) (fleet.Link, error) {
+				lk := &recLink{h: h}
+				lmu.Lock()
+				links[mc.ID] = lk
+				lmu.Unlock()
+				return lk, nil
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		m.Start(ctx)
+		t.Cleanup(func() { cancel(); m.Close() })
+		eventually(t, "links", func() bool {
+			lmu.Lock()
+			defer lmu.Unlock()
+			return len(links) == 2
+		})
+		return m
+	}
+
+	m1 := mkMgr(reg)
+	now := time.Now()
+	w1evs := []channel.WatchdogEventPayload{
+		{Time: now.Add(-3 * time.Second), Kind: watchdog.EventBreach, Scope: "machine", Metric: "cpu_percent", Value: 99},
+		{Time: now.Add(-2 * time.Second), Kind: watchdog.EventAction, Scope: "machine", Metric: "cpu_percent", Step: "restart", Target: "service:fleet-agent.service"},
+		{Time: now.Add(-time.Second), Kind: watchdog.EventAction, Scope: "machine", Metric: "cpu_percent", Step: "reboot", Target: "machine"},
+		{Time: now, Kind: watchdog.EventAlertOnly, Scope: "machine", Metric: "cpu_percent", Step: "reboot"},
+	}
+	for _, ev := range w1evs {
+		links["w1"].h(context.Background(), envOf(t, channel.TypeWatchdogEv, ev))
+	}
+	links["mon1"].h(context.Background(), envOf(t, channel.TypeWatchdogEv, channel.WatchdogEventPayload{
+		Time: now, Kind: watchdog.EventAction, Scope: "machine", Metric: "memory_percent", Step: "restart", Target: "service:fleet-agent.service",
+	}))
+	m1.Close()
+
+	// Simulate fleet-server restart: reload registry from disk into a fresh Manager.
+	reg2, err := registry.NewStore(dataDir).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m2 := mkMgr(reg2)
+	if len(m2.WatchdogEvents("w1")) != 0 {
+		t.Fatalf("fresh manager should start with empty in-memory event stream")
+	}
+	mcW1, ok := reg2.Get("w1")
+	if !ok || mcW1.WatchdogState == nil {
+		t.Fatalf("w1 watchdog state lost on reload: %+v", mcW1)
+	}
+	if mcW1.WatchdogState.Stage != "reboot" || mcW1.WatchdogState.RestartsToday != 1 || mcW1.WatchdogState.RebootsToday != 1 ||
+		!mcW1.WatchdogState.AlertOnly || len(mcW1.WatchdogState.Breaches) != 1 || mcW1.WatchdogState.LastEvent == nil {
+		t.Fatalf("reloaded w1 WatchdogState = %+v", mcW1.WatchdogState)
+	}
+	mcMon1, ok := reg2.Get("mon1")
+	if !ok || mcMon1.WatchdogState == nil || mcMon1.WatchdogState.Stage != "restart" || mcMon1.WatchdogState.RestartsToday != 1 {
+		t.Fatalf("reloaded mon1 WatchdogState = %+v", mcMon1.WatchdogState)
+	}
+
+	// Duplicate delivery of the last event right after restart does not double-count.
+	links["w1"].h(context.Background(), envOf(t, channel.TypeWatchdogEv, w1evs[len(w1evs)-1]))
+	if got, _ := reg2.Get("w1"); got.WatchdogState.RestartsToday != 1 || got.WatchdogState.RebootsToday != 1 {
+		t.Errorf("retransmit changed counters: %+v", got.WatchdogState)
+	}
+
+	// New live event after restart updates on top of persisted state.
+	links["w1"].h(context.Background(), envOf(t, channel.TypeWatchdogEv, channel.WatchdogEventPayload{
+		Time: now.Add(time.Second), Kind: watchdog.EventCounters,
+	}))
+	if got, _ := reg2.Get("w1"); got.WatchdogState.Stage != "none" || got.WatchdogState.RestartsToday != 0 || got.WatchdogState.RebootsToday != 0 || got.WatchdogState.AlertOnly {
+		t.Errorf("counter reset after restart = %+v", got.WatchdogState)
 	}
 }

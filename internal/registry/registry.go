@@ -83,6 +83,36 @@ const (
 	EnrolledToken = "token"
 )
 
+// WatchdogEventRecord is the JSON-persisted snapshot of the last watchdog
+// event recorded for a machine.
+type WatchdogEventRecord struct {
+	Machine  string    `json:"machine"`
+	Time     time.Time `json:"time"`
+	Kind     string    `json:"kind"`
+	Scope    string    `json:"scope,omitempty"`
+	Metric   string    `json:"metric,omitempty"`
+	Value    float64   `json:"value,omitempty"`
+	Target   string    `json:"target,omitempty"`
+	Step     string    `json:"step,omitempty"`
+	Detail   string    `json:"detail,omitempty"`
+	Received time.Time `json:"received"`
+}
+
+// WatchdogState is the server-persisted watchdog stage, daily counters, and
+// active condition for a machine, updated as watchdog events arrive so they
+// survive a fleet-server restart.
+type WatchdogState struct {
+	Day           string               `json:"day,omitempty"` // local YYYY-MM-DD
+	Stage         string               `json:"stage,omitempty"`
+	RestartsToday int                  `json:"restarts_today,omitempty"`
+	RebootsToday  int                  `json:"reboots_today,omitempty"`
+	AlertOnly     bool                 `json:"alert_only,omitempty"`
+	Breaches      []string             `json:"breaches,omitempty"`
+	Throttled     []string             `json:"throttled,omitempty"`
+	Events        int                  `json:"events,omitempty"`
+	LastEvent     *WatchdogEventRecord `json:"last_event,omitempty"`
+}
+
 // Machine is one registry entry.
 type Machine struct {
 	ID   string `json:"id"`
@@ -104,6 +134,10 @@ type Machine struct {
 	SSHHostKey string `json:"ssh_host_key,omitempty"`
 
 	Disk DiskState `json:"disk"`
+
+	// WatchdogState persists the host's watchdog ladder stage, today's restart/
+	// reboot counters, alert-only latch, and last event across server restarts.
+	WatchdogState *WatchdogState `json:"watchdog_state,omitempty"`
 
 	// Specs is what the machine reported at token enrollment (nil for an
 	// SSH-onboarded machine). EnrolledVia is "token" or empty/"ssh".
@@ -157,6 +191,16 @@ func (m Machine) Validate() error {
 	case "", "ok", "warn", "critical":
 	default:
 		return fmt.Errorf("registry: machine %q: invalid disk status %q (must be ok, warn, or critical)", m.ID, m.Disk.Status)
+	}
+	if m.WatchdogState != nil {
+		switch m.WatchdogState.Stage {
+		case "", "none", "throttle", "kill_session", "restart", "reboot":
+		default:
+			return fmt.Errorf("registry: machine %q: invalid watchdog stage %q", m.ID, m.WatchdogState.Stage)
+		}
+		if m.WatchdogState.RestartsToday < 0 || m.WatchdogState.RebootsToday < 0 || m.WatchdogState.Events < 0 {
+			return fmt.Errorf("registry: machine %q: negative watchdog counters", m.ID)
+		}
 	}
 	return nil
 }
@@ -225,6 +269,16 @@ func (m Machine) clone() Machine {
 	if m.Specs != nil {
 		sp := *m.Specs
 		m.Specs = &sp
+	}
+	if m.WatchdogState != nil {
+		ws := *m.WatchdogState
+		ws.Breaches = append([]string(nil), m.WatchdogState.Breaches...)
+		ws.Throttled = append([]string(nil), m.WatchdogState.Throttled...)
+		if m.WatchdogState.LastEvent != nil {
+			le := *m.WatchdogState.LastEvent
+			ws.LastEvent = &le
+		}
+		m.WatchdogState = &ws
 	}
 	return m
 }
