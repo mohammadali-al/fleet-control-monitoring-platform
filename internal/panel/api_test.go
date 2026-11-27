@@ -698,8 +698,18 @@ func TestWSShell(t *testing.T) {
 	out := readShellUntil(t, ctx, c, "DANGER-typed")
 	_ = out
 
-	// Closing the socket ends the session.
+	// Closing the socket detaches without cancelling the session.
 	_ = c.Close(websocket.StatusNormalClosure, "bye")
+	time.Sleep(100 * time.Millisecond)
+	e.call(t, "GET", "/api/commands?mode=pty&active=1", nil, &list)
+	if len(list.Commands) != 1 || list.Commands[0].Session != first.Session {
+		t.Fatalf("shell disappeared after socket closed: %+v", list.Commands)
+	}
+
+	// Explicit cancel ends the session.
+	if st := e.call(t, "POST", "/api/commands/"+first.Session+"/cancel", map[string]any{}, nil); st != http.StatusOK {
+		t.Fatalf("cancel = %d", st)
+	}
 	deadline := time.Now().Add(wait)
 	for time.Now().Before(deadline) {
 		e.call(t, "GET", "/api/commands?mode=pty&active=1", nil, &list)
@@ -708,7 +718,7 @@ func TestWSShell(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Errorf("shell still open after the socket closed: %+v", list.Commands)
+	t.Errorf("shell still open after explicit cancel: %+v", list.Commands)
 }
 
 func TestWSShellRefusesMonitorAndOffline(t *testing.T) {

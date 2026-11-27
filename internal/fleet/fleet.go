@@ -47,6 +47,7 @@ var (
 	ErrOffline     = errors.New("fleet: machine is not online")
 	ErrUnknown     = errors.New("fleet: unknown machine or session")
 	ErrBadRequest  = errors.New("fleet: bad request")
+	ErrForbidden   = errors.New("fleet: session belongs to another operator or machine")
 )
 
 // ConfirmRequiredError is returned by Submit when the command matches the
@@ -114,6 +115,13 @@ type Config struct {
 	// inferred from Provisioner.Store), command session history is persisted
 	// under <DataDir>/commands/history.jsonl and reloaded on start.
 	DataDir string
+	// ShellIdleTimeout is how long a detached interactive shell (Mode B) may
+	// remain with no active browser attachment before the reaper terminates it
+	// (default 15 minutes).
+	ShellIdleTimeout time.Duration
+	// ShellScrollbackBytes is the per-session bounded scrollback ring buffer
+	// size for interactive shells (default 128 KiB).
+	ShellScrollbackBytes int
 }
 
 // MonitorIngestor receives the mon-data envelopes of a monitor agent;
@@ -176,11 +184,14 @@ type OutputSegment struct {
 }
 
 const (
-	maxSessions     = 500 // sessions remembered for output lookup
-	maxOutputBytes  = 512 << 10
-	defaultPoll     = time.Second
-	defaultConfirm  = 10 * time.Minute
-	maxCommandBytes = 16 << 10
+	maxSessions                 = 500 // sessions remembered for output lookup
+	maxOutputBytes              = 512 << 10
+	defaultPoll                 = time.Second
+	defaultConfirm              = 10 * time.Minute
+	maxCommandBytes             = 16 << 10
+	defaultShellIdleTimeout     = 15 * time.Minute
+	defaultShellScrollbackBytes = 128 << 10
+	shellSubBuffer              = 4096
 )
 
 type node struct {
@@ -224,6 +235,9 @@ type Manager struct {
 
 	observeState // the Observe/Admin backends (observe.go)
 
+	shMu   sync.Mutex
+	shells map[string]*shellSession // live interactive shells (in-memory only; not persisted across restart)
+
 	omu          sync.Mutex
 	outputs      map[string]*outBuf
 	sessions     map[string]string  // session id -> machine id
@@ -254,6 +268,12 @@ func New(cfg Config) (*Manager, error) {
 	if cfg.ConfirmTTL <= 0 {
 		cfg.ConfirmTTL = defaultConfirm
 	}
+	if cfg.ShellIdleTimeout <= 0 {
+		cfg.ShellIdleTimeout = defaultShellIdleTimeout
+	}
+	if cfg.ShellScrollbackBytes <= 0 {
+		cfg.ShellScrollbackBytes = defaultShellScrollbackBytes
+	}
 	if cfg.DataDir == "" && cfg.Provisioner != nil && cfg.Provisioner.Store != nil {
 		if dir := cfg.Provisioner.Store.Dir(); dir != "" {
 			cfg.DataDir = filepath.Dir(dir)
@@ -275,6 +295,7 @@ func New(cfg Config) (*Manager, error) {
 		scPending:    map[string]chan channel.ServiceControlResultPayload{},
 		observeState: newObserveState(),
 		nodes:        map[string]*node{},
+		shells:       map[string]*shellSession{},
 		outputs:      map[string]*outBuf{},
 		sessions:     map[string]string{},
 		history:      map[string]Command{},
@@ -319,6 +340,27 @@ func (m *Manager) Start(ctx context.Context) {
 				return
 			case <-t.C:
 				m.poll()
+			}
+		}
+	}()
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		reapInterval := m.cfg.ShellIdleTimeout / 4
+		if reapInterval > 5*time.Second {
+			reapInterval = 5 * time.Second
+		}
+		if reapInterval < 5*time.Millisecond {
+			reapInterval = 5 * time.Millisecond
+		}
+		t := time.NewTicker(reapInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				m.reapIdleShells(ctx, time.Now())
 			}
 		}
 	}()
@@ -917,6 +959,129 @@ type ShellRequest struct {
 	Cols, Rows uint16
 }
 
+// AttachRequest attaches a viewer to an existing live shell session.
+type AttachRequest struct {
+	Session string
+	User    string
+	// Machine, when non-empty, must match the session's machine.
+	Machine string
+}
+
+// ShellAttachment is one active browser attachment to a live shell session.
+// Call Detach when the viewer disconnects; the underlying PTY stays running.
+type ShellAttachment struct {
+	Session    string
+	Machine    string
+	User       string
+	State      string
+	Scrollback []byte
+	Events     <-chan exec.Event
+	Evicted    <-chan struct{}
+
+	mgr  *Manager
+	id   uint64
+	once sync.Once
+}
+
+// Detach releases this attachment without terminating the underlying PTY
+// session. Safe to call multiple times.
+func (a *ShellAttachment) Detach() {
+	if a == nil || a.mgr == nil {
+		return
+	}
+	a.once.Do(func() {
+		a.mgr.detachShell(a.Session, a.id)
+	})
+}
+
+type shellSession struct {
+	id         string
+	machine    string
+	user       string
+	state      string
+	ring       *ringBuf
+	attached   bool
+	attachID   uint64
+	subCh      chan exec.Event
+	evicted    chan struct{}
+	detachedAt time.Time
+	reaped     bool
+}
+
+type ringBuf struct {
+	buf   []byte
+	cap   int
+	start int
+	size  int
+}
+
+func newRingBuf(capacity int) *ringBuf {
+	if capacity <= 0 {
+		capacity = defaultShellScrollbackBytes
+	}
+	return &ringBuf{buf: make([]byte, capacity), cap: capacity}
+}
+
+func (r *ringBuf) write(p []byte) {
+	if r == nil || r.cap <= 0 || len(p) == 0 {
+		return
+	}
+	if len(p) >= r.cap {
+		copy(r.buf, p[len(p)-r.cap:])
+		r.start = 0
+		r.size = r.cap
+		return
+	}
+	end := (r.start + r.size) % r.cap
+	first := r.cap - end
+	if first > len(p) {
+		first = len(p)
+	}
+	copy(r.buf[end:], p[:first])
+	if rem := len(p) - first; rem > 0 {
+		copy(r.buf[0:], p[first:])
+	}
+	if r.size+len(p) <= r.cap {
+		r.size += len(p)
+	} else {
+		overflow := r.size + len(p) - r.cap
+		r.start = (r.start + overflow) % r.cap
+		r.size = r.cap
+	}
+}
+
+func (r *ringBuf) bytes() []byte {
+	if r == nil || r.size == 0 {
+		return nil
+	}
+	out := make([]byte, r.size)
+	first := r.cap - r.start
+	if first > r.size {
+		first = r.size
+	}
+	copy(out, r.buf[r.start:r.start+first])
+	if rem := r.size - first; rem > 0 {
+		copy(out[first:], r.buf[:rem])
+	}
+	return out
+}
+
+func (r *ringBuf) clear() {
+	if r == nil {
+		return
+	}
+	r.buf = nil
+	r.start = 0
+	r.size = 0
+}
+
+func normalizeOperator(user string) string {
+	if user == "" {
+		return "operator"
+	}
+	return user
+}
+
 // OpenShell queues an interactive shell (Mode B) on a worker agent and returns
 // its session id. The shell shares the machine's FIFO with one-shot commands.
 func (m *Manager) OpenShell(req ShellRequest) (string, error) {
@@ -927,12 +1092,137 @@ func (m *Manager) OpenShell(req ShellRequest) (string, error) {
 	if req.Session == "" {
 		req.Session = exec.NewSessionID()
 	}
+	m.shMu.Lock()
+	if _, exists := m.shells[req.Session]; exists {
+		m.shMu.Unlock()
+		return "", fmt.Errorf("%w: session %s already exists", ErrBadRequest, req.Session)
+	}
+	m.shells[req.Session] = &shellSession{
+		id:         req.Session,
+		machine:    req.Machine,
+		user:       normalizeOperator(req.User),
+		state:      exec.StateQueued,
+		ring:       newRingBuf(m.cfg.ShellScrollbackBytes),
+		detachedAt: time.Now(),
+	}
+	m.shMu.Unlock()
+
 	run := exec.RunPayload{SessionID: req.Session, User: req.User, Mode: exec.ModePTY, Cols: req.Cols, Rows: req.Rows}
 	m.remember(run.SessionID, req.Machine)
 	if _, err := n.q.Submit(run); err != nil {
+		m.shMu.Lock()
+		delete(m.shells, req.Session)
+		m.shMu.Unlock()
 		return "", err
 	}
 	return run.SessionID, nil
+}
+
+// AttachShell attaches a viewer to an open interactive shell session (Mode B),
+// returning a snapshot of its bounded scrollback ring buffer and a live event
+// channel.
+//
+// Single active attach per session: a second attach takes over by evicting the
+// previous attachment (the underlying PTY stays alive). Live shell sessions
+// and their scrollback buffers are kept in memory only and are not persisted
+// across a fleet-server restart.
+func (m *Manager) AttachShell(req AttachRequest) (*ShellAttachment, error) {
+	if req.Session == "" {
+		return nil, fmt.Errorf("%w: session is required", ErrBadRequest)
+	}
+	m.shMu.Lock()
+	defer m.shMu.Unlock()
+	s := m.shells[req.Session]
+	if s == nil || s.state == exec.StateFinished || s.reaped {
+		return nil, ErrUnknown
+	}
+	if req.Machine != "" && req.Machine != s.machine {
+		m.log.Warn("shell attach refused: machine mismatch", "component", "fleet", "session", req.Session, "want_machine", s.machine, "got_machine", req.Machine, "operator", req.User)
+		return nil, ErrForbidden
+	}
+	if normalizeOperator(req.User) != normalizeOperator(s.user) {
+		m.log.Warn("shell attach refused: operator mismatch", "component", "fleet", "session", req.Session, "owner", s.user, "operator", req.User)
+		return nil, ErrForbidden
+	}
+	mc, ok := m.cfg.Registry.Get(s.machine)
+	if !ok || mc.Removed {
+		return nil, ErrUnknown
+	}
+	if s.attached && s.evicted != nil {
+		close(s.evicted)
+	}
+	s.attachID++
+	subCh := make(chan exec.Event, shellSubBuffer)
+	evicted := make(chan struct{})
+	s.attached = true
+	s.subCh = subCh
+	s.evicted = evicted
+	s.detachedAt = time.Time{}
+
+	return &ShellAttachment{
+		Session:    s.id,
+		Machine:    s.machine,
+		User:       s.user,
+		State:      s.state,
+		Scrollback: s.ring.bytes(),
+		Events:     subCh,
+		Evicted:    evicted,
+		mgr:        m,
+		id:         s.attachID,
+	}, nil
+}
+
+func (m *Manager) detachShell(session string, attachID uint64) {
+	m.shMu.Lock()
+	defer m.shMu.Unlock()
+	s := m.shells[session]
+	if s == nil || s.attachID != attachID || !s.attached {
+		return
+	}
+	s.attached = false
+	s.subCh = nil
+	s.evicted = nil
+	s.detachedAt = time.Now()
+}
+
+func (m *Manager) reapIdleShells(ctx context.Context, now time.Time) {
+	type target struct {
+		id, machine, user string
+		idle              time.Duration
+	}
+	var reap []target
+	m.shMu.Lock()
+	for _, s := range m.shells {
+		if !s.attached && s.state != exec.StateFinished && !s.reaped && !s.detachedAt.IsZero() && now.Sub(s.detachedAt) >= m.cfg.ShellIdleTimeout {
+			s.reaped = true
+			reap = append(reap, target{
+				id:      s.id,
+				machine: s.machine,
+				user:    s.user,
+				idle:    now.Sub(s.detachedAt),
+			})
+		}
+	}
+	m.shMu.Unlock()
+
+	for _, t := range reap {
+		m.log.Info("reaping idle shell session", "component", "fleet", "machine", t.machine, "session", t.id, "operator", t.user, "idle", t.idle.Round(time.Millisecond))
+		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		err := m.Cancel(cctx, t.id)
+		cancel()
+		if err != nil {
+			m.shMu.Lock()
+			if errors.Is(err, ErrUnknown) {
+				delete(m.shells, t.id)
+			} else if s := m.shells[t.id]; s != nil {
+				s.reaped = false
+			}
+			m.shMu.Unlock()
+			if !errors.Is(err, ErrUnknown) {
+				m.log.Warn("reap idle shell failed", "component", "fleet", "machine", t.machine, "session", t.id, "err", err)
+			}
+		}
+	}
 }
 
 func (m *Manager) queueFor(session string) (*exec.Queue, string, error) {
@@ -960,6 +1250,9 @@ func (m *Manager) Cancel(ctx context.Context, session string) error {
 	}
 	if err := q.Cancel(ctx, session); err != nil {
 		if errors.Is(err, exec.ErrUnknownSession) {
+			m.shMu.Lock()
+			delete(m.shells, session)
+			m.shMu.Unlock()
 			return ErrUnknown
 		}
 		return err
@@ -1111,9 +1404,13 @@ func (m *Manager) remember(session, machine string) {
 	}
 }
 
-// onExec runs on the channel read loop: record one-shot output, update command
-// history, and publish.
+// onExec runs on the channel read loop: record one-shot output, drain PTY
+// output into bounded per-session scrollback, update command history, and
+// publish.
 func (m *Manager) onExec(machine string, ev exec.Event) {
+	if ev.Entry.Mode == exec.ModePTY {
+		m.handleShellExec(ev)
+	}
 	if ev.Kind == exec.EventChunk && ev.Chunk != nil && ev.Entry.Mode == exec.ModeOneShot {
 		m.appendOutput(ev.SessionID, ev.Chunk)
 	}
@@ -1124,6 +1421,50 @@ func (m *Manager) onExec(machine string, ev exec.Event) {
 		}
 	}
 	m.bus.publish(Event{Kind: EventExec, Machine: machine, Exec: &ev})
+}
+
+func (m *Manager) handleShellExec(ev exec.Event) {
+	m.shMu.Lock()
+	defer m.shMu.Unlock()
+	s := m.shells[ev.SessionID]
+	if s == nil {
+		return
+	}
+	switch ev.Kind {
+	case exec.EventQueued:
+		s.state = exec.StateQueued
+	case exec.EventRunning:
+		s.state = exec.StateRunning
+	case exec.EventChunk:
+		if ev.Chunk != nil && len(ev.Chunk.Data) > 0 {
+			s.ring.write(ev.Chunk.Data)
+		}
+	case exec.EventExited:
+		s.state = exec.StateFinished
+	}
+	if s.attached && s.subCh != nil {
+		select {
+		case s.subCh <- ev:
+		default:
+			// Lagging browser: drop its subscription so the agent read loop
+			// never blocks on backpressure; the session stays alive detached.
+			close(s.subCh)
+			s.subCh = nil
+			s.evicted = nil
+			s.attached = false
+			s.detachedAt = time.Now()
+		}
+	}
+	if ev.Kind == exec.EventExited {
+		if s.subCh != nil {
+			close(s.subCh)
+			s.subCh = nil
+		}
+		s.evicted = nil
+		s.attached = false
+		s.ring.clear()
+		delete(m.shells, ev.SessionID)
+	}
 }
 
 type persistedCommand struct {

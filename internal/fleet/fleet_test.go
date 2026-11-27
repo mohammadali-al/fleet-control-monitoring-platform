@@ -446,6 +446,81 @@ func TestShellRoundTrip(t *testing.T) {
 	})
 }
 
+func TestShellScrollbackRingBufferBounded(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Add(registry.Machine{ID: "w1", Role: registry.RoleWorker, ConnectMode: registry.ConnectModeServerDial, PrivateIPs: []string{"10.0.0.1"}, Provisioned: true}); err != nil {
+		t.Fatal(err)
+	}
+	gate, err := exec.NewGate([]byte("test-secret"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loop := fleettest.NewLoopback(gate)
+	m, err := fleet.New(fleet.Config{
+		Registry:             reg,
+		Gate:                 gate,
+		NewLink:              loop.Factory(),
+		PollInterval:         10 * time.Millisecond,
+		ShellScrollbackBytes: 64,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.Start(ctx)
+	t.Cleanup(func() { cancel(); m.Close() })
+	eventually(t, "w1 online", func() bool {
+		info, ok := m.Machine("w1")
+		return ok && info.State == fleet.StateOnline
+	})
+
+	session := exec.NewSessionID()
+	sub := m.Bus().Subscribe(func(ev fleet.Event) bool {
+		return ev.Kind == fleet.EventExec && ev.Exec != nil && ev.Exec.SessionID == session
+	})
+	defer sub.Close()
+	if _, err := m.OpenShell(fleet.ShellRequest{Machine: "w1", User: "alice", Session: session, Cols: 80, Rows: 24}); err != nil {
+		t.Fatal(err)
+	}
+	waitRunning(t, sub, session)
+
+	// Send >64 bytes while detached (no AttachShell active); server drains into bounded ring buffer.
+	if err := m.ShellInput(ctx, session, []byte("echo old-0123456789abcdef0123456789abcdef; echo mid-0123456789abcdef0123456789abcdef; echo tail-$((1111+8888))\r")); err != nil {
+		t.Fatal(err)
+	}
+	var seen strings.Builder
+	deadline := time.After(wait)
+	for !strings.Contains(seen.String(), "tail-9999") {
+		select {
+		case ev := <-sub.C:
+			if ev.Exec.Kind == exec.EventChunk && ev.Exec.Chunk != nil {
+				seen.Write(ev.Exec.Chunk.Data)
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for shell output; got %q", seen.String())
+		}
+	}
+
+	att, err := m.AttachShell(fleet.AttachRequest{Session: session, User: "alice", Machine: "w1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer att.Detach()
+	if len(att.Scrollback) != 64 {
+		t.Fatalf("scrollback len = %d, want 64", len(att.Scrollback))
+	}
+	if !strings.Contains(string(att.Scrollback), "tail-9999") {
+		t.Errorf("scrollback missing newest tail: %q", string(att.Scrollback))
+	}
+	if strings.Contains(string(att.Scrollback), "old-0123456789") {
+		t.Errorf("scrollback did not evict oldest bytes: %q", string(att.Scrollback))
+	}
+
+	if err := m.Cancel(ctx, session); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestOnboardingUnavailableWithoutProvisioner(t *testing.T) {
 	e := newEnv(t)
 	if _, _, err := e.m.Onboard(context.Background(), fleet.OnboardRequest{Host: "10.9.9.9", Role: "worker"}); !errors.Is(err, fleet.ErrUnavailable) {
