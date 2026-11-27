@@ -23,10 +23,13 @@ Following the route-component contract from **T-0047** (read its reference Machi
 1. **Backup** (`web/pages/backup.html` → React): the backup list, status, and any trigger/download
    actions, wired to the existing backup API at parity.
 
-Register on its client route (`/backup`); remove its legacy full-load fallback. **This is the final port**
-— also remove the now-unused legacy full-load fallback path / leftover `web/pages/*.html` + template
-plumbing that T-0047 left in place for the transition (confirm no route still depends on it), so only the
-SPA remains. Reuse the design-system CSS; preserve every `id`/`class`/`data-*` existing logic/tests rely on.
+Register on its client route (`/backup`); remove its legacy full-load fallback. **If this is the final page
+ported** — i.e. every other route (the T-0048 Operate ports, the T-0054 Baseline + the Projects/Maneuver/
+Monitor React feature tasks, and the T-0050 Observe ports) already has a real `component` in `routes.js` —
+also remove the now-unused legacy full-load fallback path / leftover `web/pages/*.html` + template plumbing
+that T-0047 left in place for the transition (confirm no route still depends on it), so only the SPA
+remains. Otherwise remove only `/backup`'s fallback and say what was left. Reuse the design-system CSS;
+preserve every `id`/`class`/`data-*` existing logic/tests rely on.
 
 ## Out of scope
 
@@ -38,8 +41,9 @@ SPA remains. Reuse the design-system CSS; preserve every `id`/`class`/`data-*` e
 
 - `/backup` is a React route inside the persistent shell: no reload on nav, rain continuous,
   deep-link/refresh work, parity preserved.
-- If T-0048–T-0050 are merged, the legacy server-rendered page plumbing is removed and **no `.html` routes
-  remain**; otherwise only `/backup`'s fallback is removed (note what was left for still-pending ports).
+- If every other route already has a real `component` in `routes.js` (all ports + feature tasks done), the
+  legacy server-rendered page plumbing is removed and **no `.html` routes remain**; otherwise only
+  `/backup`'s fallback is removed (note what was left for still-pending routes).
 - `gofmt -l .` empty, `go vet ./...` clean, `scripts/test.sh server` passes. Manual pass in both themes.
 
 ## Facts this brief relies on

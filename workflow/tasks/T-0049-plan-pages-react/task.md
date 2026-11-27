@@ -1,7 +1,8 @@
 ---
 id: T-0049
 title: plan-pages-react
-state: ready
+state: closed
+canceled: "Superseded by the real React feature tasks (D-0012). Baseline items are built for real by T-0054 (baseline-items-backend); the Maneuver editor becomes its own React feature task (store + (ip,origin) scope + agent selection + patterns, Linear/Spikes disabled). Porting the Plan stub pages is throwaway, so this task is canceled by operator 2026-11-28."
 touches: [web/, internal/panel/server_test.go]
 tests: [server]
 after: [T-0047]
