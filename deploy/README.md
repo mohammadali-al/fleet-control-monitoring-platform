@@ -30,7 +30,10 @@ See [`deploy/REQUIREMENTS.md`](REQUIREMENTS.md) for the full host matrix, ports,
 
 - Linux host with `systemd`, root access, unified **cgroup v2**, **nftables**, `openssl`, and at least 2 GiB free on `/var/lib`.
 - No Docker needed for the default `--proxy=native` mode (standalone Caddy + Authelia binaries). Use `--proxy=docker` for the Compose container stack, which then needs Docker + Compose v2.
-- DNS names (e.g. `fleet.internal` and `auth.fleet.internal`, or public domains) pointing to the main server. Authelia requires a DNS-style cookie domain; an IP address alone will not work.
+- DNS name(s) pointing to the main server:
+  - **Default (two-subdomain):** `<panel-domain>` and `<auth-domain>` (e.g. `fleet.internal` and `auth.fleet.internal`).
+  - **Single-domain (`--single-domain`):** **one** DNS name (`<panel-domain>`, e.g. `fleet.internal`, `*.ts.net`, or DuckDNS), serving Authelia under `https://<panel-domain>/authelia`.
+  - **IP-only is unsupported:** Authelia requires a DNS-style cookie domain and rejects raw IP addresses in both modes.
 
 ## 1. Install from GitHub Release (recommended)
 
@@ -46,8 +49,9 @@ curl -fsSL https://raw.githubusercontent.com/mohammadali-al/fleet-control-monito
 Options:
 - `--check`: run preflight checks only.
 - `--proxy=native|docker`: native Caddy+Authelia binaries (default) or the Docker Compose proxy stack (`--proxy=docker`).
+- `--single-domain` / `--two-domain`: serve Authelia under `https://<panel-domain>/authelia` using **one** DNS name (`--single-domain`), or on a separate `auth.<panel-domain>` subdomain (`--two-domain`, default). In `--single-domain` mode, `/authelia*` is the single reserved panel path (covering the Authelia portal, API, and `/authelia/api/authz/forward-auth`), and `fleet-server` must never serve `/authelia*`.
 - `--yes` / `--no-install`: auto-approve or skip OS package installation.
-- `--answers FILE` / `--non-interactive`: supply answers from an env file without prompting. Non-secret answers are saved to `/etc/fleet-server/install-answers.env` for future upgrades.
+- `--answers FILE` / `--non-interactive`: supply answers from an env file without prompting. Non-secret answers (including `FLEET_DOMAIN_MODE=single|two`) are saved to `/etc/fleet-server/install-answers.env` for future upgrades.
 - `--tls-mode internal|acme`: generate an internal self-signed SAN cert (`internal`) or obtain public Let's Encrypt certs via Caddy (`acme`).
 - `--bin-dir DIR` / `--no-start` / `DESTDIR=DIR`: install from a local `scripts/build.sh` build or stage into a packaging directory.
 
@@ -63,7 +67,7 @@ sudo deploy/install-server.sh --bin-dir ./bin
 ## 3. First login and 2FA enrollment
 
 1. If using `--tls-mode internal`, trust `/var/lib/fleet-proxy/certs/tls.crt` in operator browsers (or replace `tls.crt` / `tls.key` with your CA-signed certificate and restart `fleet-proxy`).
-2. Browse to `https://<panel-domain>/` — you are redirected to `https://<auth-domain>/`.
+2. Browse to `https://<panel-domain>/` — you are redirected to `https://<auth-domain>/` (or `https://<panel-domain>/authelia` in `--single-domain` mode).
 3. Sign in with the admin user and password configured during installation, and register a TOTP device.
 4. Read the one-time verification code from:
 
@@ -95,12 +99,15 @@ The upgrader:
 5. Restarts `fleet-server` and verifies health (`http://127.0.0.1:6789/` + CA intact); **automatically rolls back** binary + config + data backup on any failure.
 6. Upgrades the proxy (`docker compose pull && up -d` on pinned tags, or native binary upgrade) while preserving `/var/lib/fleet-proxy/`.
 
+> **Note on switching domain modes:** `upgrade-server.sh` preserves live `/opt/fleet/proxy/Caddyfile` and `/opt/fleet/proxy/authelia/configuration.yml` and does not migrate an existing two-subdomain host to `--single-domain` (or vice versa). To switch layouts on an existing host, update those two files (or remove them and re-run `install-server.sh --single-domain` / `--two-domain` to regenerate them and refresh the TLS cert if using `--tls-mode internal`).
+
 ## Operations notes
 
 - **Logs:** `journalctl -u fleet-server -f`, `journalctl -u fleet-proxy -f` (or `docker compose -f /opt/fleet/proxy/compose.yml logs -f`).
 - **Brute-force protection:** Authelia bans a user for 10 minutes after 5 failed logins in 2 minutes (`regulation` in `/opt/fleet/proxy/authelia/configuration.yml`).
 - **Additional users:** Edit `/var/lib/fleet-proxy/authelia/users.yml` and generate argon2id hashes with `docker run --rm authelia/authelia:4.39.27 authelia crypto hash generate argon2 --password '...'` (or `/usr/local/bin/authelia` in native mode).
 - **Keep `fleet-server` on loopback:** The panel trusts `Remote-User` from the proxy; never expose `:6789` or `:9091` externally.
+- **Reserved path (`--single-domain`):** When hosting Authelia on the panel domain, `/authelia*` is reserved exclusively for Authelia (portal, API, and `/authelia/api/authz/forward-auth`); `fleet-server` must never define routes under `/authelia*`.
 
 ## Alternative: Pomerium instead of Authelia
 
