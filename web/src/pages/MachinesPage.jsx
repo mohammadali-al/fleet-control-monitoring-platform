@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useMachineDetails } from '../hooks/useMachineDetails';
 import { useMachines } from '../hooks/useMachines';
 import { api } from '../lib/api';
 import { useEvents } from '../lib/events';
-import { diskView, fmtAgo, fmtBytes } from '../lib/fmt';
+import { diskView, fmtAgo, fmtBytes, fmtDateTime } from '../lib/fmt';
 import { useToast } from '../lib/toast';
 import { usePageTitle } from '../lib/title';
 import { isRoutePorted, routeHref } from '../routes';
@@ -73,6 +74,464 @@ function formatExpiry(expiresAt) {
   return `Expires in ${mins}:${secs}`;
 }
 
+const WATCHDOG_STAGE_LABELS = {
+  none: 'None (normal)',
+  throttle: 'Throttle',
+  kill_session: 'Kill session',
+  restart: 'Service restart',
+  reboot: 'Reboot',
+};
+
+const WATCHDOG_COND_CHIPS = {
+  normal: ['chip--ok', 'Normal', 'i-check'],
+  breaching: ['chip--warn', 'Breaching', 'i-alert'],
+  throttled: ['chip--warn', 'Throttled', 'i-alert'],
+  'alert-only': ['chip--danger', 'Alert-only', 'i-alert'],
+  'not-reporting': ['chip--outline', 'Not reporting', 'i-x'],
+};
+
+const DETAIL_DL_STYLE = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(8.5rem, auto) minmax(0, 1fr)',
+  gap: 'var(--sp-2) var(--sp-3)',
+  fontSize: 'var(--fs-sm)',
+  alignItems: 'baseline',
+};
+
+const DETAIL_DT_STYLE = {
+  color: 'var(--text-muted)',
+};
+
+const DETAIL_DD_STYLE = {
+  minWidth: 0,
+  fontWeight: 600,
+  overflowWrap: 'anywhere',
+  textAlign: 'right',
+};
+
+function DetailDiskSection({ disk }) {
+  const rawDisk = diskView(disk);
+  const diskStatus = disk?.status || '';
+  const view = rawDisk
+    ? {
+        ...rawDisk,
+        className:
+          diskStatus === 'critical'
+            ? 'danger'
+            : diskStatus === 'warn'
+              ? 'warn'
+              : rawDisk.className,
+        word:
+          diskStatus === 'critical'
+            ? 'intake paused'
+            : diskStatus === 'warn'
+              ? 'warning'
+              : rawDisk.word,
+      }
+    : null;
+
+  const statusChip =
+    diskStatus === 'critical' ? (
+      <span className="chip chip--danger">Intake paused</span>
+    ) : diskStatus === 'warn' ? (
+      <span className="chip chip--warn">Warning</span>
+    ) : diskStatus === 'ok' ? (
+      <span className="chip chip--ok">OK</span>
+    ) : (
+      <span className="chip chip--outline">Unknown</span>
+    );
+
+  return (
+    <section className="card" aria-label="Disk state">
+      <div className="card__head">
+        <h3>Disk</h3>
+        {statusChip}
+      </div>
+      <div className="card__body stack" style={{ gap: 'var(--sp-3)' }}>
+        {view ? (
+          <div className={`meter${view.className ? ` meter--${view.className}` : ''}`}>
+            <div className="meter__bar">
+              <div className="meter__fill" style={{ width: `${view.pct}%` }} />
+            </div>
+            <div className="meter__text">
+              <span>{view.used} / {view.total}</span>
+              <span>{view.pct}%{view.word ? ` · ${view.word}` : ''}</span>
+            </div>
+          </div>
+        ) : (
+          <div className="muted" style={{ fontSize: 'var(--fs-sm)' }}>No disk capacity reported yet.</div>
+        )}
+        <dl style={DETAIL_DL_STYLE}>
+          <dt style={DETAIL_DT_STYLE}>Free / Total</dt>
+          <dd className="mono" style={DETAIL_DD_STYLE}>
+            {disk?.total_bytes ? `${fmtBytes(disk.free_bytes)} / ${fmtBytes(disk.total_bytes)}` : 'Unknown'}
+          </dd>
+          <dt style={DETAIL_DT_STYLE}>Disk updated</dt>
+          <dd style={DETAIL_DD_STYLE}>
+            {disk?.updated_at ? `${fmtAgo(disk.updated_at)} (${fmtDateTime(disk.updated_at)})` : 'Never'}
+          </dd>
+        </dl>
+      </div>
+    </section>
+  );
+}
+
+function MachineDetailsDrawer({ machineId, machine, watchdog, loading, error, notFound, closeBtnRef, onClose }) {
+  if (!machineId) return null;
+
+  const privateIPs = machine?.private_ips || [];
+  const wdCond = watchdog ? WATCHDOG_COND_CHIPS[watchdog.condition] || WATCHDOG_COND_CHIPS['not-reporting'] : null;
+  const wdStageLabel = watchdog ? WATCHDOG_STAGE_LABELS[watchdog.stage] || watchdog.stage || 'None' : '';
+  const wdHref = routeHref('watchdog');
+
+  return (
+    <div
+      data-machine-details-backdrop
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 75,
+        background: 'var(--scrim)',
+        display: 'flex',
+        justifyContent: 'flex-end',
+      }}
+    >
+      <aside
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="machine-details-title"
+        data-machine-details={machineId}
+        style={{
+          width: 'min(34rem, 100vw)',
+          height: '100%',
+          overflowY: 'auto',
+          background: 'var(--surface)',
+          color: 'var(--text)',
+          borderLeft: '2px solid var(--border-strong)',
+          boxShadow: 'var(--ink-shadow)',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        <div
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 2,
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'space-between',
+            gap: 'var(--sp-3)',
+            padding: 'var(--sp-4)',
+            borderBottom: '1.5px solid var(--rule)',
+            background: 'var(--surface-2)',
+          }}
+        >
+          <div className="stack" style={{ gap: 'var(--sp-2)', minWidth: 0 }}>
+            <div>
+              <div className="crumbs">Machine details</div>
+              <h2 id="machine-details-title" className="mono" style={{ fontSize: 'var(--fs-lg)', textTransform: 'none', overflowWrap: 'anywhere' }}>
+                {machine?.id || machineId}
+              </h2>
+            </div>
+            {machine && (
+              <div className="row" style={{ gap: 'var(--sp-2)' }}>
+                <RoleChip role={machine.role} />
+                <StateChip state={machine.state} />
+                {machine.stopped && <span className="chip chip--warn">Stopped</span>}
+                {machine.removed && <span className="chip chip--outline">Decommissioned</span>}
+              </div>
+            )}
+          </div>
+          <button
+            ref={closeBtnRef}
+            className="icon-btn icon-btn--bordered"
+            type="button"
+            aria-label="Close machine details"
+            title="Close"
+            onClick={onClose}
+          >
+            <svg className="icon" aria-hidden="true"><use href="#i-x" /></svg>
+          </button>
+        </div>
+
+        <div className="stack" style={{ padding: 'var(--sp-4)', gap: 'var(--sp-4)', flex: 1 }}>
+          {notFound && (
+            <div className="alert alert--warn" role="status">
+              <svg className="icon" aria-hidden="true"><use href="#i-alert" /></svg>
+              <div>{error || 'This machine is no longer in the registry.'}</div>
+            </div>
+          )}
+
+          {error && !notFound && (
+            <div className="alert alert--danger" role="status">
+              <svg className="icon" aria-hidden="true"><use href="#i-alert" /></svg>
+              <div>{error}</div>
+            </div>
+          )}
+
+          {machine?.note && (
+            <div className="alert" role="status">
+              <svg className="icon" aria-hidden="true"><use href="#i-info" /></svg>
+              <div>{machine.note}</div>
+            </div>
+          )}
+
+          {!machine ? (
+            <div className="muted" style={{ fontSize: 'var(--fs-sm)' }}>
+              {loading ? 'Loading machine details...' : 'Machine details unavailable.'}
+            </div>
+          ) : (
+            <>
+              <section className="card" aria-label="Identity and connection">
+                <div className="card__head">
+                  <h3>Identity &amp; connection</h3>
+                  <span className="chip chip--outline chip--mono">{machine.connect_mode}</span>
+                </div>
+                <div className="card__body">
+                  <dl style={DETAIL_DL_STYLE}>
+                    <dt style={DETAIL_DT_STYLE}>Machine ID</dt>
+                    <dd className="mono" style={DETAIL_DD_STYLE}>{machine.id}</dd>
+                    <dt style={DETAIL_DT_STYLE}>Role</dt>
+                    <dd className="mono" style={DETAIL_DD_STYLE}>{machine.role}</dd>
+                    <dt style={DETAIL_DT_STYLE}>State</dt>
+                    <dd className="mono" style={DETAIL_DD_STYLE}>{machine.state}</dd>
+                    <dt style={DETAIL_DT_STYLE}>Connect mode</dt>
+                    <dd className="mono" style={DETAIL_DD_STYLE}>{machine.connect_mode}</dd>
+                    <dt style={DETAIL_DT_STYLE}>Last seen</dt>
+                    <dd style={DETAIL_DD_STYLE}>
+                      {machine.last_seen ? `${fmtAgo(machine.last_seen)} (${fmtDateTime(machine.last_seen)})` : 'Never'}
+                    </dd>
+                    {machine.role === 'worker' && (
+                      <>
+                        <dt style={DETAIL_DT_STYLE}>Command queue</dt>
+                        <dd className="mono" style={DETAIL_DD_STYLE}>
+                          {machine.running || 0} running · {machine.queued || 0} queued
+                        </dd>
+                      </>
+                    )}
+                  </dl>
+                </div>
+              </section>
+
+              <section className="card" aria-label="Watchdog">
+                <div className="card__head">
+                  <h3>Watchdog</h3>
+                  {wdCond && (
+                    <span className={`chip ${wdCond[0]}`}>
+                      <svg className="icon icon--sm" aria-hidden="true"><use href={`#${wdCond[2]}`} /></svg>
+                      {wdCond[1]}
+                    </span>
+                  )}
+                </div>
+                <div className="card__body stack" style={{ gap: 'var(--sp-3)' }}>
+                  {machine.role !== 'worker' ? (
+                    <div className="muted" style={{ fontSize: 'var(--fs-sm)' }}>
+                      Not applicable (monitor agents do not run the watchdog).
+                    </div>
+                  ) : machine.removed ? (
+                    <div className="muted" style={{ fontSize: 'var(--fs-sm)' }}>
+                      Not applicable (decommissioned).
+                    </div>
+                  ) : watchdog ? (
+                    <>
+                      <dl style={DETAIL_DL_STYLE}>
+                        <dt style={DETAIL_DT_STYLE}>Watchdog stage</dt>
+                        <dd style={DETAIL_DD_STYLE}>
+                          <span className="ladder" aria-hidden="true">
+                            {[1, 2, 3, 4].map((i) => {
+                              const cls =
+                                i <= (watchdog.level || 0)
+                                  ? watchdog.condition === 'alert-only' || i >= 3
+                                    ? 'on hi'
+                                    : 'on'
+                                  : '';
+                              return <i key={i} className={cls || undefined} />;
+                            })}
+                          </span>{' '}
+                          <span>{wdStageLabel}</span>
+                        </dd>
+                        <dt style={DETAIL_DT_STYLE}>Restarts today</dt>
+                        <dd className="mono" style={DETAIL_DD_STYLE}>
+                          {watchdog.restarts_today} / {watchdog.restart_cap || 0}
+                        </dd>
+                        <dt style={DETAIL_DT_STYLE}>Reboots today</dt>
+                        <dd className="mono" style={DETAIL_DD_STYLE}>
+                          {watchdog.reboots_today} / {watchdog.reboot_cap || 0}
+                        </dd>
+                        <dt style={DETAIL_DT_STYLE}>Policy</dt>
+                        <dd style={DETAIL_DD_STYLE}>
+                          {watchdog.policy_acked
+                            ? watchdog.policy_ok
+                              ? `v${watchdog.policy_in_force} active`
+                              : `v${watchdog.policy_in_force} error: ${watchdog.policy_error || 'rejected'}`
+                            : 'Not acknowledged'}
+                        </dd>
+                        {Array.isArray(watchdog.breaches) && watchdog.breaches.length > 0 && (
+                          <>
+                            <dt style={DETAIL_DT_STYLE}>Active breaches</dt>
+                            <dd className="mono" style={DETAIL_DD_STYLE}>{watchdog.breaches.join(', ')}</dd>
+                          </>
+                        )}
+                      </dl>
+                      <div>
+                        {isRoutePorted('watchdog') ? (
+                          <Link className="btn btn--sm" to={wdHref}>Open Watchdog</Link>
+                        ) : (
+                          <a className="btn btn--sm" href={wdHref}>Open Watchdog</a>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="muted" style={{ fontSize: 'var(--fs-sm)' }}>
+                      {loading ? 'Loading watchdog state...' : 'Watchdog state unavailable.'}
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <section className="card" aria-label="Addresses">
+                <div className="card__head">
+                  <h3>Addresses</h3>
+                </div>
+                <div className="card__body">
+                  <dl style={DETAIL_DL_STYLE}>
+                    <dt style={DETAIL_DT_STYLE}>Private IPs</dt>
+                    <dd className="mono" style={DETAIL_DD_STYLE}>
+                      {privateIPs.length > 0 ? privateIPs.join(', ') : 'None'}
+                    </dd>
+                    <dt style={DETAIL_DT_STYLE}>Public IP</dt>
+                    <dd className="mono" style={DETAIL_DD_STYLE}>
+                      {machine.public_ip || 'Not checked yet'}
+                    </dd>
+                    <dt style={DETAIL_DT_STYLE}>Public IP checked</dt>
+                    <dd style={DETAIL_DD_STYLE}>
+                      {machine.public_ip_at
+                        ? `${fmtAgo(machine.public_ip_at)} (${fmtDateTime(machine.public_ip_at)})`
+                        : 'Never'}
+                    </dd>
+                  </dl>
+                </div>
+              </section>
+
+              <DetailDiskSection disk={machine.disk} />
+
+              <section className="card" aria-label="Certificates and enrollment">
+                <div className="card__head">
+                  <h3>Enrollment &amp; certificates</h3>
+                </div>
+                <div className="card__body">
+                  <dl style={DETAIL_DL_STYLE}>
+                    <dt style={DETAIL_DT_STYLE}>Enrollment status</dt>
+                    <dd style={DETAIL_DD_STYLE}>
+                      {machine.removed
+                        ? `Decommissioned${machine.removed_at ? ` (${fmtDateTime(machine.removed_at)})` : ''}`
+                        : machine.provisioned
+                          ? machine.enrolled_via === 'token'
+                            ? machine.stopped
+                              ? 'Enrolled via token (stopped)'
+                              : 'Enrolled via token'
+                            : 'Provisioned via SSH'
+                          : 'Not provisioned'}
+                    </dd>
+                    <dt style={DETAIL_DT_STYLE}>Cert fingerprint</dt>
+                    <dd className="mono" style={DETAIL_DD_STYLE}>
+                      {machine.cert_fingerprint || 'None'}
+                    </dd>
+                    {machine.revoked_fingerprint && (
+                      <>
+                        <dt style={DETAIL_DT_STYLE}>Revoked cert</dt>
+                        <dd className="mono" style={DETAIL_DD_STYLE}>{machine.revoked_fingerprint}</dd>
+                      </>
+                    )}
+                    {machine.ssh_host_key && (
+                      <>
+                        <dt style={DETAIL_DT_STYLE}>SSH host key</dt>
+                        <dd className="mono" style={DETAIL_DD_STYLE}>{machine.ssh_host_key}</dd>
+                      </>
+                    )}
+                    <dt style={DETAIL_DT_STYLE}>Registered</dt>
+                    <dd style={DETAIL_DD_STYLE}>
+                      {machine.created_at ? fmtDateTime(machine.created_at) : 'Unknown'}
+                    </dd>
+                    <dt style={DETAIL_DT_STYLE}>Record updated</dt>
+                    <dd style={DETAIL_DD_STYLE}>
+                      {machine.updated_at ? `${fmtAgo(machine.updated_at)} (${fmtDateTime(machine.updated_at)})` : 'Unknown'}
+                    </dd>
+                  </dl>
+                </div>
+              </section>
+
+              {machine.specs && (
+                <section className="card" aria-label="Host specs">
+                  <div className="card__head">
+                    <h3>Host specs</h3>
+                  </div>
+                  <div className="card__body">
+                    <dl style={DETAIL_DL_STYLE}>
+                      {machine.specs.hostname && (
+                        <>
+                          <dt style={DETAIL_DT_STYLE}>Hostname</dt>
+                          <dd className="mono" style={DETAIL_DD_STYLE}>{machine.specs.hostname}</dd>
+                        </>
+                      )}
+                      {machine.specs.os && (
+                        <>
+                          <dt style={DETAIL_DT_STYLE}>OS / Arch</dt>
+                          <dd className="mono" style={DETAIL_DD_STYLE}>
+                            {machine.specs.os}{machine.specs.arch ? `/${machine.specs.arch}` : ''}
+                          </dd>
+                        </>
+                      )}
+                      {machine.specs.os_version && (
+                        <>
+                          <dt style={DETAIL_DT_STYLE}>OS version</dt>
+                          <dd style={DETAIL_DD_STYLE}>{machine.specs.os_version}</dd>
+                        </>
+                      )}
+                      {machine.specs.kernel && (
+                        <>
+                          <dt style={DETAIL_DT_STYLE}>Kernel</dt>
+                          <dd className="mono" style={DETAIL_DD_STYLE}>{machine.specs.kernel}</dd>
+                        </>
+                      )}
+                      {machine.specs.cpus > 0 && (
+                        <>
+                          <dt style={DETAIL_DT_STYLE}>CPUs</dt>
+                          <dd className="mono" style={DETAIL_DD_STYLE}>{machine.specs.cpus}</dd>
+                        </>
+                      )}
+                      {machine.specs.mem_bytes > 0 && (
+                        <>
+                          <dt style={DETAIL_DT_STYLE}>Memory</dt>
+                          <dd className="mono" style={DETAIL_DD_STYLE}>{fmtBytes(machine.specs.mem_bytes)}</dd>
+                        </>
+                      )}
+                    </dl>
+                  </div>
+                </section>
+              )}
+            </>
+          )}
+        </div>
+
+        <div
+          className="card__foot row row--between"
+          style={{ position: 'sticky', bottom: 0, zIndex: 2 }}
+        >
+          <span>Live updates via /ws/events</span>
+          <button className="btn btn--sm" type="button" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
 export function MachinesPage() {
   usePageTitle('Machines');
   const pushToast = useToast();
@@ -133,6 +592,22 @@ export function MachinesPage() {
   const [enrollActBusy, setEnrollActBusy] = useState(false);
   const [enrollActStatus, setEnrollActStatus] = useState(null);
   const enrollActDialogRef = useRef(null);
+
+  // Per-machine details drawer
+  const [detailsId, setDetailsId] = useState(null);
+  const detailsCloseBtnRef = useRef(null);
+  const detailsRestoreFocusRef = useRef(null);
+  const selectedMachineFromList = useMemo(
+    () => (detailsId ? machines.find((m) => m.id === detailsId) || null : null),
+    [machines, detailsId]
+  );
+  const {
+    machine: detailsMachine,
+    watchdog: detailsWatchdog,
+    loading: detailsLoading,
+    error: detailsError,
+    notFound: detailsNotFound,
+  } = useMachineDetails(detailsId, selectedMachineFromList);
 
   // Pause table refreshes while a row menu is open so the menu never closes under the cursor.
   useEffect(() => {
@@ -238,6 +713,34 @@ export function MachinesPage() {
     if (enrollAct && !dlg.open) dlg.showModal();
     if (!enrollAct && dlg.open) dlg.close();
   }, [enrollAct]);
+
+  // Details drawer focus & Escape handling
+  useEffect(() => {
+    if (!detailsId) return undefined;
+    detailsCloseBtnRef.current?.focus({ preventScroll: true });
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape' && !credAction && !enrollAct) {
+        setDetailsId(null);
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [detailsId, credAction, enrollAct]);
+
+  function openDetails(id, triggerEl) {
+    detailsRestoreFocusRef.current = triggerEl || document.activeElement;
+    setOpenMenu(null);
+    setDetailsId(id);
+  }
+
+  function closeDetails() {
+    setDetailsId(null);
+    const el = detailsRestoreFocusRef.current;
+    detailsRestoreFocusRef.current = null;
+    if (el && typeof el.focus === 'function' && el.isConnected) {
+      window.setTimeout(() => el.focus({ preventScroll: true }), 0);
+    }
+  }
 
   const filteredMachines = useMemo(() => {
     const q = filterQ.trim().toLowerCase();
@@ -948,9 +1451,25 @@ export function MachinesPage() {
                       data-role={m.role}
                       data-state={m.state}
                       data-removed={m.removed ? '' : undefined}
+                      aria-selected={detailsId === m.id ? 'true' : undefined}
                     >
                       <th scope="row" className="cell-primary mono">
-                        {m.id}
+                        <button
+                          type="button"
+                          onClick={(e) => openDetails(m.id, e.currentTarget)}
+                          title={`View details for ${m.id}`}
+                          style={{
+                            background: 'none',
+                            border: 0,
+                            padding: 0,
+                            font: 'inherit',
+                            color: 'inherit',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                          }}
+                        >
+                          {m.id}
+                        </button>
                         {m.removed && (
                           <>
                             {' '}
@@ -1106,10 +1625,7 @@ export function MachinesPage() {
             className="menu__item"
             role="menuitem"
             type="button"
-            onClick={() => {
-              setOpenMenu(null);
-              pushToast('The machine details view comes later.');
-            }}
+            onClick={() => openDetails(activeMenuMachine.id)}
           >
             Details
           </button>
@@ -1356,6 +1872,17 @@ export function MachinesPage() {
           </div>
         </form>
       </dialog>
+
+      <MachineDetailsDrawer
+        machineId={detailsId}
+        machine={detailsMachine}
+        watchdog={detailsWatchdog}
+        loading={detailsLoading}
+        error={detailsError}
+        notFound={detailsNotFound}
+        closeBtnRef={detailsCloseBtnRef}
+        onClose={closeDetails}
+      />
     </>
   );
 }

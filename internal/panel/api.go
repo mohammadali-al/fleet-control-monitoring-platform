@@ -20,6 +20,7 @@ import (
 // implements it.
 type Backend interface {
 	Machines() []fleet.MachineInfo
+	Machine(id string) (fleet.MachineInfo, bool)
 	Onboard(ctx context.Context, req fleet.OnboardRequest) (fleet.MachineInfo, *onboard.Result, error)
 	Reprovision(ctx context.Context, id string, creds fleet.Credentials) (fleet.MachineInfo, *onboard.Result, error)
 	Remove(ctx context.Context, id string, creds fleet.Credentials, skipRemote bool) error
@@ -49,6 +50,7 @@ const (
 func (s *server) routesAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/machines", s.live(s.listMachines))
 	mux.HandleFunc("POST /api/machines", s.live(s.onboardMachine))
+	mux.HandleFunc("GET /api/machines/{id}", s.live(s.getMachine))
 	mux.HandleFunc("POST /api/machines/{id}/reprovision", s.live(s.reprovisionMachine))
 	mux.HandleFunc("POST /api/machines/{id}/remove", s.live(s.removeMachine))
 	mux.HandleFunc("POST /api/machines/{id}/refresh-public-ip", s.live(s.refreshPublicIP))
