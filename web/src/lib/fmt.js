@@ -43,6 +43,68 @@ export function fmtTime(iso) {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
+export function fmtTimeMs(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const base = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const ms = String(d.getMilliseconds()).padStart(3, '0');
+  return `${base}.${ms}`;
+}
+
+export function fmtDateTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime()) || d.getFullYear() < 2000) return '';
+  return d.toLocaleString([], {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+export function decodePayloadHead(b64) {
+  if (!b64) return null;
+  let bin;
+  try {
+    bin = atob(b64);
+  } catch {
+    return null;
+  }
+  if (!bin.length) return null;
+  let printable = 0;
+  let text = '';
+  const hexParts = [];
+  for (let i = 0; i < bin.length; i++) {
+    const code = bin.charCodeAt(i);
+    hexParts.push(code.toString(16).padStart(2, '0'));
+    if (code >= 0x20 && code <= 0x7e) {
+      printable++;
+      text += bin[i];
+    } else if (code === 0x09) {
+      printable++;
+      text += '\\t';
+    } else if (code === 0x0a) {
+      printable++;
+      text += '\\n';
+    } else if (code === 0x0d) {
+      printable++;
+      text += '\\r';
+    } else {
+      text += `\\x${code.toString(16).padStart(2, '0')}`;
+    }
+  }
+  const isText = printable / bin.length >= 0.7;
+  return {
+    bytes: bin.length,
+    kind: isText ? 'text' : 'hex',
+    full: isText ? text : hexParts.join(' '),
+  };
+}
+
 export function fmtDur(ms) {
   if (ms == null) return '';
   let s = ms / 1000;
