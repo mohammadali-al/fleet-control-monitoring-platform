@@ -185,6 +185,8 @@ type PublicIPCache struct {
 	stopOnce sync.Once
 	stop     chan struct{}
 	done     chan struct{}
+
+	onRefresh func(PublicIPResult)
 }
 
 // NewPublicIPCache builds a cache over ref. interval <=0 selects
@@ -225,7 +227,11 @@ func (c *PublicIPCache) RefreshNow(ctx context.Context) (PublicIPResult, error) 
 	}
 	c.mu.Lock()
 	c.result = res
+	cb := c.onRefresh
 	c.mu.Unlock()
+	if cb != nil {
+		cb(res)
+	}
 	return res, nil
 }
 
@@ -264,6 +270,16 @@ func (c *PublicIPCache) Start(ctx context.Context) {
 func (c *PublicIPCache) Stop() {
 	c.stopOnce.Do(func() { close(c.stop) })
 	<-c.done
+}
+
+// SetOnRefresh registers a callback invoked after each successful RefreshNow
+// and returns the current cached result atomically under the cache lock.
+func (c *PublicIPCache) SetOnRefresh(fn func(PublicIPResult)) PublicIPResult {
+	c.mu.Lock()
+	c.onRefresh = fn
+	res := c.result
+	c.mu.Unlock()
+	return res
 }
 
 // SourceIPResolver picks the attribution source address for a target (§6.4):

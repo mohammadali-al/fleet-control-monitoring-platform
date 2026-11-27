@@ -119,6 +119,17 @@ func (c *Controller) Close() {
 	c.stopOnce.Do(func() { c.cache.Stop() })
 }
 
+// PublicIP returns the latest cached reflector public-IP result.
+func (c *Controller) PublicIP() PublicIPResult { return c.cache.Result() }
+
+// PublicIPCache returns the controller's public-IP reflector cache.
+func (c *Controller) PublicIPCache() *PublicIPCache { return c.cache }
+
+// RefreshPublicIPNow resolves the public IP synchronously and updates the cache.
+func (c *Controller) RefreshPublicIPNow(ctx context.Context) (PublicIPResult, error) {
+	return c.cache.RefreshNow(ctx)
+}
+
 // machineDir is DataDir/evidence/<machine>.
 func (c *Controller) machineDir() string {
 	return filepath.Join(c.cfg.DataDir, EvidenceDirName, c.cfg.Machine)
