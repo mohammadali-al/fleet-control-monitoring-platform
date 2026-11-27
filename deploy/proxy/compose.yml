@@ -2,7 +2,7 @@
 #
 # Installed to /opt/fleet/proxy/compose.yml and managed by fleet-proxy.service.
 # Mutable state lives in /var/lib/fleet-proxy/ (overridable via FLEET_PROXY_STATE_DIR):
-#   certs/tls.crt, tls.key              TLS certificate for panel + auth domains
+#   certs/tls.crt, tls.key              TLS certificate for panel (+ auth) domain(s)
 #   secrets/{jwt,session,storage}       auto-generated random secrets (mode 0600)
 #   authelia/users.yml                  local users + argon2id password hashes
 #   authelia/{db.sqlite3,notification.txt}
