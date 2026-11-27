@@ -1,7 +1,8 @@
 ---
 id: T-0034
 title: panel-hacker-restyle-samples
-state: ready
+state: closed
+closed: "Design-exploration samples only; the chosen direction shipped via D-0010 + T-0040 (and the SPA T-0047). Nothing to build. Closed by operator 2026-11-28."
 touches: [workflow/design/panel-hacker-samples/]
 tests: []
 after: []
