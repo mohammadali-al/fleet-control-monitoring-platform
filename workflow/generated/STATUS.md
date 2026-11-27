@@ -52,6 +52,7 @@ _none_
 - **T-0043** enroll-addr-default  `after: [T-0036]`
 - **T-0047** panel-spa-foundation  `after: [T-0040, T-0045]`
 - **T-0052** backend-correctness-cleanup  `after: []`
+- **T-0045** public-ip-refresh  `after: [T-0023]`
 
 ## Blocked
 _none_

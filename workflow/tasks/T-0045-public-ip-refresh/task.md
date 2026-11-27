@@ -1,7 +1,7 @@
 ---
 id: T-0045
 title: public-ip-refresh
-state: ready
+state: merged
 touches: [internal/channel/envelope.go, internal/capture/srcip.go, internal/capture/capture.go,
           internal/agent/, internal/fleet/fleet.go, internal/fleet/observe.go,
           internal/panel/api.go, internal/registry/registry.go,
