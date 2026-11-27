@@ -7,6 +7,7 @@ _none_
 ## Next (ready, in order)
 - **T-0034** panel-hacker-restyle-samples  `after: []`
 - **T-0039** single-domain-auth-path  `after: [T-0036, T-0038]`
+- **T-0040** panel-skin-refactor  `after: [T-0023]`
 
 ## Waiting for the operator (merged → see CHECKS.md)
 - **T-0001** project-skeleton  `after: []`
