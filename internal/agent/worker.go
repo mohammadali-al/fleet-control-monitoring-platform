@@ -81,6 +81,11 @@ type worker struct {
 	svcMu sync.Mutex // guards svc
 	svc   ServiceController
 
+	pipMu       sync.Mutex // guards pipCache, lastPIP, pipReported
+	pipCache    *capture.PublicIPCache
+	lastPIP     capture.PublicIPResult
+	pipReported bool
+
 	wg sync.WaitGroup // runs waiting for the first config
 }
 
@@ -133,6 +138,7 @@ func (w *worker) onConnect(peer string) {
 	}
 	// An idle agent offers segments the server lacks as soon as it is connected.
 	go w.offerEvidence()
+	w.reportPublicIPOnConnect()
 }
 
 // handle is the channel.Handler. It never blocks on a running command.
@@ -154,6 +160,8 @@ func (w *worker) handle(ctx context.Context, env channel.Envelope) {
 		w.handleEvidence(ctx, env) // evidence sync: pull, idle-push and queue-state exchanges
 	case channel.TypeServiceControl:
 		handleServiceControl(ctx, w.log, w.sender, w.serviceController(), env)
+	case channel.TypePublicIPRefresh:
+		w.handlePublicIPRefresh()
 	default:
 		// input, resize, terminate, confirm: addressed by session id, so every
 		// executor gets them and the one that owns the session acts.
@@ -210,6 +218,7 @@ func (w *worker) runWhenConfigured(env channel.Envelope) {
 // shutdown ends the worker: every session is terminated, every capture stopped.
 func (w *worker) shutdown() {
 	w.stop()
+	w.unbindPublicIP()
 	w.mu.Lock()
 	w.closed = true
 	exs := append([]*exec.Executor(nil), w.retired...)

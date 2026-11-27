@@ -133,6 +133,7 @@ func (w *worker) applyCaptureLocked(pushed *config.CaptureConfig) {
 			w.log.Warn("evidence capture has no cgroup root: sessions run without cgroups and are not captured", "component", "fleet-agent")
 		}
 	}
+	w.bindPublicIP(w.capt)
 }
 
 // captureConfig maps the config-file/push shape to capture.Config.
@@ -187,3 +188,5 @@ func (l liveCapturer) Capture(sessionID, cgroupPath string) (SessionCapture, err
 }
 
 func (l liveCapturer) Close() { l.c.Close() }
+
+func (l liveCapturer) PublicIPCache() *capture.PublicIPCache { return l.c.PublicIPCache() }

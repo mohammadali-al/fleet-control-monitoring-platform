@@ -117,6 +117,28 @@ func TestPublicIPCacheRefresh(t *testing.T) {
 	}
 }
 
+func TestPublicIPCacheSetOnRefresh(t *testing.T) {
+	ref := NewReflector(urls(
+		reflectorServer(t, "203.0.113.9"),
+		reflectorServer(t, "203.0.113.9"),
+	))
+	c := NewPublicIPCache(ref, 0)
+	got := make(chan PublicIPResult, 2)
+	if initial := c.SetOnRefresh(func(r PublicIPResult) { got <- r }); initial.IP != "" {
+		t.Fatalf("initial = %+v, want empty", initial)
+	}
+	if _, err := c.RefreshNow(context.Background()); err != nil {
+		t.Fatalf("RefreshNow: %v", err)
+	}
+	res := <-got
+	if res.IP != "203.0.113.9" || !res.Confirmed {
+		t.Errorf("callback got %+v", res)
+	}
+	if cur := c.SetOnRefresh(nil); cur.IP != "203.0.113.9" {
+		t.Errorf("SetOnRefresh returned %+v", cur)
+	}
+}
+
 func TestIsPrivateIP(t *testing.T) {
 	cases := map[string]bool{
 		"10.1.2.3":     true,

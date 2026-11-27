@@ -186,6 +186,20 @@ type WatchdogEventPayload struct {
 	Detail string    `json:"detail,omitempty"`
 }
 
+// Public-IP envelope types (architecture §6.4). Unknown types are ignored by
+// older peers, so adding these is backward-tolerant.
+const (
+	TypePublicIP        = "public-ip"         // agent -> server: reflector-resolved public IP (PublicIPPayload)
+	TypePublicIPRefresh = "public-ip-refresh" // server -> agent: trigger immediate reflector refresh
+)
+
+// PublicIPPayload is the payload of a public-ip envelope (agent -> server).
+type PublicIPPayload struct {
+	IP        string    `json:"ip"`
+	At        time.Time `json:"at"`
+	Confirmed bool      `json:"confirmed,omitempty"`
+}
+
 // Path is the URL path the agent serves the channel on.
 const Path = "/v1/channel"
 

@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"sort"
 	"sync"
 	"time"
@@ -453,6 +454,8 @@ func (m *Manager) agentHandler(n *node, role string, next channel.Handler) chann
 			}
 		case channel.TypeServiceControlResult:
 			m.recordServiceControlResult(n, env)
+		case channel.TypePublicIP:
+			m.recordPublicIP(n, env)
 		default:
 			next(ctx, env)
 		}
@@ -1154,4 +1157,58 @@ func (m *Manager) recordServiceControlResult(n *node, env channel.Envelope) {
 		default:
 		}
 	}
+}
+
+// --- public IP ---------------------------------------------------------------
+
+func (m *Manager) recordPublicIP(n *node, env channel.Envelope) {
+	var p channel.PublicIPPayload
+	if err := json.Unmarshal(env.Payload, &p); err != nil {
+		m.log.Warn("bad public-ip payload", "component", "fleet", "machine", n.id, "err", err)
+		return
+	}
+	if p.IP == "" || net.ParseIP(p.IP) == nil {
+		m.log.Warn("invalid public-ip", "component", "fleet", "machine", n.id, "ip", p.IP)
+		return
+	}
+	at := p.At
+	if at.IsZero() {
+		at = time.Now()
+	}
+	if err := m.cfg.Registry.Update(n.id, func(mc *registry.Machine) {
+		t := at
+		mc.PublicIP = p.IP
+		mc.PublicIPAt = &t
+	}); err != nil {
+		m.log.Warn("update public-ip", "component", "fleet", "machine", n.id, "err", err)
+		return
+	}
+	m.publishMachine(n.id)
+}
+
+// RefreshPublicIP asks an online agent to re-run its reflector public-IP check
+// immediately. Returns ErrUnknown if the machine does not exist or is removed,
+// and ErrOffline if the agent is not currently connected.
+func (m *Manager) RefreshPublicIP(ctx context.Context, machine string) error {
+	mc, ok := m.cfg.Registry.Get(machine)
+	if !ok || mc.Removed {
+		return ErrUnknown
+	}
+	m.mu.Lock()
+	n := m.nodes[machine]
+	up := n != nil && n.link != nil && n.link.Online()
+	m.mu.Unlock()
+	if !up {
+		return ErrOffline
+	}
+	env, err := channel.NewEnvelope(channel.TypePublicIPRefresh, "", nil)
+	if err == nil {
+		err = n.link.Send(ctx, env)
+	}
+	if err != nil {
+		m.log.Warn("push public-ip refresh", "component", "fleet", "machine", machine, "err", err)
+		return err
+	}
+	m.log.Info("pushed public-ip refresh", "component", "fleet", "machine", machine)
+	return nil
 }

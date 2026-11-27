@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/channel"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/exec"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/fleet"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/fleet/fleettest"
@@ -452,5 +453,64 @@ func TestOnboardingUnavailableWithoutProvisioner(t *testing.T) {
 	}
 	if err := e.m.Remove(context.Background(), "w1", fleet.Credentials{}, true); !errors.Is(err, fleet.ErrUnavailable) {
 		t.Errorf("Remove = %v, want ErrUnavailable", err)
+	}
+}
+
+func TestPublicIPDispatchAndRefresh(t *testing.T) {
+	m, links := newWatchdogMgr(t, fleet.WatchdogSource{}, false)
+	eventually(t, "w1 online", func() bool {
+		info, ok := m.Machine("w1")
+		return ok && info.State == fleet.StateOnline
+	})
+
+	sub := m.Bus().Subscribe(func(ev fleet.Event) bool {
+		return ev.Kind == fleet.EventMachine && ev.Machine == "w1"
+	})
+	defer sub.Close()
+
+	// Inbound TypePublicIP updates registry and publishes an EventMachine.
+	at := time.Date(2026, 11, 27, 21, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+	links["w1"].h(ctx, envOf(t, channel.TypePublicIP, channel.PublicIPPayload{
+		IP:        "203.0.113.55",
+		At:        at,
+		Confirmed: true,
+	}))
+
+	eventually(t, "registry PublicIP updated", func() bool {
+		info, ok := m.Machine("w1")
+		return ok && info.PublicIP == "203.0.113.55" && info.PublicIPAt != nil && info.PublicIPAt.Equal(at)
+	})
+	select {
+	case ev := <-sub.C:
+		if ev.Info == nil || ev.Info.PublicIP != "203.0.113.55" {
+			t.Fatalf("bus event = %+v, want PublicIP 203.0.113.55", ev.Info)
+		}
+	case <-time.After(wait):
+		t.Fatal("timed out waiting for EventMachine after TypePublicIP")
+	}
+
+	// Invalid IP and unknown envelope types are ignored without breaking the machine.
+	links["w1"].h(ctx, envOf(t, channel.TypePublicIP, channel.PublicIPPayload{IP: "not-an-ip", At: at}))
+	links["w1"].h(ctx, envOf(t, "future-unknown-type", map[string]string{"x": "1"}))
+	if info, _ := m.Machine("w1"); info.PublicIP != "203.0.113.55" {
+		t.Errorf("PublicIP changed on invalid payload: %q", info.PublicIP)
+	}
+
+	// Outbound RefreshPublicIP sends TypePublicIPRefresh to online machine,
+	// rejects unknown and offline machines.
+	if err := m.RefreshPublicIP(ctx, "w1"); err != nil {
+		t.Fatalf("RefreshPublicIP(w1): %v", err)
+	}
+	if sent := links["w1"].sentOfType(channel.TypePublicIPRefresh); len(sent) != 1 {
+		t.Fatalf("w1 received %d TypePublicIPRefresh, want 1", len(sent))
+	}
+	if err := m.RefreshPublicIP(ctx, "missing"); !errors.Is(err, fleet.ErrUnknown) {
+		t.Errorf("RefreshPublicIP(missing) = %v, want ErrUnknown", err)
+	}
+
+	e := newEnv(t, "w2")
+	if err := e.m.RefreshPublicIP(ctx, "w2"); !errors.Is(err, fleet.ErrOffline) {
+		t.Errorf("RefreshPublicIP(offline w2) = %v, want ErrOffline", err)
 	}
 }
