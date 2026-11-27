@@ -1,7 +1,7 @@
 ---
 id: T-0061
 title: watchdog-visibility-persistence
-state: ready
+state: merged
 touches: [internal/watchdog/watchdog.go, internal/fleet/fleet.go, internal/panel/watchdog.go,
           internal/registry/registry.go, web/src/pages/WatchdogPage.jsx, internal/panel/watchdog_test.go]
 tests: [server]

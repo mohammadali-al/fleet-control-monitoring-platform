@@ -59,3 +59,7 @@
 - [ ] T-0051 administer-pages-react — Backup ported to React route; NOT final port (monitor/projects/baseline/maneuver still legacy-fallback). Open: eyeball in browser. Confirm to close.
 - [ ] T-0053 agent-telemetry-completeness — disk guard reported to the React Machines page, Linux netlink public-IP refresh trigger, monitor-agent reflector, persistent command history. Verified build/tests/-race. Confirm to close.
 - [ ] T-0054 baseline-items-backend — global baseline library: store + CRUD/preview API + placeholder substitution engine + real React Baseline page. Verified build/tests/-race. Confirm to close.
+- [ ] T-0057 onboard-agent-dial-config — SSH onboarding writes server_addr/server_id for agent_dial machines (server_dial byte-identical); fails clearly if no server endpoint. open.go wiring patch applied at merge. Confirm to close.
+- [ ] T-0058 monitor-page-react — Monitor is a React route; DNS probe targets + probe-type selector (GAP-19); overlay per-interval + exact shared-segment packet counts (GAP-22). Confirm to close.
+- [ ] T-0059 machine-details-view — Machines Details drawer + GET /api/machines/{id}; live, read-only (GAP-33). Confirm to close.
+- [ ] T-0061 watchdog-visibility-persistence — monitor-agent watchdogs shown; host stage/counters persisted on registry, survive restart (GAP-35). Confirm to close.

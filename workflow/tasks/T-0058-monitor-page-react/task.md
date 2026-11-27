@@ -1,7 +1,7 @@
 ---
 id: T-0058
 title: monitor-page-react
-state: ready
+state: merged
 touches: [web/src/pages/MonitorPage.jsx, web/src/routes.js, web/src/hooks/,
           internal/monitor/jobs.go, internal/panel/monitor.go, internal/panel/monitor_test.go]
 tests: [server]

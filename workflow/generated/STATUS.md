@@ -60,6 +60,10 @@ _none_
 - **T-0051** administer-pages-react  `after: [T-0047]`
 - **T-0053** agent-telemetry-completeness  `after: [T-0045, T-0047]`
 - **T-0054** baseline-items-backend  `after: [T-0047]`
+- **T-0057** onboard-agent-dial-config  `after: [T-0043]`
+- **T-0058** monitor-page-react  `after: [T-0047, T-0055]`
+- **T-0059** machine-details-view  `after: [T-0047]`
+- **T-0061** watchdog-visibility-persistence  `after: [T-0047, T-0050]`
 
 ## Blocked
 _none_

@@ -1,7 +1,7 @@
 ---
 id: T-0059
 title: machine-details-view
-state: ready
+state: merged
 touches: [web/src/pages/MachinesPage.jsx, web/src/hooks/, internal/panel/api.go, internal/panel/machines.go,
           internal/panel/machines_test.go]
 tests: [server]

@@ -1,7 +1,7 @@
 ---
 id: T-0057
 title: onboard-agent-dial-config
-state: ready
+state: merged
 touches: [internal/onboard/ssh.go, cmd/fleet-server/main.go, cmd/fleet-server/enroll.go, internal/onboard/ssh_test.go]
 tests: [server]
 after: [T-0043]
