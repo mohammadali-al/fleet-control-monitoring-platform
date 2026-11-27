@@ -51,6 +51,7 @@ _none_
 - **T-0042** single-domain-default-choice  `after: [T-0039]`
 - **T-0043** enroll-addr-default  `after: [T-0036]`
 - **T-0047** panel-spa-foundation  `after: [T-0040, T-0045]`
+- **T-0052** backend-correctness-cleanup  `after: []`
 
 ## Blocked
 _none_

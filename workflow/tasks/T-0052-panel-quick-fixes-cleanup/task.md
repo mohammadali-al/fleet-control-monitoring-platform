@@ -1,7 +1,7 @@
 ---
 id: T-0052
 title: backend-correctness-cleanup
-state: ready
+state: merged
 touches: [internal/fleet/open.go, internal/agent/evidence.go, internal/panel/evidence.go,
           deploy/systemd/fleet-watchdog-liveness.timer, internal/onboard/ssh.go, internal/watchdog/heartbeat.go,
           internal/panel/evidence_test.go]
