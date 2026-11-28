@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { MachineLabel } from '../components/MachineLabel';
 import { Link } from 'react-router-dom';
 import { useMachines } from '../hooks/useMachines';
 import { api } from '../lib/api';
@@ -652,7 +653,7 @@ export function CommandsPage() {
                           />
                         </label>
                         <div className="list__main">
-                          <b className="mono">{w.id}</b>
+                          <b><MachineLabel machine={w} variant="compact" /></b>
                           <small>{sub}</small>
                         </div>
                         <StateChip state={w.state} />

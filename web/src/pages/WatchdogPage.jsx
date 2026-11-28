@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { MachineLabel } from '../components/MachineLabel';
 import { StatusAlert } from '../components/StatusAlert';
 import { api } from '../lib/api';
+import { useMachines } from '../hooks/useMachines';
 import { useEvents } from '../lib/events';
 import { fmtAgo, fmtDateTime } from '../lib/fmt';
 import { usePageTitle } from '../lib/title';
@@ -73,6 +75,7 @@ export function WatchdogPage() {
   const [status, setStatus] = useState(null);
 
   // Hosts & summary
+  const { machines } = useMachines();
   const [hostsLoaded, setHostsLoaded] = useState(false);
   const [hostsError, setHostsError] = useState('');
   const [summary, setSummary] = useState(null);
@@ -320,6 +323,7 @@ export function WatchdogPage() {
     }
   };
 
+  const machineById = Object.fromEntries(machines.map((m) => [m.id, m]));
   const hostById = Object.fromEntries(hosts.map((h) => [h.machine, h]));
   const selectedEffHost = effTarget !== '__default__' ? hostById[effTarget] : null;
   const eff = selectedEffHost?.effective_policy || policyDoc?.effective;
@@ -476,7 +480,7 @@ export function WatchdogPage() {
                     return (
                       <tr key={h.machine}>
                         <th scope="row" className="cell-primary">
-                          {h.machine}
+                          <MachineLabel machine={machineById[h.machine]} name={h.machine} variant="compact" />
                           <div className="cell-sub">
                             {isMonitor ? 'Monitor agent (headless)' : 'Worker agent'}
                             {h.connection === 'online' ? '' : ` (${h.connection})`}

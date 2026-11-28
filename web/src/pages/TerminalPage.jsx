@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { MachineLabel } from '../components/MachineLabel';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMachines } from '../hooks/useMachines';
 import { api } from '../lib/api';
@@ -693,7 +694,7 @@ export function TerminalPage() {
                   onKeyDown={(e) => handleTabKeyDown(e, idx)}
                 >
                   <svg className="icon icon--sm" aria-hidden="true"><use href="#i-terminal" /></svg>
-                  {`${t.machine} `}
+                  <MachineLabel machine={machines.find((m) => m.id === t.machine)} name={t.machine} variant="compact" />{' '}
                   <span className="faint mono">{t.sessionId || '...'}</span>
                 </button>
               );
