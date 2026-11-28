@@ -846,7 +846,7 @@ export function ProjectsPage() {
                           <th scope="col">Window</th>
                           <th scope="col">Monitor</th>
                           <th scope="col">Result</th>
-                          <th scope="col">Result pointers</th>
+                          <th scope="col">Report &amp; pointers</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -857,6 +857,7 @@ export function ProjectsPage() {
                             tests={grp.tests}
                             projectId={selectedProject.id}
                             onDelete={handleDeleteTest}
+                            onDownloadReport={(t) => pushToast(`Downloading HTML report for "${t.name}".`)}
                             busyKey={busyKey}
                           />
                         ))}
@@ -1184,7 +1185,7 @@ export function ProjectsPage() {
   );
 }
 
-function DateRows({ date, tests, projectId, onDelete, busyKey }) {
+function DateRows({ date, tests, projectId, onDelete, onDownloadReport, busyKey }) {
   return (
     <>
       <tr className="group">
@@ -1195,6 +1196,7 @@ function DateRows({ date, tests, projectId, onDelete, busyKey }) {
           t.started_at && t.ended_at
             ? Math.max(0, new Date(t.ended_at).getTime() - new Date(t.started_at).getTime())
             : null;
+        const reportUrl = `/api/projects/${encodeURIComponent(projectId)}/tests/${encodeURIComponent(t.id)}/report`;
         return (
           <tr key={t.id}>
             <th scope="row" className="cell-primary">
@@ -1224,6 +1226,25 @@ function DateRows({ date, tests, projectId, onDelete, busyKey }) {
             </td>
             <td className="actions">
               <div style={{ display: 'flex', gap: 'var(--sp-1)', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <a
+                  className="btn btn--sm btn--primary"
+                  href={reportUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Open self-contained interactive HTML report in a new tab"
+                >
+                  Report
+                </a>
+                <a
+                  className="btn btn--sm"
+                  href={`${reportUrl}?download=1`}
+                  download={`report-${projectId}-${t.id}.html`}
+                  title="Download self-contained HTML report"
+                  aria-label={`Download report for ${t.name}`}
+                  onClick={() => onDownloadReport?.(t)}
+                >
+                  <svg className="icon icon--sm" aria-hidden="true"><use href="#i-download" /></svg>
+                </a>
                 {t.result_pointers?.evidence && (
                   <Link className="btn btn--sm" to="/evidence" title={`Evidence window from ${fmtTime(t.result_pointers.evidence.from)}`}>
                     Evidence
