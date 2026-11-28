@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/backup"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/fleet"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/onboard"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/registry"
-	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/version"
 )
 
 // Backend is what the live pages need from the main server. *fleet.Manager
@@ -27,6 +27,8 @@ type Backend interface {
 	Reprovision(ctx context.Context, id string, creds fleet.Credentials) (fleet.MachineInfo, *onboard.Result, error)
 	Remove(ctx context.Context, id string, creds fleet.Credentials, skipRemote bool) error
 	RefreshPublicIP(ctx context.Context, machine string) error
+	UpdateAgent(ctx context.Context, machine string) (fleet.AgentUpdateOutcome, error)
+	UpdateOutdated(ctx context.Context, workersOnly bool) []fleet.AgentUpdateOutcome
 
 	Preflight(machine, command string) error
 	Submit(req fleet.SubmitRequest) (string, error)
@@ -58,6 +60,8 @@ func (s *server) routesAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/machines/{id}/reprovision", s.live(s.reprovisionMachine))
 	mux.HandleFunc("POST /api/machines/{id}/remove", s.live(s.removeMachine))
 	mux.HandleFunc("POST /api/machines/{id}/refresh-public-ip", s.live(s.refreshPublicIP))
+	mux.HandleFunc("POST /api/machines/{id}/update", s.live(s.updateMachine))
+	mux.HandleFunc("POST /api/machines/update-outdated", s.live(s.updateOutdatedMachines))
 
 	mux.HandleFunc("GET /api/commands", s.live(s.listCommands))
 	mux.HandleFunc("POST /api/commands", s.live(s.submitCommands))
@@ -144,7 +148,7 @@ func statusFor(err error) int {
 	switch {
 	case errors.As(err, &cr):
 		return http.StatusConflict
-	case errors.Is(err, fleet.ErrUnavailable), errors.Is(err, onboard.ErrAgentBinaryMissing):
+	case errors.Is(err, fleet.ErrUnavailable), errors.Is(err, onboard.ErrAgentBinaryMissing), errors.Is(err, config.ErrAgentBinaryUnavailable):
 		return http.StatusServiceUnavailable
 	case errors.Is(err, fleet.ErrUnknown), errors.Is(err, registry.ErrNotFound):
 		return http.StatusNotFound
@@ -182,7 +186,7 @@ func (s *server) listMachines(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, machinesResponse{
 		Machines:      ms,
 		Summary:       fleet.Summarize(ms),
-		ServerVersion: version.Version,
+		ServerVersion: s.serverVersion(),
 	})
 }
 

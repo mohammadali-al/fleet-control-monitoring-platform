@@ -192,9 +192,33 @@ function isAgentOutdated(machine, serverVersion) {
   return machine.state === 'online';
 }
 
+function isAgentUpdateInProgress(upd) {
+  return Boolean(upd && (upd.status === 'requested' || upd.status === 'downloading' || upd.status === 'applying'));
+}
+
+function formatUpdateStatus(upd) {
+  if (!upd || !upd.status) return '';
+  switch (upd.status) {
+    case 'requested':
+      return 'Update requested...';
+    case 'downloading':
+      return 'Downloading update...';
+    case 'applying':
+      return 'Applying & restarting...';
+    case 'ok':
+      return upd.target_version ? `Updated to ${upd.target_version}` : 'Updated';
+    case 'failed':
+      return upd.error ? `Update failed: ${upd.error}` : 'Update failed';
+    default:
+      return upd.status;
+  }
+}
+
 function VersionCell({ machine, serverVersion }) {
   const outdated = isAgentOutdated(machine, serverVersion);
   const ver = machine?.agent_version;
+  const upd = machine?.agent_update;
+  const updText = formatUpdateStatus(upd);
   return (
     <div>
       <div className="row" style={{ gap: 'var(--sp-1)', flexWrap: 'wrap' }}>
@@ -210,11 +234,33 @@ function VersionCell({ machine, serverVersion }) {
           </span>
         )}
       </div>
+      {updText && (
+        <div
+          className="cell-sub"
+          style={upd?.status === 'failed' ? { color: 'var(--danger)' } : undefined}
+          title={upd?.error || undefined}
+        >
+          {updText}
+        </div>
+      )}
     </div>
   );
 }
 
-function MachineDetailsDrawer({ machineId, machine, watchdog, serverVersion, loading, error, notFound, closeBtnRef, onClose, onGroupsSaved }) {
+function MachineDetailsDrawer({
+  machineId,
+  machine,
+  watchdog,
+  serverVersion,
+  loading,
+  error,
+  notFound,
+  closeBtnRef,
+  onClose,
+  onGroupsSaved,
+  onUpdateAgent,
+  updating,
+}) {
   const [groupDraft, setGroupDraft] = useState([]);
   const [groupInput, setGroupInput] = useState('');
   const [groupDirty, setGroupDirty] = useState(false);
@@ -437,6 +483,19 @@ function MachineDetailsDrawer({ machineId, machine, watchdog, serverVersion, loa
                     </dd>
                     <dt style={DETAIL_DT_STYLE}>Server version</dt>
                     <dd className="mono" style={DETAIL_DD_STYLE}>{serverVersion || 'Unknown'}</dd>
+                    {machine.agent_update && (
+                      <>
+                        <dt style={DETAIL_DT_STYLE}>Update status</dt>
+                        <dd
+                          style={{
+                            ...DETAIL_DD_STYLE,
+                            color: machine.agent_update.status === 'failed' ? 'var(--danger)' : undefined,
+                          }}
+                        >
+                          {formatUpdateStatus(machine.agent_update)}
+                        </dd>
+                      </>
+                    )}
                     <dt style={DETAIL_DT_STYLE}>Last seen</dt>
                     <dd style={DETAIL_DD_STYLE}>
                       {machine.last_seen ? `${fmtAgo(machine.last_seen)} (${fmtDateTime(machine.last_seen)})` : 'Never'}
@@ -450,6 +509,31 @@ function MachineDetailsDrawer({ machineId, machine, watchdog, serverVersion, loa
                       </>
                     )}
                   </dl>
+                  {!machine.removed && (
+                    <div className="row row--between" style={{ marginTop: 'var(--sp-3)', gap: 'var(--sp-2)' }}>
+                      <span className="muted" style={{ fontSize: 'var(--fs-xs)' }}>
+                        {machine.state !== 'online'
+                          ? `Agent must be online to update (${machine.state}).`
+                          : isAgentOutdated(machine, serverVersion)
+                            ? `Update available (${serverVersion}).`
+                            : 'Agent matches the server version.'}
+                      </span>
+                      <button
+                        className="btn btn--sm btn--primary"
+                        type="button"
+                        disabled={
+                          updating ||
+                          machine.state !== 'online' ||
+                          !isAgentOutdated(machine, serverVersion) ||
+                          isAgentUpdateInProgress(machine.agent_update)
+                        }
+                        onClick={() => onUpdateAgent && onUpdateAgent(machine.id)}
+                      >
+                        <svg className="icon icon--sm" aria-hidden="true"><use href="#i-upload" /></svg>
+                        {updating || isAgentUpdateInProgress(machine.agent_update) ? 'Updating...' : 'Update agent'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </section>
 
@@ -800,6 +884,10 @@ export function MachinesPage() {
   const [refreshingIds, setRefreshingIds] = useState(() => new Set());
   const [bulkRefreshing, setBulkRefreshing] = useState(false);
 
+  // Agent self-update state (per-row and bulk)
+  const [updatingIds, setUpdatingIds] = useState(() => new Set());
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+
   // Onboard form state
   const [onboardForm, setOnboardForm] = useState({
     host: '',
@@ -1073,6 +1161,55 @@ export function MachinesPage() {
     refresh();
   }
 
+  async function updateMachineOne(id) {
+    setUpdatingIds((prev) => new Set(prev).add(id));
+    const r = await api('POST', `/api/machines/${encodeURIComponent(id)}/update`, {});
+    setUpdatingIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    if (!r.ok) {
+      pushToast(r.data.error || `Agent update failed for ${id} (${r.status}).`);
+      return;
+    }
+    if (r.data.status === 'noop') {
+      pushToast(`${id} is already on version ${r.data.target_version}.`);
+    } else {
+      pushToast(`Update to ${r.data.target_version} started for ${id}.`);
+    }
+    refresh();
+    if (detailsId === id) refreshDetails();
+  }
+
+  async function updateOutdatedAll() {
+    const targets = machines.filter(
+      (m) => !m.removed && m.state === 'online' && isAgentOutdated(m, serverVersion)
+    );
+    if (targets.length === 0) {
+      pushToast('No online outdated agents to update.');
+      return;
+    }
+    setBulkUpdating(true);
+    const r = await api('POST', '/api/machines/update-outdated', {});
+    setBulkUpdating(false);
+    if (!r.ok) {
+      pushToast(r.data.error || `Bulk agent update failed (${r.status}).`);
+      return;
+    }
+    const dispatched = r.data.dispatched || 0;
+    const failed = r.data.failed || 0;
+    if (dispatched === 0 && failed === 0) {
+      pushToast('All online agents are already up to date.');
+    } else if (failed === 0) {
+      pushToast(`Started agent update on ${dispatched} outdated machine${dispatched === 1 ? '' : 's'}.`);
+    } else {
+      pushToast(`Started update on ${dispatched} machine(s); ${failed} failed to dispatch.`);
+    }
+    refresh();
+    if (detailsId) refreshDetails();
+  }
+
   async function handleOnboardSubmit(e) {
     e.preventDefault();
     const useKey = onboardForm.auth === 'key';
@@ -1238,6 +1375,9 @@ export function MachinesPage() {
   if (diskWarn.length) diskAlertParts.push(`warning: ${diskWarn.join(', ')}`);
   if (diskCritical.length) diskAlertParts.push(`intake paused: ${diskCritical.join(', ')}`);
   const hasDiskReports = machines.some((m) => !m.removed && (m.disk?.total_bytes > 0 || Boolean(m.disk?.status)));
+  const outdatedOnlineCount = machines.filter(
+    (m) => !m.removed && m.state === 'online' && isAgentOutdated(m, serverVersion)
+  ).length;
 
   const activeMenuMachine = openMenu ? machines.find((m) => m.id === openMenu.id) : null;
 
@@ -1252,6 +1392,20 @@ export function MachinesPage() {
           </p>
         </div>
         <div className="page-head__actions">
+          <button
+            className="btn"
+            type="button"
+            disabled={bulkUpdating || noBackend}
+            title={serverVersion ? `Update online agents not on ${serverVersion}` : 'Update outdated agents'}
+            onClick={updateOutdatedAll}
+          >
+            <svg className="icon" aria-hidden="true"><use href="#i-upload" /></svg>
+            {bulkUpdating
+              ? 'Updating agents...'
+              : outdatedOnlineCount > 0
+                ? `Update outdated (${outdatedOnlineCount})`
+                : 'Update outdated'}
+          </button>
           <button
             className="btn"
             type="button"
@@ -1788,6 +1942,18 @@ export function MachinesPage() {
                       <td className="actions">
                         {!m.removed && (
                           <>
+                            {m.state === 'online' && isAgentOutdated(m, serverVersion) && (
+                              <button
+                                className="icon-btn icon-btn--sm"
+                                type="button"
+                                aria-label={`Update agent on ${m.id}`}
+                                title={`Update agent to ${serverVersion}`}
+                                disabled={updatingIds.has(m.id) || isAgentUpdateInProgress(m.agent_update)}
+                                onClick={() => updateMachineOne(m.id)}
+                              >
+                                <svg className="icon" aria-hidden="true"><use href="#i-upload" /></svg>
+                              </button>
+                            )}
                             <button
                               className="icon-btn icon-btn--sm"
                               type="button"
@@ -1891,6 +2057,26 @@ export function MachinesPage() {
           >
             Details &amp; groups
           </button>
+          {!activeMenuMachine.removed && (
+            <button
+              className="menu__item"
+              role="menuitem"
+              type="button"
+              disabled={
+                activeMenuMachine.state !== 'online' ||
+                !isAgentOutdated(activeMenuMachine, serverVersion) ||
+                updatingIds.has(activeMenuMachine.id) ||
+                isAgentUpdateInProgress(activeMenuMachine.agent_update)
+              }
+              onClick={() => {
+                const id = activeMenuMachine.id;
+                setOpenMenu(null);
+                updateMachineOne(id);
+              }}
+            >
+              Update agent
+            </button>
+          )}
           <button
             className="menu__item"
             role="menuitem"
@@ -2145,6 +2331,8 @@ export function MachinesPage() {
         notFound={detailsNotFound}
         closeBtnRef={detailsCloseBtnRef}
         onClose={closeDetails}
+        updating={Boolean(detailsId && updatingIds.has(detailsId))}
+        onUpdateAgent={(id) => updateMachineOne(id)}
         onGroupsSaved={(groups) => {
           pushToast(
             groups.length
