@@ -3,9 +3,14 @@ import { Link } from 'react-router-dom';
 import { StatusAlert } from '../components/StatusAlert';
 import { useMachines } from '../hooks/useMachines';
 import { useMonitor } from '../hooks/useMonitor';
+import { useTheme } from '../lib/theme';
 import { usePageTitle } from '../lib/title';
 
 const DASH_ARRAYS = ['', '6 3', '2 3', '8 3 2 3', '1 4'];
+const GRAFANA_DASHBOARDS = [
+  { uid: 'fleet-overview', slug: 'fleet-monitor-overview', label: 'Fleet Monitor — Overview' },
+  { uid: 'fleet-agents', slug: 'fleet-monitor-per-agent-breakdown', label: 'Fleet Monitor — Per-Agent Breakdown' },
+];
 const PROBE_TYPES = [
   { id: 'icmp', label: 'ICMP', hint: 'Echo to IP' },
   { id: 'tcp', label: 'TCP', hint: 'Connect to origin host:port' },
@@ -76,6 +81,7 @@ function HoverTip({ tip }) {
 export function MonitorPage() {
   usePageTitle('Monitor data');
 
+  const { theme } = useTheme();
   const { summary: machinesSummary } = useMachines();
   const {
     win,
@@ -98,9 +104,12 @@ export function MonitorPage() {
     setTargetInterval,
   } = useMonitor();
 
-  const [activeTab, setActiveTab] = useState('live'); // 'live' | 'cfg'
+  const [activeTab, setActiveTab] = useState('live'); // 'live' | 'grafana' | 'cfg'
   const tabRefs = useRef({});
   const [status, setStatus] = useState(null);
+  const [grafanaDashUid, setGrafanaDashUid] = useState(GRAFANA_DASHBOARDS[0].uid);
+  const [grafanaMounted, setGrafanaMounted] = useState(false);
+  const [grafanaNonce, setGrafanaNonce] = useState(0);
 
   // Live chart filters
   const [view, setView] = useState('merged'); // 'merged' | 'machine' | 'target'
@@ -403,7 +412,7 @@ export function MonitorPage() {
   const hideTip = useCallback(() => setTip(null), []);
 
   const handleTabKeyDown = (e) => {
-    const order = ['live', 'cfg'];
+    const order = ['live', 'grafana', 'cfg'];
     const idx = order.indexOf(activeTab);
     let next = null;
     if (e.key === 'ArrowRight') next = order[(idx + 1) % order.length];
@@ -413,6 +422,7 @@ export function MonitorPage() {
     if (next) {
       e.preventDefault();
       setActiveTab(next);
+      if (next === 'grafana') setGrafanaMounted(true);
       if (next === 'cfg') loadConfig();
       tabRefs.current[next]?.focus();
     }
@@ -539,6 +549,11 @@ export function MonitorPage() {
   const configJobs = config?.jobs || [];
   const configAgents = config?.agents || [];
 
+  const grafanaDash = GRAFANA_DASHBOARDS.find((d) => d.uid === grafanaDashUid) || GRAFANA_DASHBOARDS[0];
+  const gfTheme = theme === 'light' ? 'light' : 'dark';
+  const grafanaBaseUrl = `/grafana/d/${grafanaDash.uid}/${grafanaDash.slug}?orgId=1&theme=${gfTheme}`;
+  const grafanaEmbedUrl = `${grafanaBaseUrl}&kiosk`;
+
   return (
     <>
       <HoverTip tip={tip} />
@@ -593,6 +608,28 @@ export function MonitorPage() {
               <use href="#i-activity" />
             </svg>
             Live
+          </button>
+          <button
+            ref={(el) => {
+              tabRefs.current.grafana = el;
+            }}
+            className="tab"
+            role="tab"
+            id="mtab-grafana"
+            aria-controls="mp-grafana"
+            aria-selected={String(activeTab === 'grafana')}
+            tabIndex={activeTab === 'grafana' ? 0 : -1}
+            type="button"
+            onClick={() => {
+              setActiveTab('grafana');
+              setGrafanaMounted(true);
+            }}
+            onKeyDown={handleTabKeyDown}
+          >
+            <svg className="icon icon--sm" aria-hidden="true">
+              <use href="#i-grid" />
+            </svg>
+            Grafana
           </button>
           <button
             ref={(el) => {
@@ -924,6 +961,84 @@ export function MonitorPage() {
                 </table>
               </div>
             </details>
+          </div>
+        </div>
+
+        {/* ================= GRAFANA ================= */}
+        <div
+          className="card__body tabpanel"
+          role="tabpanel"
+          id="mp-grafana"
+          aria-labelledby="mtab-grafana"
+          hidden={activeTab !== 'grafana'}
+        >
+          <div className="stack">
+            <div className="row row--between">
+              <div className="row">
+                <label className="sr-only" htmlFor="gf-dash">
+                  Grafana dashboard
+                </label>
+                <select
+                  className="select"
+                  id="gf-dash"
+                  style={{ width: 'auto' }}
+                  value={grafanaDash.uid}
+                  onChange={(e) => setGrafanaDashUid(e.target.value)}
+                >
+                  {GRAFANA_DASHBOARDS.map((d) => (
+                    <option key={d.uid} value={d.uid}>
+                      {d.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="row">
+                <button
+                  className="btn"
+                  type="button"
+                  id="gf-reload"
+                  onClick={() => setGrafanaNonce((n) => n + 1)}
+                >
+                  <svg className="icon" aria-hidden="true">
+                    <use href="#i-refresh" />
+                  </svg>
+                  <span>Reload</span>
+                </button>
+                <a
+                  className="btn"
+                  href={grafanaBaseUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <svg className="icon" aria-hidden="true">
+                    <use href="#i-arrow" />
+                  </svg>
+                  <span>Open in Grafana</span>
+                </a>
+              </div>
+            </div>
+
+            {grafanaMounted && (
+              <iframe
+                key={`${grafanaDash.uid}-${gfTheme}-${grafanaNonce}`}
+                id="gf-frame"
+                title={`Grafana: ${grafanaDash.label}`}
+                src={grafanaEmbedUrl}
+                style={{
+                  width: '100%',
+                  height: '70vh',
+                  minHeight: '34rem',
+                  border: '1.5px solid var(--border-strong)',
+                  borderRadius: 'var(--radius)',
+                  background: 'var(--surface-2)',
+                }}
+              />
+            )}
+
+            <p className="field__hint">
+              Embedded under <code>/grafana</code> using the panel&apos;s Authelia SSO session, backed by the
+              VictoriaMetrics time-series store.
+            </p>
           </div>
         </div>
 

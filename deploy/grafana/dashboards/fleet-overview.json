@@ -1,0 +1,362 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": ["fleet"],
+      "targetBlank": false,
+      "title": "Fleet Dashboards",
+      "type": "dashboards"
+    }
+  ],
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "fleet-victoriametrics" },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2,
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 95 },
+              { "color": "green", "value": 99 }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "fleet-victoriametrics" },
+          "expr": "100 * avg(fleet_probe_ok{target=~\"$target\",agent=~\"$agent\",type=~\"$type\"})",
+          "legendFormat": "Availability",
+          "refId": "A"
+        }
+      ],
+      "title": "Availability",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "fleet-victoriametrics" },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 250 },
+              { "color": "red", "value": 1000 }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "fleet-victoriametrics" },
+          "expr": "quantile(0.5, fleet_probe_latency_ms{target=~\"$target\",agent=~\"$agent\",type=~\"$type\"})",
+          "legendFormat": "Median",
+          "refId": "A"
+        }
+      ],
+      "title": "Median Latency",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "fleet-victoriametrics" },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 500 },
+              { "color": "red", "value": 1500 }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "fleet-victoriametrics" },
+          "expr": "quantile(0.95, fleet_probe_latency_ms{target=~\"$target\",agent=~\"$agent\",type=~\"$type\"})",
+          "legendFormat": "P95",
+          "refId": "A"
+        }
+      ],
+      "title": "P95 Latency",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "fleet-victoriametrics" },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "fleet-victoriametrics" },
+          "expr": "count(count by (agent, target, type) (fleet_probe_ok{target=~\"$target\",agent=~\"$agent\",type=~\"$type\"}))",
+          "legendFormat": "Series",
+          "refId": "A"
+        }
+      ],
+      "title": "Active Probe Series",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "fleet-victoriametrics" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 4 },
+      "id": 5,
+      "options": {
+        "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "fleet-victoriametrics" },
+          "expr": "avg by (target, type) (fleet_probe_latency_ms{target=~\"$target\",agent=~\"$agent\",type=~\"$type\"})",
+          "legendFormat": "{{target}} ({{type}})",
+          "refId": "A"
+        }
+      ],
+      "title": "Response Latency by Target",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "fleet-victoriametrics" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "max": 100,
+          "min": 0,
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 4 },
+      "id": 6,
+      "options": {
+        "legend": { "calcs": ["mean", "min"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "asc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "fleet-victoriametrics" },
+          "expr": "100 * avg by (target, type) (fleet_probe_ok{target=~\"$target\",agent=~\"$agent\",type=~\"$type\"})",
+          "legendFormat": "{{target}} ({{type}})",
+          "refId": "A"
+        }
+      ],
+      "title": "Probe Availability by Target",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "fleet-victoriametrics" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "max": 100,
+          "min": 0,
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 13 },
+      "id": 7,
+      "options": {
+        "legend": { "calcs": ["mean", "max"], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "fleet-victoriametrics" },
+          "expr": "100 * avg by (target, agent) (fleet_probe_loss_ratio{target=~\"$target\",agent=~\"$agent\"})",
+          "legendFormat": "{{target}} · {{agent}}",
+          "refId": "A"
+        }
+      ],
+      "title": "ICMP Packet Loss",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "fleet-victoriametrics" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 4,
+            "showPoints": "always"
+          },
+          "decimals": 0,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 13 },
+      "id": 8,
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "fleet-victoriametrics" },
+          "expr": "max by (target, agent) (fleet_probe_status_code{target=~\"$target\",agent=~\"$agent\"})",
+          "legendFormat": "{{target}} · {{agent}}",
+          "refId": "A"
+        }
+      ],
+      "title": "HTTP Status Codes",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "tags": ["fleet", "monitor", "probes"],
+  "templating": {
+    "list": [
+      {
+        "allValue": ".*",
+        "current": { "selected": true, "text": ["All"], "value": ["$__all"] },
+        "datasource": { "type": "prometheus", "uid": "fleet-victoriametrics" },
+        "definition": "label_values(fleet_probe_ok, target)",
+        "includeAll": true,
+        "label": "Target",
+        "multi": true,
+        "name": "target",
+        "query": { "qryType": 1, "query": "label_values(fleet_probe_ok, target)" },
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": { "selected": true, "text": ["All"], "value": ["$__all"] },
+        "datasource": { "type": "prometheus", "uid": "fleet-victoriametrics" },
+        "definition": "label_values(fleet_probe_ok, agent)",
+        "includeAll": true,
+        "label": "Monitor Agent",
+        "multi": true,
+        "name": "agent",
+        "query": { "qryType": 1, "query": "label_values(fleet_probe_ok, agent)" },
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": { "selected": true, "text": ["All"], "value": ["$__all"] },
+        "datasource": { "type": "prometheus", "uid": "fleet-victoriametrics" },
+        "definition": "label_values(fleet_probe_ok, type)",
+        "includeAll": true,
+        "label": "Probe Type",
+        "multi": true,
+        "name": "type",
+        "query": { "qryType": 1, "query": "label_values(fleet_probe_ok, type)" },
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timezone": "browser",
+  "title": "Fleet Monitor — Overview",
+  "uid": "fleet-overview",
+  "version": 1
+}

@@ -11,14 +11,22 @@
 #
 # Single-domain option (see --single-domain in deploy/install-server.sh):
 # Instead of a separate auth.fleet.internal server block, serve Authelia under
-# /authelia on the panel domain (note: /authelia* is the single reserved panel
-# path and must not be served by fleet-server):
+# /authelia on the panel domain (note: /authelia* and /grafana* are reserved
+# panel paths and must not be served by fleet-server):
 #
 # fleet.internal {
 # 	tls /certs/tls.crt /certs/tls.key
 #
 # 	handle /authelia* {
 # 		reverse_proxy 127.0.0.1:9091
+# 	}
+#
+# 	handle /grafana* {
+# 		forward_auth 127.0.0.1:9091 {
+# 			uri /authelia/api/authz/forward-auth
+# 			copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
+# 		}
+# 		reverse_proxy 127.0.0.1:3000
 # 	}
 #
 # 	handle {
@@ -44,17 +52,28 @@ auth.fleet.internal {
 fleet.internal {
 	tls /certs/tls.crt /certs/tls.key
 
-	forward_auth 127.0.0.1:9091 {
-		uri /api/authz/forward-auth
-		# Authelia's answer becomes these request headers for fleet-server.
-		# Caddy replaces any Remote-* header a client sent itself with the
-		# value Authelia returned (or removes it), so a client cannot forge
-		# the operator name.
-		copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
+	# Embedded Grafana subpath (shares the panel Authelia session via Remote-User).
+	handle /grafana* {
+		forward_auth 127.0.0.1:9091 {
+			uri /api/authz/forward-auth
+			copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
+		}
+		reverse_proxy 127.0.0.1:3000
 	}
 
-	# Plain proxying keeps the Host header, which the panel's WebSocket
-	# endpoints require to match the browser's Origin; WebSocket upgrades
-	# (live updates, shell) pass through unchanged.
-	reverse_proxy 127.0.0.1:6789
+	handle {
+		forward_auth 127.0.0.1:9091 {
+			uri /api/authz/forward-auth
+			# Authelia's answer becomes these request headers for fleet-server.
+			# Caddy replaces any Remote-* header a client sent itself with the
+			# value Authelia returned (or removes it), so a client cannot forge
+			# the operator name.
+			copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
+		}
+
+		# Plain proxying keeps the Host header, which the panel's WebSocket
+		# endpoints require to match the browser's Origin; WebSocket upgrades
+		# (live updates, shell) pass through unchanged.
+		reverse_proxy 127.0.0.1:6789
+	}
 }

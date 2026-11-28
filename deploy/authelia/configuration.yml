@@ -41,6 +41,11 @@ authentication_backend:
 access_control:
   default_policy: 'deny'
   rules:
+    # Embedded Grafana subpath shares the same 2FA panel session.
+    - domain: 'fleet.internal'
+      resources:
+        - '^/grafana(/.*)?$'
+      policy: 'two_factor'
     # Every request to the panel needs password + TOTP.
     - domain: 'fleet.internal'
       policy: 'two_factor'

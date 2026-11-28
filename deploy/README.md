@@ -1,11 +1,12 @@
 # Deploying the Fleet main server
 
-Reference deployment for the Fleet main server: `fleet-server` as a systemd service bound to loopback (`127.0.0.1:6789`) behind a TLS + 2FA auth proxy (Caddy + Authelia). The panel keeps no accounts of its own (D-0004); it trusts the `Remote-User` header forwarded by the proxy.
+Reference deployment for the Fleet main server: `fleet-server` as a systemd service bound to loopback (`127.0.0.1:6789`) behind a TLS + 2FA auth proxy (Caddy + Authelia), paired with loopback VictoriaMetrics (`127.0.0.1:8428`) and Grafana (`127.0.0.1:3000`) served under `/grafana` with shared Authelia SSO. The panel keeps no accounts of its own (D-0004); it trusts the `Remote-User` header forwarded by the proxy.
 
 ```
 operator browser --HTTPS--> Caddy :443 --forward auth--> Authelia 127.0.0.1:9091
                                |  (password + TOTP; sets Remote-User)
-                               +--HTTP, loopback only--> fleet-server 127.0.0.1:6789
+                               +--/grafana* (HTTP, loopback)--> Grafana 127.0.0.1:3000 --> VictoriaMetrics 127.0.0.1:8428
+                               +--/*        (HTTP, loopback)--> fleet-server 127.0.0.1:6789
 
 fleet-server --mTLS (internal CA), server_dial--> fleet-agent <machine IP>:7443   (not via the proxy)
 fleet-agent  --mTLS (internal CA), agent_dial---> fleet-server :7444             (token-enrolled agents)
@@ -21,6 +22,8 @@ fleet-server --SSH, onboarding only-----------> new machine :22
 | Server config & env | `/etc/fleet-server/config.json`, `fleet-server.env`, `install-answers.env` | Live files never overwritten on upgrade (`*.example` updated alongside) |
 | Server data dir (`FLEET_DATA_DIR`) | `/var/lib/fleet-server` | Registry, `ca/` (**CA private key**), `SCHEMA_VERSION`, backups |
 | `fleet-agent` binaries | `/usr/local/share/fleet/agents/fleet-agent-<os>-<arch>` & `/usr/local/share/fleet/fleet-agent` | Multi-platform (`server.agent_binary_dir`) + host fallback |
+| VictoriaMetrics binary, unit & data | `/usr/local/bin/victoria-metrics`, `/etc/systemd/system/fleet-victoriametrics.service`, `/var/lib/fleet-victoriametrics` | Loopback `127.0.0.1:8428` (`fleet-tsdb` user; `90d` default retention) |
+| Grafana binary, unit, config & data | `/usr/local/share/grafana` (`/usr/local/bin/grafana`), `/etc/systemd/system/fleet-grafana.service`, `/etc/fleet-grafana/`, `/var/lib/fleet-grafana` | Loopback `127.0.0.1:3000` (`fleet-grafana` user); provisioned VictoriaMetrics datasource + default `fleet_probe_*` dashboards; embedded in **Monitor data → Grafana** with shared Authelia SSO (`Remote-User`) |
 | Proxy home | `/opt/fleet/proxy/` | `compose.yml`, `Caddyfile`, `authelia/configuration.yml` (+ `*.example`) |
 | Proxy mutable state | `/var/lib/fleet-proxy/` | `certs/`, `secrets/`, `authelia/` (`users.yml`, `db.sqlite3`), `caddy/` |
 | Proxy systemd unit(s) | `/etc/systemd/system/fleet-proxy.service` | Native `fleet-caddy` + `fleet-authelia` (`--proxy=native`, default) or Docker Compose (`--proxy=docker`) |
@@ -28,7 +31,7 @@ fleet-server --SSH, onboarding only-----------> new machine :22
 
 ## Prerequisites
 
-See [`deploy/REQUIREMENTS.md`](REQUIREMENTS.md) for the full host matrix, ports, and pinned Caddy (`2.10.0`) / Authelia (`4.39.27`) versions.
+See [`deploy/REQUIREMENTS.md`](REQUIREMENTS.md) for the full host matrix, ports, and pinned Caddy (`2.10.0`), Authelia (`4.39.27`), VictoriaMetrics (`1.157.0`), and Grafana (`11.6.1`) versions.
 
 - Linux host with `systemd`, root access, unified **cgroup v2**, **nftables**, `openssl`, and at least 2 GiB free on `/var/lib`.
 - No Docker needed for the default `--proxy=native` mode (standalone Caddy + Authelia binaries). Use `--proxy=docker` for the Compose container stack, which then needs Docker + Compose v2.
@@ -51,7 +54,7 @@ curl -fsSL https://raw.githubusercontent.com/mohammadali-al/fleet-control-monito
 Options:
 - `--check`: run preflight checks only.
 - `--proxy=native|docker`: native Caddy+Authelia binaries (default) or the Docker Compose proxy stack (`--proxy=docker`).
-- `--single-domain` / `--two-domain`: skip the interactive DNS layout prompt (which asks and defaults to one domain) and force single-domain mode (`--single-domain`, also the `--non-interactive` / no-TTY default: **one** DNS name serving Authelia under `https://<panel-domain>/authelia`) or two-subdomain mode (`--two-domain`: separate `auth.<panel-domain>` subdomain). In single-domain mode, `/authelia*` is the single reserved panel path (covering the Authelia portal, API, and `/authelia/api/authz/forward-auth`), and `fleet-server` must never serve `/authelia*`.
+- `--single-domain` / `--two-domain`: skip the interactive DNS layout prompt (which asks and defaults to one domain) and force single-domain mode (`--single-domain`, also the `--non-interactive` / no-TTY default: **one** DNS name serving Authelia under `https://<panel-domain>/authelia`) or two-subdomain mode (`--two-domain`: separate `auth.<panel-domain>` subdomain). In single-domain mode, `/authelia*` is reserved for Authelia (and `/grafana*` is reserved in both modes for embedded Grafana); `fleet-server` never serves either path.
 - `--yes` / `--no-install`: auto-approve or skip OS package installation.
 - `--answers FILE` / `--non-interactive`: supply answers from an env file without prompting. Non-secret answers (including `FLEET_DOMAIN_MODE=single|two`) are saved to `/etc/fleet-server/install-answers.env` for future upgrades.
 - `--tls-mode internal|acme`: generate an internal self-signed SAN cert (`internal`) or obtain public Let's Encrypt certs via Caddy (`acme`).
@@ -142,11 +145,11 @@ Common options:
 
 ## Operations notes
 
-- **Logs:** `journalctl -u fleet-server -f`, `journalctl -u fleet-proxy -f` (or `docker compose -f /opt/fleet/proxy/compose.yml logs -f`).
+- **Logs:** `journalctl -u fleet-server -f`, `journalctl -u fleet-grafana -f`, `journalctl -u fleet-victoriametrics -f`, `journalctl -u fleet-proxy -f` (or `docker compose -f /opt/fleet/proxy/compose.yml logs -f`).
 - **Brute-force protection:** Authelia bans a user for 10 minutes after 5 failed logins in 2 minutes (`regulation` in `/opt/fleet/proxy/authelia/configuration.yml`).
 - **Additional users:** Edit `/var/lib/fleet-proxy/authelia/users.yml` and generate argon2id hashes with `docker run --rm authelia/authelia:4.39.27 authelia crypto hash generate argon2 --password '...'` (or `/usr/local/bin/authelia` in native mode).
-- **Keep `fleet-server` on loopback:** The panel trusts `Remote-User` from the proxy; never expose `:6789` or `:9091` externally.
-- **Reserved path (`--single-domain`):** When hosting Authelia on the panel domain, `/authelia*` is reserved exclusively for Authelia (portal, API, and `/authelia/api/authz/forward-auth`); `fleet-server` must never define routes under `/authelia*`.
+- **Keep `fleet-server`, `victoria-metrics`, and `grafana` on loopback:** The panel and Grafana trust `Remote-User` from the proxy; never expose `:6789`, `:3000`, `:8428`, or `:9091` externally.
+- **Reserved paths:** `/grafana*` is reserved for Grafana (in both single-domain and two-domain modes, proxied with Authelia `forward_auth` and embedded in **Monitor data → Grafana**), and `/authelia*` is reserved in `--single-domain` mode for Authelia; `fleet-server` must never serve either prefix.
 
 ## Alternative: Pomerium instead of Authelia
 
