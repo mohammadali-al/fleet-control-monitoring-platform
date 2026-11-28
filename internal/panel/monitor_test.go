@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -304,6 +305,7 @@ func TestMonitorSPARouteInBundle(t *testing.T) {
 	for _, want := range []string{
 		"Monitor data",
 		"/api/monitor/live",
+		"/api/monitor/history",
 		"/api/monitor/config",
 		"/api/monitor/jobs",
 		"/api/monitor/settings",
@@ -311,6 +313,7 @@ func TestMonitorSPARouteInBundle(t *testing.T) {
 		"Probe types",
 		"DNS query name",
 		"Packets in interval",
+		"Semantic zoom",
 	} {
 		if !strings.Contains(js, want) {
 			t.Errorf("SPA bundle lacks %q", want)
@@ -322,6 +325,95 @@ func TestMonitorSPARouteInBundle(t *testing.T) {
 	} {
 		if strings.Contains(js, outOfScope) {
 			t.Errorf("SPA bundle unexpectedly contains out-of-scope copy %q", outOfScope)
+		}
+	}
+}
+
+func TestMonitorHistoryAutoStepAndAggregateMean(t *testing.T) {
+	vmSrv := startPanelFakeVM(t)
+	e := newObsEnv(t, func(_ *obsEnv, o *fleet.Observe) {
+		vm, err := monitor.NewVMStore(monitor.VMStoreConfig{Addr: vmSrv.URL, Retention: "90d"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		o.Store = vm
+	})
+	e.waitState("mon1", fleet.StateOnline)
+
+	var created struct{ Job monitor.Job }
+	if code, _ := e.req("POST", "/api/monitor/jobs", map[string]any{
+		"url":         "https://hist.example.test/health",
+		"ip":          "198.51.100.30",
+		"probe_types": []string{"icmp", "http"},
+	}, &created); code != http.StatusCreated {
+		t.Fatalf("create job = %d", code)
+	}
+	job := created.Job
+	icmpTarget := job.ID + "/icmp"
+	httpTarget := job.ID + "/http/0"
+
+	now := time.Now().UTC().Truncate(time.Second)
+	t1 := now.Add(-48 * time.Hour)
+	t2 := now.Add(-2 * time.Hour)
+	e.link("mon1").h(context.Background(), monDataEnvelope(t, 1,
+		probe.Result{TargetID: icmpTarget, Type: probe.TypeICMP, Time: t1, OK: true, Latency: 10 * time.Millisecond},
+		probe.Result{TargetID: httpTarget, Type: probe.TypeHTTP, Time: t1, OK: true, Latency: 30 * time.Millisecond, Status: 200},
+		probe.Result{TargetID: icmpTarget, Type: probe.TypeICMP, Time: t2, OK: true, Latency: 20 * time.Millisecond},
+	))
+
+	// step=auto over 7d selects a coarse step (3600s for max_points=168) and aggregate=mean merges series.
+	q := url.Values{}
+	q.Set("metric", "latency_ms")
+	q.Set("from", now.Add(-7*24*time.Hour).Format(time.RFC3339Nano))
+	q.Set("to", now.Add(time.Minute).Format(time.RFC3339Nano))
+	q.Set("step", "auto")
+	q.Set("max_points", "168")
+	q.Set("aggregate", "mean")
+	var hist struct {
+		Metric  string                  `json:"metric"`
+		StepSec float64                 `json:"step_sec"`
+		Series  []monitor.HistorySeries `json:"series"`
+	}
+	if code, _ := e.req("GET", "/api/monitor/history?"+q.Encode(), nil, &hist); code != http.StatusOK {
+		t.Fatalf("history auto/mean = %d", code)
+	}
+	if hist.StepSec < 3600 {
+		t.Errorf("7d auto step_sec = %v, want >= 3600", hist.StepSec)
+	}
+	if len(hist.Series) != 1 || hist.Series[0].Target != "merged" || hist.Series[0].Agent != "all" {
+		t.Fatalf("merged series = %+v, want 1 merged series", hist.Series)
+	}
+	if len(hist.Series[0].Points) != 2 {
+		t.Fatalf("merged points = %+v, want 2 points", hist.Series[0].Points)
+	}
+	if hist.Series[0].Points[0].Value != 20 || hist.Series[0].Points[1].Value != 20 {
+		t.Errorf("merged point values = %+v, want [20, 20]", hist.Series[0].Points)
+	}
+
+	// Finer range (1h) with step=auto picks a finer step (<= 60s).
+	q.Set("from", now.Add(-time.Hour).Format(time.RFC3339Nano))
+	q.Set("max_points", "120")
+	q.Del("aggregate")
+	hist = struct {
+		Metric  string                  `json:"metric"`
+		StepSec float64                 `json:"step_sec"`
+		Series  []monitor.HistorySeries `json:"series"`
+	}{}
+	if code, _ := e.req("GET", "/api/monitor/history?"+q.Encode(), nil, &hist); code != http.StatusOK {
+		t.Fatalf("1h auto history = %d", code)
+	}
+	if hist.StepSec <= 0 || hist.StepSec > 60 {
+		t.Errorf("1h auto step_sec = %v, want in (0, 60]", hist.StepSec)
+	}
+
+	// Validation of max_points and aggregate.
+	for _, bad := range []string{
+		"/api/monitor/history?step=auto&max_points=5",
+		"/api/monitor/history?step=auto&max_points=abc",
+		"/api/monitor/history?aggregate=median",
+	} {
+		if code, _ := e.req("GET", bad, nil, nil); code != http.StatusBadRequest {
+			t.Errorf("GET %s = %d, want 400", bad, code)
 		}
 	}
 }
