@@ -614,8 +614,33 @@ func (m *Manager) handleManeuverStatus(n *node, env channel.Envelope) {
 	m.maneuverState.mu.Lock()
 	entry := m.maneuverState.runs[p.RunID]
 	if entry == nil {
-		m.maneuverState.mu.Unlock()
-		return
+		// Reconstruct a run record if the main server restarted while the
+		// worker continued autonomously and now reconnects with its status.
+		now := m.maneuverNow().UTC()
+		estStart := now
+		if p.ElapsedSec > 0 {
+			estStart = now.Add(-time.Duration(p.ElapsedSec * float64(time.Second)))
+		}
+		entry = &maneuverRunEntry{
+			run: ManeuverRun{
+				RunID:      p.RunID,
+				ManeuverID: p.ManeuverID,
+				Name:       p.ManeuverID,
+				Pattern:    maneuver.PatternAllInOne,
+				State:      p.State,
+				StartAt:    estStart,
+				CreatedAt:  estStart,
+				UpdatedAt:  now,
+				Agents: map[string]AgentRunState{
+					n.id: {Machine: n.id, State: p.State, UpdatedAt: now},
+				},
+			},
+			abortSent:   map[string]bool{},
+			handshakeCh: make(chan struct{}),
+		}
+		close(entry.handshakeCh)
+		m.maneuverState.runs[p.RunID] = entry
+		m.maneuverState.order = append(m.maneuverState.order, p.RunID)
 	}
 
 	// If this run was aborted or stopped on the server while the agent was

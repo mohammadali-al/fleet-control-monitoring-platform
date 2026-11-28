@@ -157,6 +157,15 @@ func (e *Executor) AuthorizeOneShot(command, confirmToken string) error {
 	return e.cfg.Gate.Authorize(e.cfg.MachineID, command, confirmToken)
 }
 
+// MintForAuthorized mints a confirmation token using this executor's gate
+// when command matches a dangerous pattern (used for pre-authorized persisted plans).
+func (e *Executor) MintForAuthorized(command string) (string, bool) {
+	if _, hit := e.cfg.Gate.Match(command); !hit {
+		return "", false
+	}
+	return e.cfg.Gate.Mint(e.cfg.MachineID, command, time.Hour), true
+}
+
 // RunSync executes p synchronously until the session exits and its cgroup and
 // capture hooks complete.
 func (e *Executor) RunSync(p RunPayload) {

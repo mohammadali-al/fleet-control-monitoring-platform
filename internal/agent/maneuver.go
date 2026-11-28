@@ -5,26 +5,46 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/channel"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/exec"
 )
 
-const maneuverAckTimeout = 10 * time.Second
+const (
+	maneuverAckTimeout   = 10 * time.Second
+	maneuverStateFile    = "state.json"
+	maneuverStateVersion = 1
+)
+
+type persistedManeuverState struct {
+	Version   int                            `json:"version"`
+	Plan      channel.ManeuverPreparePayload `json:"plan"`
+	Committed bool                           `json:"committed"`
+	State     string                         `json:"state"` // prepared | scheduled | running | completed | stopped
+	Error     string                         `json:"error,omitempty"`
+	UpdatedAt time.Time                      `json:"updated_at"`
+}
 
 type maneuverRunner struct {
-	w   *worker
-	now func() time.Time
+	w        *worker
+	now      func() time.Time
+	stateDir string
 
-	mu      sync.Mutex
-	baseCtx context.Context
-	staged  *stagedManeuver
-	active  *activeManeuver
-	last    *channel.ManeuverStatusPayload
+	mu         sync.Mutex
+	baseCtx    context.Context
+	staged     *stagedManeuver
+	active     *activeManeuver
+	last       *channel.ManeuverStatusPayload
+	fallbackEx *exec.Executor
 }
 
 type stagedManeuver struct {
@@ -46,21 +66,201 @@ func newManeuverRunner(w *worker) *maneuverRunner {
 	if nowFn == nil {
 		nowFn = time.Now
 	}
-	return &maneuverRunner{
-		w:       w,
-		now:     nowFn,
-		baseCtx: w.base,
+	var dir string
+	if w.cfg.DataDir != "" {
+		dir = filepath.Join(w.cfg.DataDir, config.ManeuverDirName)
 	}
+	return &maneuverRunner{
+		w:        w,
+		now:      nowFn,
+		stateDir: dir,
+		baseCtx:  w.base,
+	}
+}
+
+func (r *maneuverRunner) statePath() string {
+	if r.stateDir == "" {
+		return ""
+	}
+	return filepath.Join(r.stateDir, maneuverStateFile)
+}
+
+func (r *maneuverRunner) saveState(st persistedManeuverState) {
+	p := r.statePath()
+	if p == "" {
+		return
+	}
+	st.Version = maneuverStateVersion
+	if st.UpdatedAt.IsZero() {
+		st.UpdatedAt = r.now().UTC()
+	}
+	data, err := json.MarshalIndent(st, "", "  ")
+	if err != nil {
+		r.w.log.Warn("encode maneuver state", "component", "fleet-agent", "err", err)
+		return
+	}
+	data = append(data, '\n')
+	if err := os.MkdirAll(r.stateDir, 0o750); err != nil {
+		r.w.log.Warn("create maneuver state dir", "component", "fleet-agent", "err", err)
+		return
+	}
+	tmp, err := os.CreateTemp(r.stateDir, maneuverStateFile+".*.tmp")
+	if err != nil {
+		r.w.log.Warn("create maneuver temp state", "component", "fleet-agent", "err", err)
+		return
+	}
+	tmpName := tmp.Name()
+	cleanup := func() { _ = os.Remove(tmpName) }
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		cleanup()
+		return
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		cleanup()
+		return
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		cleanup()
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return
+	}
+	if err := os.Rename(tmpName, p); err != nil {
+		cleanup()
+		r.w.log.Warn("save maneuver state", "component", "fleet-agent", "err", err)
+	}
+}
+
+func (r *maneuverRunner) loadState() (persistedManeuverState, bool) {
+	p := r.statePath()
+	if p == "" {
+		return persistedManeuverState{}, false
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			r.w.log.Warn("read maneuver state", "component", "fleet-agent", "err", err)
+		}
+		return persistedManeuverState{}, false
+	}
+	var st persistedManeuverState
+	if err := json.Unmarshal(data, &st); err != nil || st.Version != maneuverStateVersion {
+		r.w.log.Warn("ignore invalid maneuver state", "component", "fleet-agent", "err", err)
+		return persistedManeuverState{}, false
+	}
+	return st, true
+}
+
+func (r *maneuverRunner) clearState() {
+	p := r.statePath()
+	if p == "" {
+		return
+	}
+	_ = os.Remove(p)
 }
 
 func (r *maneuverRunner) start(ctx context.Context) {
 	r.mu.Lock()
 	r.baseCtx = ctx
 	r.mu.Unlock()
+
+	st, ok := r.loadState()
+	if !ok {
+		return
+	}
+	if !st.Committed {
+		// Never resume an uncommitted prepare across reboot.
+		r.clearState()
+		return
+	}
+	if st.State == "completed" || st.State == "stopped" {
+		r.mu.Lock()
+		r.last = &channel.ManeuverStatusPayload{
+			RunID:      st.Plan.RunID,
+			ManeuverID: st.Plan.ManeuverID,
+			State:      st.State,
+			Error:      st.Error,
+			At:         st.UpdatedAt,
+		}
+		r.mu.Unlock()
+		return
+	}
+	if st.State != "scheduled" && st.State != "running" {
+		return
+	}
+	if err := validatePreparePayload(st.Plan); err != nil {
+		r.clearState()
+		return
+	}
+
+	now := r.now().UTC()
+	endAt := st.Plan.StartAt.Add(time.Duration(st.Plan.TotalSec) * time.Second)
+	if !now.Before(endAt) {
+		st.State = "completed"
+		st.UpdatedAt = now
+		r.saveState(st)
+		r.mu.Lock()
+		r.last = &channel.ManeuverStatusPayload{
+			RunID:      st.Plan.RunID,
+			ManeuverID: st.Plan.ManeuverID,
+			State:      "completed",
+			ElapsedSec: float64(st.Plan.TotalSec),
+			At:         now,
+		}
+		r.mu.Unlock()
+		return
+	}
+
+	r.w.log.Info("rejoining committed maneuver at wall-clock position", "component", "fleet-agent",
+		"run_id", st.Plan.RunID, "start_at", st.Plan.StartAt, "elapsed_sec", now.Sub(st.Plan.StartAt).Seconds())
+	r.launchRunner(st.Plan)
 }
 
 func (r *maneuverRunner) onConnect() {
-	// Wired in Part C for reconnect status reconciliation.
+	r.mu.Lock()
+	act := r.active
+	var last *channel.ManeuverStatusPayload
+	if r.last != nil {
+		cp := *r.last
+		last = &cp
+	}
+	r.mu.Unlock()
+
+	if act != nil {
+		act.mu.Lock()
+		ids := make([]string, 0, len(act.sessions))
+		for id := range act.sessions {
+			ids = append(ids, id)
+		}
+		act.mu.Unlock()
+		now := r.now().UTC()
+		state := "running"
+		var elapsed float64
+		if now.Before(act.plan.StartAt) {
+			state = "scheduled"
+		} else {
+			elapsed = now.Sub(act.plan.StartAt).Seconds()
+		}
+		r.sendStatus(channel.ManeuverStatusPayload{
+			RunID:          act.plan.RunID,
+			ManeuverID:     act.plan.ManeuverID,
+			State:          state,
+			ActiveReplicas: len(ids),
+			SessionIDs:     ids,
+			ElapsedSec:     elapsed,
+			At:             now,
+		})
+		return
+	}
+
+	if last != nil {
+		r.sendStatus(*last)
+	}
 }
 
 func (r *maneuverRunner) shutdown() {
@@ -69,6 +269,8 @@ func (r *maneuverRunner) shutdown() {
 	r.staged = nil
 	act := r.active
 	r.active = nil
+	fb := r.fallbackEx
+	r.fallbackEx = nil
 	r.mu.Unlock()
 
 	if st != nil && st.cancel != nil {
@@ -79,6 +281,9 @@ func (r *maneuverRunner) shutdown() {
 			act.cancel()
 		}
 		<-act.done
+	}
+	if fb != nil {
+		fb.Shutdown()
 	}
 }
 
@@ -144,7 +349,6 @@ func (r *maneuverRunner) handlePrepare(p channel.ManeuverPreparePayload) {
 		return
 	}
 
-	// Ensure executor/gate is ready before ACKing.
 	ex, err := r.waitExecutor(p.StartAt)
 	if err != nil {
 		r.sendAck(channel.ManeuverAckPayload{
@@ -157,7 +361,6 @@ func (r *maneuverRunner) handlePrepare(p channel.ManeuverPreparePayload) {
 		return
 	}
 
-	// Verify dangerous-command gate for every materialized command up front.
 	for _, it := range p.Items {
 		if err := ex.AuthorizeOneShot(it.Command, it.ConfirmToken); err != nil {
 			r.sendAck(channel.ManeuverAckPayload{
@@ -171,7 +374,6 @@ func (r *maneuverRunner) handlePrepare(p channel.ManeuverPreparePayload) {
 		}
 	}
 
-	// Re-check clock after waiting for config/gate.
 	now = r.now().UTC()
 	if !now.Before(p.StartAt) {
 		r.sendAck(channel.ManeuverAckPayload{
@@ -203,7 +405,13 @@ func (r *maneuverRunner) handlePrepare(p channel.ManeuverPreparePayload) {
 	r.staged = &stagedManeuver{plan: p, cancel: stageCancel}
 	r.mu.Unlock()
 
-	// Expire uncommitted staged plan if commit does not arrive before StartAt.
+	r.saveState(persistedManeuverState{
+		Plan:      p,
+		Committed: false,
+		State:     "prepared",
+		UpdatedAt: now,
+	})
+
 	go r.expireUncommitted(stageCtx, p.RunID, p.StartAt)
 
 	r.sendAck(channel.ManeuverAckPayload{
@@ -229,6 +437,9 @@ func (r *maneuverRunner) expireUncommitted(ctx context.Context, runID string, st
 		if r.staged != nil && r.staged.plan.RunID == runID {
 			r.staged = nil
 			r.w.log.Info("maneuver uncommitted plan expired at start_at", "component", "fleet-agent", "run_id", runID)
+			r.mu.Unlock()
+			r.clearState()
+			return
 		}
 		r.mu.Unlock()
 	}
@@ -253,6 +464,7 @@ func (r *maneuverRunner) handleCommit(p channel.ManeuverCommitPayload) {
 	if !now.Before(st.plan.StartAt) {
 		r.w.log.Warn("maneuver commit missed start window", "component", "fleet-agent",
 			"run_id", p.RunID, "start_at", st.plan.StartAt, "now", now)
+		r.clearState()
 		r.sendAck(channel.ManeuverAckPayload{
 			RunID:      p.RunID,
 			Status:     channel.ManeuverAckMissed,
@@ -263,6 +475,12 @@ func (r *maneuverRunner) handleCommit(p channel.ManeuverCommitPayload) {
 		return
 	}
 
+	r.saveState(persistedManeuverState{
+		Plan:      st.plan,
+		Committed: true,
+		State:     "scheduled",
+		UpdatedAt: now,
+	})
 	r.launchRunner(st.plan)
 }
 
@@ -281,19 +499,33 @@ func (r *maneuverRunner) handleAbort(p channel.ManeuverAbortPayload) {
 
 	if st != nil && st.cancel != nil {
 		st.cancel()
+		r.clearState()
 	}
 	if act != nil {
 		if act.cancel != nil {
 			act.cancel()
 		}
 		<-act.done
+		now := r.now().UTC()
+		r.saveState(persistedManeuverState{
+			Plan:      act.plan,
+			Committed: true,
+			State:     "stopped",
+			Error:     p.Reason,
+			UpdatedAt: now,
+		})
 		r.sendStatus(channel.ManeuverStatusPayload{
 			RunID:      act.plan.RunID,
 			ManeuverID: act.plan.ManeuverID,
 			State:      "stopped",
 			Error:      p.Reason,
-			At:         r.now().UTC(),
+			At:         now,
 		})
+	} else if persisted, ok := r.loadState(); ok && (p.RunID == "" || persisted.Plan.RunID == p.RunID) {
+		persisted.State = "stopped"
+		persisted.Error = p.Reason
+		persisted.UpdatedAt = r.now().UTC()
+		r.saveState(persisted)
 	}
 }
 
@@ -344,6 +576,12 @@ func (r *maneuverRunner) runActive(ctx context.Context, act *activeManeuver) {
 	now = r.now().UTC()
 	endAt := plan.StartAt.Add(time.Duration(plan.TotalSec) * time.Second)
 	if !now.Before(endAt) {
+		r.saveState(persistedManeuverState{
+			Plan:      plan,
+			Committed: true,
+			State:     "completed",
+			UpdatedAt: now,
+		})
 		r.sendStatus(channel.ManeuverStatusPayload{
 			RunID:      plan.RunID,
 			ManeuverID: plan.ManeuverID,
@@ -354,6 +592,12 @@ func (r *maneuverRunner) runActive(ctx context.Context, act *activeManeuver) {
 		return
 	}
 
+	r.saveState(persistedManeuverState{
+		Plan:      plan,
+		Committed: true,
+		State:     "running",
+		UpdatedAt: now,
+	})
 	r.sendStatus(channel.ManeuverStatusPayload{
 		RunID:      plan.RunID,
 		ManeuverID: plan.ManeuverID,
@@ -383,13 +627,18 @@ func (r *maneuverRunner) runActive(ctx context.Context, act *activeManeuver) {
 		}
 	}
 
-	// Wait until all item windows finish (or ctx is cancelled).
 	wg.Wait()
 	if ctx.Err() != nil {
 		return
 	}
 
 	finNow := r.now().UTC()
+	r.saveState(persistedManeuverState{
+		Plan:      plan,
+		Committed: true,
+		State:     "completed",
+		UpdatedAt: finNow,
+	})
 	r.sendStatus(channel.ManeuverStatusPayload{
 		RunID:      plan.RunID,
 		ManeuverID: plan.ManeuverID,
@@ -418,7 +667,7 @@ func (r *maneuverRunner) runItemReplica(ctx context.Context, act *activeManeuver
 		return
 	}
 
-	ex := r.w.current()
+	ex, confirmTok := r.executorForReplica(it.Command, it.ConfirmToken)
 	if ex == nil {
 		return
 	}
@@ -470,10 +719,53 @@ func (r *maneuverRunner) runItemReplica(ctx context.Context, act *activeManeuver
 		User:         "maneuver",
 		Mode:         exec.ModeOneShot,
 		TimeoutSec:   timeoutSec,
-		ConfirmToken: it.ConfirmToken,
+		ConfirmToken: confirmTok,
 	})
 	itemCancel()
 	<-done
+}
+
+// executorForReplica returns the worker's configured executor when available, or
+// an ephemeral in-memory executor for pre-authorized persisted Maneuver plans
+// resuming right after a reboot before the main server reconnects.
+func (r *maneuverRunner) executorForReplica(cmd, token string) (*exec.Executor, string) {
+	if ex := r.w.current(); ex != nil && ex.AuthorizeOneShot(cmd, token) == nil {
+		return ex, token
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.fallbackEx == nil {
+		var secret [16]byte
+		_, _ = rand.Read(secret[:])
+		gate, err := exec.NewGate([]byte(hex.EncodeToString(secret[:])), nil)
+		if err != nil {
+			return nil, ""
+		}
+		// Ensure capture subsystem is initialized with local config if server hasn't pushed yet.
+		r.w.mu.Lock()
+		if !r.w.capTried {
+			r.w.applyCaptureLocked(nil)
+		}
+		r.w.mu.Unlock()
+
+		ex, err := exec.New(exec.Config{
+			MachineID:      r.w.cfg.MachineID,
+			Sender:         r.w.sender,
+			Gate:           gate,
+			CgroupRoot:     r.w.cfg.CgroupRoot,
+			TermGrace:      r.w.cfg.TermGrace,
+			Shell:          r.w.cfg.Shell,
+			Logger:         r.w.log,
+			OnSessionStart: r.w.sessionStart,
+			OnSessionEnd:   r.w.sessionEnd,
+		})
+		if err != nil {
+			return nil, ""
+		}
+		r.fallbackEx = ex
+	}
+	tok, _ := r.fallbackEx.MintForAuthorized(cmd)
+	return r.fallbackEx, tok
 }
 
 func (r *maneuverRunner) terminateReplica(ex *exec.Executor, sessID string) {

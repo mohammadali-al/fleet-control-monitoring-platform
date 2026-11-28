@@ -150,3 +150,213 @@ func TestAgentManeuverSyncStartReadyAndMissed(t *testing.T) {
 	}
 	_ = config.CaptureConfig{}
 }
+
+func TestAgentManeuverOutageContinuationAndRejoin(t *testing.T) {
+	t.Run("continues autonomously during server outage and reconciles on reconnect", func(t *testing.T) {
+		mt, err := fleettest.NewMTLS()
+		if err != nil {
+			t.Fatal(err)
+		}
+		agentDataDir := t.TempDir()
+		outDir := t.TempDir()
+		ra := startAgent(t, mt, "w1", func(c *agent.Config) { c.DataDir = agentDataDir })
+		_ = ra
+
+		reg := registry.New()
+		if err := reg.Add(registry.Machine{
+			ID: "w1", Role: registry.RoleWorker, ConnectMode: registry.ConnectModeServerDial,
+			PrivateIPs: []string{"127.0.0.1"}, Provisioned: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		gate, err := exec.NewGate([]byte("outage-secret"), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		ctx1, cancel1 := context.WithCancel(context.Background())
+		m1, err := fleet.New(fleet.Config{
+			Registry: reg, Gate: gate, NewLink: mt.Factory(),
+			PollInterval: 10 * time.Millisecond, GateSecret: []byte("outage-secret"), Logger: quiet(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		m1.Start(ctx1)
+		eventually(t, "w1 online on server 1", func() bool {
+			info, ok := m1.Machine("w1")
+			return ok && info.State == fleet.StateOnline
+		})
+
+		step1Marker := filepath.Join(outDir, "step1.ran")
+		step2Marker := filepath.Join(outDir, "step2.ran")
+		run, err := m1.StartManeuver(ctx1, fleet.StartManeuverRequest{
+			Plan: &maneuver.MaterializedPlan{
+				ManeuverID: "mv-outage",
+				Name:       "Outage",
+				Target:     maneuver.Target{IP: "198.51.100.10"},
+				TotalSec:   4,
+				Pattern:    maneuver.PatternConfig{Type: maneuver.PatternAllInOne},
+				Items: []maneuver.MaterializedItem{
+					{ItemID: "i1", BaselineID: "b1", Command: "touch " + step1Marker, StartSec: 0, DurationSec: 2, Replicas: 1},
+					{ItemID: "i2", BaselineID: "b2", Command: "touch " + step2Marker, StartSec: 1, DurationSec: 2, Replicas: 1},
+				},
+				Agents: []string{"w1"},
+			},
+			LeadTime: 300 * time.Millisecond,
+		})
+		if err != nil {
+			t.Fatalf("StartManeuver: %v", err)
+		}
+		eventually(t, "run committed/running before outage", func() bool {
+			r, ok := m1.ManeuverRun(run.RunID)
+			return ok && (r.State == fleet.ManeuverStateCommitted || r.State == fleet.ManeuverStateRunning)
+		})
+
+		// Simulate total main-server outage while Maneuver executes on the agent.
+		cancel1()
+		m1.Close()
+
+		eventually(t, "both timeline items ran autonomously during outage", func() bool {
+			_, err1 := os.Stat(step1Marker)
+			_, err2 := os.Stat(step2Marker)
+			return err1 == nil && err2 == nil
+		})
+
+		// Bring up a fresh server (simulating server recovery) and verify agent reports status on reconnect.
+		ctx2, cancel2 := context.WithCancel(context.Background())
+		defer cancel2()
+		m2, err := fleet.New(fleet.Config{
+			Registry: reg, Gate: gate, NewLink: mt.Factory(),
+			PollInterval: 10 * time.Millisecond, GateSecret: []byte("outage-secret"), Logger: quiet(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		m2.Start(ctx2)
+		defer m2.Close()
+
+		eventually(t, "restarted server receives maneuver status on reconnect", func() bool {
+			r, ok := m2.ManeuverRun(run.RunID)
+			return ok && (r.Agents["w1"].State == fleet.ManeuverStateCompleted || r.Agents["w1"].State == fleet.ManeuverStateRunning)
+		})
+	})
+
+	t.Run("rejoins at wall-clock position after agent reboot mid-maneuver", func(t *testing.T) {
+		mt, err := fleettest.NewMTLS()
+		if err != nil {
+			t.Fatal(err)
+		}
+		agentDataDir := t.TempDir()
+		outDir := t.TempDir()
+
+		// Simulate initial committed run on agent1, then stop/kill agent1 mid-plan
+		// and start a fresh agent2 on the same DataDir (reboot).
+		reg := registry.New()
+		if err := reg.Add(registry.Machine{
+			ID: "w1", Role: registry.RoleWorker, ConnectMode: registry.ConnectModeServerDial,
+			PrivateIPs: []string{"127.0.0.1"}, Provisioned: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		gate, err := exec.NewGate([]byte("reboot-secret"), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Start agent1 briefly to receive & commit a plan starting at T = now + 200ms with 6s total duration.
+		certPEM, keyPEM, err := mt.CA.IssuePeer("w1", nil, time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = certPEM
+		_ = keyPEM
+		ra1 := startAgent(t, mt, "w1", func(c *agent.Config) { c.DataDir = agentDataDir })
+
+		mCtx, mCancel := context.WithCancel(context.Background())
+		m, err := fleet.New(fleet.Config{
+			Registry: reg, Gate: gate, NewLink: mt.Factory(),
+			PollInterval: 10 * time.Millisecond, GateSecret: []byte("reboot-secret"), Logger: quiet(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		m.Start(mCtx)
+		eventually(t, "w1 online", func() bool {
+			info, ok := m.Machine("w1")
+			return ok && info.State == fleet.StateOnline
+		})
+
+		pastMarker := filepath.Join(outDir, "past-window.ran")
+		midMarker := filepath.Join(outDir, "mid-window.ran")
+		futureMarker := filepath.Join(outDir, "future-window.ran")
+		run, err := m.StartManeuver(mCtx, fleet.StartManeuverRequest{
+			Plan: &maneuver.MaterializedPlan{
+				ManeuverID: "mv-reboot",
+				Name:       "Reboot rejoin",
+				Target:     maneuver.Target{IP: "198.51.100.10"},
+				TotalSec:   6,
+				Pattern:    maneuver.PatternConfig{Type: maneuver.PatternAllInOne},
+				Items: []maneuver.MaterializedItem{
+					// Window [0, 1s): runs only at start; after reboot at ~T+1.5s it must NOT re-run.
+					{ItemID: "past", BaselineID: "b1", Command: "touch " + pastMarker, StartSec: 0, DurationSec: 1, Replicas: 1},
+					// Window [0, 5s): spans across reboot; must resume immediately on reboot.
+					{ItemID: "mid", BaselineID: "b2", Command: "echo rejoin-resumed >> " + midMarker + "; sleep 10", StartSec: 0, DurationSec: 5, Replicas: 1},
+					// Window [2, 5s): starts at T+2s; must run on schedule after reboot.
+					{ItemID: "future", BaselineID: "b3", Command: "touch " + futureMarker, StartSec: 2, DurationSec: 3, Replicas: 1},
+				},
+				Agents: []string{"w1"},
+			},
+			LeadTime: 250 * time.Millisecond,
+		})
+		if err != nil {
+			t.Fatalf("StartManeuver: %v", err)
+		}
+
+		// Wait until past window [0,1s) has run and elapsed (~1.3s after T).
+		eventually(t, "past marker created", func() bool {
+			_, err := os.Stat(pastMarker)
+			return err == nil
+		})
+		time.Sleep(1200 * time.Millisecond)
+
+		// Simulate reboot: stop agent1 and remove pastMarker to prove reboot doesn't replay [0,1s).
+		if err := ra1.Stop(); err != nil {
+			t.Fatalf("stop agent1: %v", err)
+		}
+		_ = os.Remove(pastMarker)
+
+		// Also shut down server temporarily to prove rebooted agent resumes even while server is away,
+		// or reconnects later.
+		mCancel()
+		m.Close()
+
+		// Boot fresh agent2 on the same agentDataDir.
+		ra2 := startAgent(t, mt, "w1", func(c *agent.Config) { c.DataDir = agentDataDir })
+		_ = ra2
+
+		// Mid-window item and future item must run at wall-clock position, and past item must NOT re-run.
+		eventually(t, "mid and future items ran after reboot", func() bool {
+			b, err1 := os.ReadFile(midMarker)
+			_, err2 := os.Stat(futureMarker)
+			return err1 == nil && stringsContains(string(b), "rejoin-resumed") && err2 == nil
+		})
+		if _, err := os.Stat(pastMarker); !os.IsNotExist(err) {
+			t.Errorf("past-window item re-ran after its wall-clock window ended!")
+		}
+		_ = run
+	})
+}
+
+func stringsContains(s, sub string) bool {
+	return len(sub) == 0 || (len(s) >= len(sub) && indexString(s, sub) >= 0)
+}
+
+func indexString(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
+}
