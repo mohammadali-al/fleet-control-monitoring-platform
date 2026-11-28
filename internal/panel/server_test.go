@@ -69,6 +69,10 @@ func TestServesPanel(t *testing.T) {
 		{"/assets/fonts/red-hat-mono-latin.woff2", 200, "", ""},
 		{"/assets/vendor/xterm/xterm.js", 200, "text/javascript", ""},
 		{"/assets/vendor/xterm/xterm.css", 200, "text/css", ""},
+		{"/assets/favicon.svg", 200, "image/svg+xml", "#ff2a3c"},
+		{"/assets/favicon-32x32.png", 200, "image/png", ""},
+		{"/assets/apple-touch-icon.png", 200, "image/png", ""},
+		{"/favicon.ico", 200, "image/svg+xml", "#ff2a3c"},
 		{"/api/nope", 404, "application/json", "not found"},
 		{"/fragments/nope", 404, "", ""},
 		{"/ws/nope", 404, "", ""},
@@ -104,6 +108,16 @@ func TestServesPanel(t *testing.T) {
 			t.Errorf("GET %s X-Content-Type-Options = %q", c.path, got)
 		}
 	}
+	// /favicon.ico redirects cleanly to the self-hosted SVG instead of 404ing or serving the SPA shell.
+	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	if resp, err := noRedirect.Get(srv.URL + "/favicon.ico"); err != nil {
+		t.Fatalf("GET /favicon.ico: %v", err)
+	} else {
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusFound || resp.Header.Get("Location") != "/assets/favicon.svg" {
+			t.Errorf("GET /favicon.ico = %d Location=%q, want 302 -> /assets/favicon.svg", resp.StatusCode, resp.Header.Get("Location"))
+		}
+	}
 	// Path traversal never leaks repo files.
 	_, _, traversal := body(t, srv.URL+"/../go.mod")
 	if strings.Contains(traversal, "module github.com") {
@@ -129,6 +143,9 @@ func TestSPAShellAndCatchAll(t *testing.T) {
 		`data-theme="dark"`,
 		`data-bg="matrix"`,
 		`localStorage.getItem('fleet-theme')`,
+		`href="/assets/favicon.svg"`,
+		`href="/assets/favicon-32x32.png"`,
+		`href="/assets/apple-touch-icon.png"`,
 		`/assets/dist/app.css`,
 		`/assets/dist/app.js`,
 		`<div id="root"></div>`,
@@ -298,7 +315,7 @@ func TestLegacyPagesRender(t *testing.T) {
 		if !strings.HasPrefix(strings.ToLower(html), "<!doctype html>") {
 			t.Errorf("%s: no doctype", p.name)
 		}
-		for _, must := range []string{`data-theme="dark"`, `data-bg="matrix"`, `localStorage.getItem('fleet-theme')`, `id="bg-canvas"`, `assets/css/fonts.css`, `assets/css/bg.css`, `assets/js/bg.js`, `<symbol id="i-fleet"`, `class="sidebar"`, `class="topbar"`, `theme-toggle`, `id="main"`, `assets/js/app.js`, `data-page="` + p.name + `"`, `<h1>`} {
+		for _, must := range []string{`data-theme="dark"`, `data-bg="matrix"`, `localStorage.getItem('fleet-theme')`, `href="assets/favicon.svg"`, `id="bg-canvas"`, `assets/css/fonts.css`, `assets/css/bg.css`, `assets/js/bg.js`, `<symbol id="i-fleet"`, `class="sidebar"`, `class="topbar"`, `theme-toggle`, `id="main"`, `assets/js/app.js`, `data-page="` + p.name + `"`, `<h1>`} {
 			if !strings.Contains(html, must) {
 				t.Errorf("%s: missing %q", p.name, must)
 			}

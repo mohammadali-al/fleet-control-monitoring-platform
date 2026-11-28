@@ -75,6 +75,9 @@ func New(o Options) (http.Handler, error) {
 	mux.HandleFunc("GET /fragments/{name}", s.fragment)
 	mux.HandleFunc("GET /assets/", s.static)
 	mux.HandleFunc("GET /styleguide.html", s.static)
+	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/assets/favicon.svg", http.StatusFound)
+	})
 	s.routesAPI(mux)
 	s.routesWS(mux)
 
