@@ -12,7 +12,7 @@ model: {claude: "sonnet high"}
 operator_check: "A small reusable machine-identity label (name · private-IP · public-IP) is used in the SPECIFIC small spots where a machine is identified/picked across the panel — so machines that share a username + public IP (behind NAT) are told apart by their private IP. It is applied surgically to those spots only (not a page redesign, not a copy of the sample mockup), reuses the real design-system classes, and degrades gracefully when a private IP isn't reported yet."
 ---
 
-## Purpose of the chosen sample (why this exists)
+## Why
 
 `workflow/design/machine-label-samples/02-consistent-label.html` (the approved direction) demonstrates a
 **consistent machine-identity label** rendered the same way everywhere a machine is referenced:
