@@ -76,13 +76,16 @@ func NewWatchdog(ac config.AgentConfig, dataDir string, log *slog.Logger, opts W
 		actuator = &watchdog.SystemActuator{SessionRoot: cg, Iface: ac.Watchdog.EgressInterface}
 	}
 	ew := NewEventWriter(dataDir, log)
+	coordSampler := newUpdateAwareSampler(dataDir, sampler, actuator, ew, log)
+	coordActuator := newUpdateAwareActuator(dataDir, actuator)
+	coordBootTime := updateAwareBootTime(dataDir, opts.BootTime)
 	w, err := watchdog.New(watchdog.Config{
 		DataDir:   dataDir,
 		MachineID: ac.MachineID,
 		Groups:    ac.Watchdog.Groups,
-		Sampler:   sampler,
-		Actuator:  actuator,
-		BootTime:  opts.BootTime,
+		Sampler:   coordSampler,
+		Actuator:  coordActuator,
+		BootTime:  coordBootTime,
 		Notify:    ew.Write,
 		Log:       log,
 	})
@@ -516,6 +519,7 @@ func WorkerFromConfig(ac config.AgentConfig, dataDir string, log *slog.Logger) (
 		TLS:        tlsCfg,
 		CgroupRoot: cg,
 		Capture:    ac.Capture,
+		Update:     UpdateOptions{HTTPClient: loadUpdateHTTPClient(ac.CAFile, ac.CertFile, ac.KeyFile)},
 		Logger:     log,
 	}, WatchdogOptions{Groups: ac.Watchdog.Groups})
 }
@@ -533,4 +537,169 @@ func (a *WatchdogAgent) Run(ctx context.Context) error {
 	cancel()
 	wg.Wait()
 	return err
+}
+
+// --- self-update watchdog coordination ---------------------------------------
+
+type updateAwareSampler struct {
+	dataDir  string
+	inner    watchdog.Sampler
+	actuator watchdog.Actuator
+	ew       *EventWriter
+	log      *slog.Logger
+
+	mu         sync.Mutex
+	suppressed string // request_id for which EventSuppressed was already emitted
+}
+
+func newUpdateAwareSampler(dataDir string, inner watchdog.Sampler, actuator watchdog.Actuator, ew *EventWriter, log *slog.Logger) *updateAwareSampler {
+	return &updateAwareSampler{
+		dataDir:  dataDir,
+		inner:    inner,
+		actuator: actuator,
+		ew:       ew,
+		log:      log,
+	}
+}
+
+func (s *updateAwareSampler) Sample(ctx context.Context, units []string) (watchdog.Sample, error) {
+	now := time.Now()
+	pendingPath, resultPath := updateStatePaths(s.dataDir, "")
+	if st, err := readPendingState(pendingPath); err == nil && st != nil {
+		if !st.RolledBack && now.After(st.ReconnectDeadline) {
+			s.rollbackExpired(ctx, pendingPath, resultPath, st, now)
+			return calmSample(now, units), nil
+		} else if now.Before(st.GraceUntil) {
+			s.emitGraceOnce(st.RequestID, now)
+			return calmSample(now, units), nil
+		}
+	}
+	return s.inner.Sample(ctx, units)
+}
+
+func calmSample(now time.Time, units []string) watchdog.Sample {
+	svcs := make(map[string]watchdog.UsageMetrics, len(units))
+	for _, u := range units {
+		svcs[u] = watchdog.UsageMetrics{Present: true}
+	}
+	return watchdog.Sample{Time: now, Services: svcs}
+}
+
+func (s *updateAwareSampler) emitGraceOnce(reqID string, now time.Time) {
+	s.mu.Lock()
+	if s.suppressed == reqID && reqID != "" {
+		s.mu.Unlock()
+		return
+	}
+	s.suppressed = reqID
+	s.mu.Unlock()
+	if s.ew != nil {
+		s.ew.Write(watchdog.Event{
+			Time:   now,
+			Kind:   watchdog.EventSuppressed,
+			Scope:  defaultSystemdUnit,
+			Detail: "watchdog escalation paused during agent self-update grace window",
+		})
+	}
+}
+
+func (s *updateAwareSampler) rollbackExpired(ctx context.Context, pendingPath, resultPath string, st *updatePendingState, now time.Time) {
+	s.log.Error("agent self-update reconnect deadline expired; watchdog rolling back",
+		"component", "fleet-watchdog", "target", st.TargetVersion, "previous", st.PreviousVersion)
+	if err := restoreBackup(st.BackupPath, st.BinPath); err != nil {
+		s.log.Error("watchdog rollback restore failed", "component", "fleet-watchdog", "err", err)
+		return
+	}
+	_ = writeJSONAtomic(resultPath, updateDeferredResult{
+		RequestID: st.RequestID,
+		Payload: channel.AgentUpdateResultPayload{
+			TargetVersion:  st.TargetVersion,
+			CurrentVersion: st.PreviousVersion,
+			Status:         channel.AgentUpdateFailed,
+			Error:          "rolled back by watchdog: updated agent failed to reconnect within timeout",
+			At:             now.UTC(),
+		},
+	})
+	_ = os.Remove(pendingPath)
+	if s.ew != nil {
+		s.ew.Write(watchdog.Event{
+			Time:   now,
+			Kind:   watchdog.EventAction,
+			Scope:  defaultSystemdUnit,
+			Target: watchdog.TargetService + ":" + defaultSystemdUnit,
+			Step:   "restart",
+			Detail: "rolled back failed agent update to " + st.PreviousVersion,
+		})
+	}
+	if s.actuator != nil {
+		if err := s.actuator.RestartService(ctx, defaultSystemdUnit); err != nil {
+			s.log.Error("watchdog rollback restart failed", "component", "fleet-watchdog", "err", err)
+		}
+	}
+}
+
+type updateAwareActuator struct {
+	dataDir string
+	inner   watchdog.Actuator
+}
+
+func newUpdateAwareActuator(dataDir string, inner watchdog.Actuator) watchdog.Actuator {
+	return &updateAwareActuator{dataDir: dataDir, inner: inner}
+}
+
+func (a *updateAwareActuator) graceActive() bool {
+	pendingPath, _ := updateStatePaths(a.dataDir, "")
+	st, err := readPendingState(pendingPath)
+	return err == nil && st != nil && time.Now().Before(st.GraceUntil)
+}
+
+func (a *updateAwareActuator) Throttle(ctx context.Context, t watchdog.Target, spec watchdog.ThrottleSpec) error {
+	return a.inner.Throttle(ctx, t, spec)
+}
+
+func (a *updateAwareActuator) Unthrottle(ctx context.Context, t watchdog.Target) error {
+	return a.inner.Unthrottle(ctx, t)
+}
+
+func (a *updateAwareActuator) KillSession(ctx context.Context, t watchdog.Target) error {
+	return a.inner.KillSession(ctx, t)
+}
+
+func (a *updateAwareActuator) RestartService(ctx context.Context, unit string) error {
+	if unit == defaultSystemdUnit && a.graceActive() {
+		return nil
+	}
+	return a.inner.RestartService(ctx, unit)
+}
+
+func (a *updateAwareActuator) Reboot(ctx context.Context) error {
+	if a.graceActive() {
+		return nil
+	}
+	return a.inner.Reboot(ctx)
+}
+
+func updateAwareBootTime(dataDir string, inner func() time.Time) func() time.Time {
+	return func() time.Time {
+		pendingPath, _ := updateStatePaths(dataDir, "")
+		if st, err := readPendingState(pendingPath); err == nil && st != nil && time.Now().Before(st.GraceUntil) {
+			return time.Now()
+		}
+		if inner != nil {
+			return inner()
+		}
+		b, err := os.ReadFile("/proc/uptime")
+		if err != nil {
+			return time.Time{}
+		}
+		f := strings.Fields(string(b))
+		if len(f) < 1 {
+			return time.Time{}
+		}
+		up, err := strconv.ParseFloat(f[0], 64)
+		if err != nil {
+			return time.Time{}
+		}
+		return time.Now().Add(-time.Duration(up * float64(time.Second)))
+	}
 }

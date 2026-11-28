@@ -63,6 +63,8 @@ type Config struct {
 	Now func() time.Time
 	// AgentVersion overrides internal/version.Version (tests).
 	AgentVersion string
+	// Update configures push-triggered self-updates (mostly for tests).
+	Update UpdateOptions
 	// Logger defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -131,6 +133,7 @@ func FromConfig(ac config.AgentConfig, dataDir string, log *slog.Logger) (*Agent
 		TLS:        tlsCfg,
 		CgroupRoot: cg,
 		Capture:    ac.Capture,
+		Update:     UpdateOptions{HTTPClient: loadUpdateHTTPClient(ac.CAFile, ac.CertFile, ac.KeyFile)},
 		Logger:     log,
 	})
 }

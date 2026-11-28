@@ -89,6 +89,7 @@ type worker struct {
 	diskReported bool
 
 	man *maneuverRunner
+	upd *agentUpdater
 
 	wg sync.WaitGroup // runs waiting for the first config
 }
@@ -115,6 +116,11 @@ func newWorker(cfg Config) *worker {
 		return w.base
 	})
 	w.man = newManeuverRunner(w)
+	w.upd = newAgentUpdater(cfg.DataDir, cfg.AgentVersion, w.log, w.sender, func() context.Context {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		return w.base
+	}, w.serviceController, cfg.Update)
 	w.initEvidence()
 	return w
 }
@@ -133,6 +139,7 @@ func (w *worker) start(ctx context.Context) {
 	w.startEvidence()
 	w.startDiskMonitor()
 	w.man.start(w.base)
+	w.upd.start(w.base)
 }
 
 // onConnect runs when the main server's connection is established: it asks for
@@ -149,6 +156,7 @@ func (w *worker) onConnect(peer string) {
 		w.log.Warn("request config", "component", "fleet-agent", "err", err)
 	}
 	reportAgentVersion(w.base, w.sender, w.log, w.cfg.AgentVersion)
+	w.upd.onConnect()
 	// An idle agent offers segments the server lacks as soon as it is connected.
 	go w.offerEvidence()
 	w.reportPublicIPOnConnect()
@@ -179,6 +187,8 @@ func (w *worker) handle(ctx context.Context, env channel.Envelope) {
 		w.handlePublicIPRefresh()
 	case channel.TypeManeuverPrepare, channel.TypeManeuverCommit, channel.TypeManeuverAbort:
 		w.man.handle(ctx, env)
+	case channel.TypeAgentUpdate, channel.TypeAgentUpdateChunk:
+		w.upd.handleEnvelope(ctx, env)
 	default:
 		// input, resize, terminate, confirm: addressed by session id, so every
 		// executor gets them and the one that owns the session acts.
