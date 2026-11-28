@@ -596,6 +596,8 @@ func (m *Manager) agentHandler(n *node, role string, next channel.Handler) chann
 			m.recordServiceControlResult(n, env)
 		case channel.TypePublicIP:
 			m.recordPublicIP(n, env)
+		case channel.TypeNetInfo:
+			m.recordNetInfo(n, env)
 		case channel.TypeDiskState:
 			m.recordDiskState(n, env)
 		case channel.TypeAgentVersion:
@@ -1882,6 +1884,27 @@ func (m *Manager) recordPublicIP(n *node, env channel.Envelope) {
 		mc.PublicIPAt = &t
 	}); err != nil {
 		m.log.Warn("update public-ip", "component", "fleet", "machine", n.id, "err", err)
+		return
+	}
+	m.publishMachine(n.id)
+}
+
+// --- net info (primary private IP) ---------------------------------------------
+
+func (m *Manager) recordNetInfo(n *node, env channel.Envelope) {
+	var p channel.NetInfoPayload
+	if err := json.Unmarshal(env.Payload, &p); err != nil {
+		m.log.Warn("bad net-info payload", "component", "fleet", "machine", n.id, "err", err)
+		return
+	}
+	if p.PrimaryPrivateIP == "" || net.ParseIP(p.PrimaryPrivateIP) == nil {
+		m.log.Warn("invalid primary private ip", "component", "fleet", "machine", n.id, "ip", p.PrimaryPrivateIP)
+		return
+	}
+	if err := m.cfg.Registry.Update(n.id, func(mc *registry.Machine) {
+		mc.PrimaryPrivateIP = p.PrimaryPrivateIP
+	}); err != nil {
+		m.log.Warn("update primary private ip", "component", "fleet", "machine", n.id, "err", err)
 		return
 	}
 	m.publishMachine(n.id)

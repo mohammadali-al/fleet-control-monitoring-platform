@@ -65,6 +65,7 @@ type Monitor struct {
 	fl       *monitor.Flusher
 	pipCache *capture.PublicIPCache
 	pip      *publicIPReporter
+	nip      *netInfoReporter
 	upd      *agentUpdater
 
 	mu   sync.Mutex
@@ -99,6 +100,7 @@ func NewMonitor(cfg MonitorConfig) (*Monitor, error) {
 	m.pipCache = capture.NewPublicIPCache(capture.NewReflector(cfg.Reflectors), 0)
 	m.pip = newPublicIPReporter(serviceSenderFunc(m.send), cfg.Logger, m.baseCtx)
 	m.pip.bind(m.pipCache)
+	m.nip = newNetInfoReporter(serviceSenderFunc(m.send), cfg.Logger)
 	m.upd = newAgentUpdater("", cfg.AgentVersion, cfg.Logger, serviceSenderFunc(m.send), m.baseCtx, m.serviceController, cfg.Update)
 	ln, err := channel.Listen(channel.ListenerConfig{
 		Addr:      cfg.ListenAddr,
@@ -169,7 +171,8 @@ func (m *Monitor) Run(ctx context.Context) error {
 	}()
 
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
+	go func() { defer wg.Done(); m.nip.run(ctx) }()
 	go func() { defer wg.Done(); m.eng.Run(ctx) }()
 	go func() { defer wg.Done(); m.fl.Run(ctx) }()
 	err := m.ln.Serve(ctx)
@@ -212,6 +215,7 @@ func (m *Monitor) onConnect(peer string) {
 	reportAgentVersion(m.baseCtx(), serviceSenderFunc(m.send), m.log, m.cfg.AgentVersion)
 	m.upd.onConnect()
 	m.pip.reportOnConnect()
+	m.nip.reportNow(m.baseCtx())
 }
 
 func (m *Monitor) serviceController() ServiceController {

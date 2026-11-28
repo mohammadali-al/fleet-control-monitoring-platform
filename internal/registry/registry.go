@@ -120,6 +120,8 @@ type Machine struct {
 
 	// PrivateIPs are the LAN addresses the main server dials (server_dial).
 	PrivateIPs []string `json:"private_ips"`
+	// PrimaryPrivateIP is the agent-reported source IP of its default route.
+	PrimaryPrivateIP string `json:"primary_private_ip,omitempty"`
 	// PublicIP is the cached public address and PublicIPAt when it was seen.
 	PublicIP   string     `json:"public_ip,omitempty"`
 	PublicIPAt *time.Time `json:"public_ip_at,omitempty"`
@@ -187,6 +189,9 @@ func (m Machine) Validate() error {
 		if net.ParseIP(ip) == nil {
 			return fmt.Errorf("registry: machine %q: invalid private IP %q", m.ID, ip)
 		}
+	}
+	if m.PrimaryPrivateIP != "" && net.ParseIP(m.PrimaryPrivateIP) == nil {
+		return fmt.Errorf("registry: machine %q: invalid primary private IP %q", m.ID, m.PrimaryPrivateIP)
 	}
 	if m.PublicIP != "" && net.ParseIP(m.PublicIP) == nil {
 		return fmt.Errorf("registry: machine %q: invalid public IP %q", m.ID, m.PublicIP)
