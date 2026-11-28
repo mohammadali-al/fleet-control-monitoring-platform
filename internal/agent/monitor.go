@@ -43,6 +43,10 @@ type MonitorConfig struct {
 	// Reflectors overrides the public-IP reflector URLs (empty selects
 	// capture.DefaultReflectors).
 	Reflectors []string
+	// AgentVersion overrides internal/version.Version (tests).
+	AgentVersion string
+	// Update configures push-triggered self-updates (mostly for tests).
+	Update UpdateOptions
 	// Logger defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -61,6 +65,7 @@ type Monitor struct {
 	fl       *monitor.Flusher
 	pipCache *capture.PublicIPCache
 	pip      *publicIPReporter
+	upd      *agentUpdater
 
 	mu   sync.Mutex
 	base context.Context // lifetime context, set by Run
@@ -94,6 +99,7 @@ func NewMonitor(cfg MonitorConfig) (*Monitor, error) {
 	m.pipCache = capture.NewPublicIPCache(capture.NewReflector(cfg.Reflectors), 0)
 	m.pip = newPublicIPReporter(serviceSenderFunc(m.send), cfg.Logger, m.baseCtx)
 	m.pip.bind(m.pipCache)
+	m.upd = newAgentUpdater("", cfg.AgentVersion, cfg.Logger, serviceSenderFunc(m.send), m.baseCtx, m.serviceController, cfg.Update)
 	ln, err := channel.Listen(channel.ListenerConfig{
 		Addr:      cfg.ListenAddr,
 		TLS:       cfg.TLS,
@@ -128,6 +134,7 @@ func MonitorFromConfig(ac config.AgentConfig, log *slog.Logger) (*Monitor, error
 		ListenAddr: ac.ListenAddrOrDefault(),
 		TLS:        tlsCfg,
 		Reflectors: ac.Capture.Reflectors,
+		Update:     UpdateOptions{HTTPClient: loadUpdateHTTPClient(ac.CAFile, ac.CertFile, ac.KeyFile)},
 		Logger:     log,
 	})
 }
@@ -155,6 +162,7 @@ func (m *Monitor) Run(ctx context.Context) error {
 	m.mu.Unlock()
 
 	m.pipCache.Start(ctx)
+	m.upd.start(ctx)
 	defer func() {
 		m.pipCache.Stop()
 		m.pip.unbind()
@@ -201,6 +209,8 @@ func (m *Monitor) onConnect(peer string) {
 	if err != nil {
 		m.log.Warn("request config", "component", "fleet-agent", "err", err)
 	}
+	reportAgentVersion(m.baseCtx(), serviceSenderFunc(m.send), m.log, m.cfg.AgentVersion)
+	m.upd.onConnect()
 	m.pip.reportOnConnect()
 }
 
@@ -220,6 +230,9 @@ func (m *Monitor) handle(ctx context.Context, env channel.Envelope) {
 		return
 	case channel.TypePublicIPRefresh:
 		m.pip.handleRefresh()
+		return
+	case channel.TypeAgentUpdate, channel.TypeAgentUpdateChunk:
+		m.upd.handleEnvelope(ctx, env)
 		return
 	case channel.TypeMonConfig:
 	default:

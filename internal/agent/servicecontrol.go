@@ -31,6 +31,12 @@ type ServiceController interface {
 	Status(ctx context.Context) (string, error)
 }
 
+// ServiceRestarter is an optional extension of ServiceController that restarts
+// the agent's own system service unit (used by self-update).
+type ServiceRestarter interface {
+	Restart(ctx context.Context) error
+}
+
 type cmdRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
 
 type osServiceController struct {
@@ -80,6 +86,19 @@ func (c *osServiceController) Start(ctx context.Context) error {
 		return c.exec(ctx, "systemctl", "enable", "--now", c.systemdUnit)
 	default:
 		return fmt.Errorf("service-control start: unsupported OS %q", c.goos)
+	}
+}
+
+// Restart restarts the agent's own system service unit asynchronously so a
+// self-update can replace the binary and let systemd/launchd start the new one.
+func (c *osServiceController) Restart(ctx context.Context) error {
+	switch c.goos {
+	case "darwin":
+		return c.exec(ctx, "launchctl", "kickstart", "-k", "system/"+c.launchdLabel)
+	case "linux":
+		return c.exec(ctx, "systemctl", "restart", "--no-block", c.systemdUnit)
+	default:
+		return fmt.Errorf("service-control restart: unsupported OS %q", c.goos)
 	}
 }
 

@@ -7,7 +7,10 @@ package enroll
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +24,7 @@ import (
 	"time"
 
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/pki"
 )
 
 const (
@@ -43,6 +47,8 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("GET /enroll/e/{code}", s.serveScript)
 	mux.HandleFunc("GET /enroll/ca.crt", s.serveCA)
 	mux.HandleFunc("GET /enroll/agent", s.serveAgent)
+	mux.HandleFunc("GET /enroll/update/agent", s.serveUpdateAgent)
+	mux.HandleFunc("GET /enroll/update/agent.sha256", s.serveUpdateAgentSHA256)
 	mux.HandleFunc("POST /enroll/csr", s.serveCSR)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -52,9 +58,18 @@ func (s *Service) Handler() http.Handler {
 }
 
 // TLSConfig is the endpoint's TLS configuration: the certificate the CA issued
-// for it, whose public key the one-liner pins.
+// for it, whose public key the one-liner pins. Already-enrolled agents may
+// also present a CA-signed client certificate to authenticate update downloads.
 func (s *Service) TLSConfig() *tls.Config {
-	return &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{s.tlsCert}}
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{s.tlsCert}}
+	if s.cfg.CA != nil {
+		pool := x509.NewCertPool()
+		if pool.AppendCertsFromPEM(s.cfg.CA.CertPEM()) {
+			cfg.ClientAuth = tls.VerifyClientCertIfGiven
+			cfg.ClientCAs = pool
+		}
+	}
+	return cfg
 }
 
 // Listen binds the enrollment endpoint's TLS listener.
@@ -220,6 +235,9 @@ func (s *Service) serveAgent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "the agent binary is unavailable", http.StatusServiceUnavailable)
 		return
 	}
+	if sum, _, serr := FileSHA256(path); serr == nil {
+		w.Header().Set("X-Checksum-Sha256", sum)
+	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	http.ServeContent(w, r, "fleet-agent", st.ModTime(), f)
 }
@@ -268,4 +286,123 @@ func BinaryDir(dir, fallback, hostOS, hostArch string) func(goos, arch string) (
 	return func(goos, arch string) (string, error) {
 		return config.SelectAgentBinary(dir, fallback, goos, arch, hostOS, hostArch)
 	}
+}
+
+// BinaryInfo describes a resolved fleet-agent binary and its SHA-256 digest.
+type BinaryInfo struct {
+	Path   string
+	SHA256 string
+	Size   int64
+}
+
+// FileSHA256 returns the lowercase hex SHA-256 digest and byte size of path.
+func FileSHA256(path string) (string, int64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", 0, err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil || !st.Mode().IsRegular() {
+		if err != nil {
+			return "", 0, err
+		}
+		return "", 0, fmt.Errorf("agent binary %s is not a regular file", path)
+	}
+	h := sha256.New()
+	n, err := io.Copy(h, f)
+	if err != nil {
+		return "", 0, err
+	}
+	return hex.EncodeToString(h.Sum(nil)), n, nil
+}
+
+// ResolveBinary resolves the fleet-agent binary for goos/arch using fn
+// (typically BinaryDir) and computes its SHA-256 digest and size.
+func ResolveBinary(fn func(goos, arch string) (string, error), goos, arch string) (BinaryInfo, error) {
+	if fn == nil {
+		return BinaryInfo{}, fmt.Errorf("%w: no agent binary resolver configured", config.ErrAgentBinaryUnavailable)
+	}
+	normOS, normArch, err := config.NormalizeAgentPlatform(goos, arch)
+	if err != nil {
+		return BinaryInfo{}, fmt.Errorf("%w: %v", config.ErrAgentBinaryUnavailable, err)
+	}
+	path, err := fn(normOS, normArch)
+	if err != nil {
+		return BinaryInfo{}, err
+	}
+	sum, size, err := FileSHA256(path)
+	if err != nil {
+		return BinaryInfo{}, err
+	}
+	return BinaryInfo{Path: path, SHA256: sum, Size: size}, nil
+}
+
+func (s *Service) authorizeAgentCert(w http.ResponseWriter, r *http.Request) (string, bool) {
+	id, err := pki.PeerID(r.TLS)
+	if err != nil {
+		http.Error(w, "client certificate is required", http.StatusUnauthorized)
+		return "", false
+	}
+	mc, ok := s.cfg.Registry.Get(id)
+	if !ok || mc.Removed {
+		http.Error(w, "machine is not active in the registry", http.StatusForbidden)
+		return "", false
+	}
+	return id, true
+}
+
+func (s *Service) resolveUpdateBinary(w http.ResponseWriter, r *http.Request) (BinaryInfo, string, string, bool) {
+	goos, arch, err := config.NormalizeAgentPlatform(r.URL.Query().Get("os"), r.URL.Query().Get("arch"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return BinaryInfo{}, "", "", false
+	}
+	if s.cfg.Binary == nil {
+		http.Error(w, "no agent binary is configured on the server", http.StatusServiceUnavailable)
+		return BinaryInfo{}, "", "", false
+	}
+	info, err := ResolveBinary(s.cfg.Binary, goos, arch)
+	if err != nil {
+		http.Error(w, "no agent binary for "+goos+"/"+arch+" on the server", http.StatusNotFound)
+		return BinaryInfo{}, "", "", false
+	}
+	return info, goos, arch, true
+}
+
+func (s *Service) serveUpdateAgent(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.authorizeAgentCert(w, r); !ok {
+		return
+	}
+	info, _, _, ok := s.resolveUpdateBinary(w, r)
+	if !ok {
+		return
+	}
+	f, err := os.Open(info.Path)
+	if err != nil {
+		s.log.Error("open agent binary for update", "component", "enroll", "err", err)
+		http.Error(w, "the agent binary is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil || !st.Mode().IsRegular() {
+		http.Error(w, "the agent binary is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("X-Checksum-Sha256", info.SHA256)
+	w.Header().Set("Content-Type", "application/octet-stream")
+	http.ServeContent(w, r, "fleet-agent", st.ModTime(), f)
+}
+
+func (s *Service) serveUpdateAgentSHA256(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.authorizeAgentCert(w, r); !ok {
+		return
+	}
+	info, goos, arch, ok := s.resolveUpdateBinary(w, r)
+	if !ok {
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = fmt.Fprintf(w, "%s  %s\n", info.SHA256, config.AgentBinaryName(goos, arch))
 }

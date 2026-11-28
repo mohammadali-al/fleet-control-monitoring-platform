@@ -141,12 +141,14 @@ func (a *DialingWorker) Run(ctx context.Context) error {
 // engine for the targets the server pushes (mon-config) and flushes the
 // results over the outbound connection, buffering them while it is down.
 type DialingMonitor struct {
-	log      *slog.Logger
-	d        *channel.AgentDialer
-	eng      *probe.Engine
-	fl       *monitor.Flusher
-	pipCache *capture.PublicIPCache
-	pip      *publicIPReporter
+	log          *slog.Logger
+	d            *channel.AgentDialer
+	eng          *probe.Engine
+	fl           *monitor.Flusher
+	pipCache     *capture.PublicIPCache
+	pip          *publicIPReporter
+	upd          *agentUpdater
+	agentVersion string
 
 	mu   sync.Mutex
 	base context.Context // lifetime context, set by Run
@@ -169,7 +171,7 @@ func NewDialingMonitor(cfg MonitorConfig, ds DialSettings) (*DialingMonitor, err
 	if svc == nil {
 		svc = defaultServiceController()
 	}
-	m := &DialingMonitor{log: cfg.Logger, base: context.Background(), svc: svc}
+	m := &DialingMonitor{log: cfg.Logger, base: context.Background(), svc: svc, agentVersion: cfg.AgentVersion}
 	m.fl = monitor.NewFlusher(m.send, monitor.FlusherOptions{Interval: cfg.FlushInterval, MaxBuffered: cfg.MaxBuffered})
 	m.eng = probe.NewEngine(m.fl.Add)
 	for _, p := range cfg.Probers {
@@ -178,6 +180,7 @@ func NewDialingMonitor(cfg MonitorConfig, ds DialSettings) (*DialingMonitor, err
 	m.pipCache = capture.NewPublicIPCache(capture.NewReflector(cfg.Reflectors), 0)
 	m.pip = newPublicIPReporter(serviceSenderFunc(m.send), cfg.Logger, m.baseCtx)
 	m.pip.bind(m.pipCache)
+	m.upd = newAgentUpdater("", cfg.AgentVersion, cfg.Logger, serviceSenderFunc(m.send), m.baseCtx, m.serviceController, cfg.Update)
 	d, err := ds.dialer(cfg.MachineID, m.handle, m.onConnect)
 	if err != nil {
 		return nil, err
@@ -205,6 +208,7 @@ func (m *DialingMonitor) Run(ctx context.Context) error {
 	m.mu.Unlock()
 
 	m.pipCache.Start(ctx)
+	m.upd.start(ctx)
 	defer func() {
 		m.pipCache.Stop()
 		m.pip.unbind()
@@ -240,6 +244,8 @@ func (m *DialingMonitor) onConnect(peer string) {
 	if err != nil {
 		m.log.Warn("request config", "component", "fleet-agent", "err", err)
 	}
+	reportAgentVersion(m.baseCtx(), serviceSenderFunc(m.send), m.log, m.agentVersion)
+	m.upd.onConnect()
 	m.pip.reportOnConnect()
 }
 
@@ -258,6 +264,9 @@ func (m *DialingMonitor) handle(ctx context.Context, env channel.Envelope) {
 		return
 	case channel.TypePublicIPRefresh:
 		m.pip.handleRefresh()
+		return
+	case channel.TypeAgentUpdate, channel.TypeAgentUpdateChunk:
+		m.upd.handleEnvelope(ctx, env)
 		return
 	case channel.TypeMonConfig:
 	default:
@@ -320,8 +329,14 @@ func DialFromConfig(ac config.AgentConfig, dataDir string, log *slog.Logger) (Ru
 		return nil, err
 	}
 	ds := DialSettings{ServerAddr: ac.ServerAddr, TLS: tlsCfg}
+	hc := loadUpdateHTTPClient(ac.CAFile, ac.CertFile, ac.KeyFile)
 	if ac.Role == config.RoleMonitor {
-		return NewDialingMonitor(MonitorConfig{MachineID: ac.MachineID, Reflectors: ac.Capture.Reflectors, Logger: log}, ds)
+		return NewDialingMonitor(MonitorConfig{
+			MachineID:  ac.MachineID,
+			Reflectors: ac.Capture.Reflectors,
+			Update:     UpdateOptions{HTTPClient: hc},
+			Logger:     log,
+		}, ds)
 	}
 	cg := ac.CgroupRoot
 	if cg == "" {
@@ -332,6 +347,7 @@ func DialFromConfig(ac config.AgentConfig, dataDir string, log *slog.Logger) (Ru
 		DataDir:    dataDir,
 		CgroupRoot: cg,
 		Capture:    ac.Capture,
+		Update:     UpdateOptions{HTTPClient: hc},
 		Logger:     log,
 	}, ds, WatchdogOptions{Groups: ac.Watchdog.Groups})
 }

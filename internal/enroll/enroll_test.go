@@ -847,3 +847,114 @@ func TestNewValidates(t *testing.T) {
 }
 
 func pemOf(der []byte) []byte { return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}) }
+
+func TestServeUpdateAgentAndSHA256(t *testing.T) {
+	dir := t.TempDir()
+	linuxBin := []byte("fake-linux-amd64-binary-payload")
+	if err := os.WriteFile(filepath.Join(dir, "fleet-agent-linux-amd64"), linuxBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	e := newEnv(t)
+	e.svc.cfg.Binary = BinaryDir(dir, "", "linux", "amd64")
+
+	// Start TLS listener using the service's TLSConfig (VerifyClientCertIfGiven).
+	ln, err := e.svc.Listen("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = e.svc.Serve(ctx, ln) }()
+
+	baseURL := "https://" + ln.Addr().String()
+	pool := x509.NewCertPool()
+	pool.AppendCertsFromPEM(e.ca.CertPEM())
+
+	// Add an active machine and issue its client cert, plus a removed machine.
+	if err := e.reg.Add(registry.Machine{ID: "w-upd", Role: registry.RoleWorker, ConnectMode: registry.ConnectModeAgentDial, Provisioned: true}); err != nil {
+		t.Fatal(err)
+	}
+	certPEM, keyPEM, err := e.ca.IssuePeer("w-upd", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientCert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mTLSClient := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				RootCAs:            pool,
+				Certificates:       []tls.Certificate{clientCert},
+				InsecureSkipVerify: true, // test listener cert SAN is PublicHost, not 127.0.0.1
+			},
+		},
+	}
+
+	// Unauthenticated client (no cert) -> 401.
+	noCertClient := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+	resp, err := noCertClient.Get(baseURL + "/enroll/update/agent?os=linux&arch=amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("unauthenticated update agent = %d, want 401", resp.StatusCode)
+	}
+
+	// Authenticated client -> 200 + matching SHA256 header & body.
+	resp, err = mTLSClient.Get(baseURL + "/enroll/update/agent?os=linux&arch=amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotBody, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || string(gotBody) != string(linuxBin) {
+		t.Fatalf("update agent = %d %q, want 200 %q", resp.StatusCode, gotBody, linuxBin)
+	}
+	info, err := ResolveBinary(e.svc.cfg.Binary, "linux", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotHdr := resp.Header.Get("X-Checksum-Sha256"); gotHdr != info.SHA256 {
+		t.Errorf("X-Checksum-Sha256 = %q, want %q", gotHdr, info.SHA256)
+	}
+
+	// SHA256 endpoint returns "<hex>  fleet-agent-linux-amd64".
+	resp, err = mTLSClient.Get(baseURL + "/enroll/update/agent.sha256?os=linux&arch=amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sumBody, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(sumBody), info.SHA256) {
+		t.Fatalf("update sha256 = %d %q, want %s", resp.StatusCode, sumBody, info.SHA256)
+	}
+
+	// Missing platform binary -> 404.
+	resp, err = mTLSClient.Get(baseURL + "/enroll/update/agent?os=darwin&arch=arm64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("missing platform = %d, want 404", resp.StatusCode)
+	}
+
+	// Removed machine -> 403.
+	_ = e.reg.Update("w-upd", func(m *registry.Machine) { m.Removed = true })
+	resp, err = mTLSClient.Get(baseURL + "/enroll/update/agent?os=linux&arch=amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("removed machine = %d, want 403", resp.StatusCode)
+	}
+}

@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -125,6 +126,18 @@ type Config struct {
 	// ShellScrollbackBytes is the per-session bounded scrollback ring buffer
 	// size for interactive shells (default 128 KiB).
 	ShellScrollbackBytes int
+
+	// AgentBinaryDir and AgentBinaryPath locate fleet-agent-<os>-<arch>
+	// binaries for agent self-update (mirrors Provisioner / enroll.BinaryDir).
+	AgentBinaryDir  string
+	AgentBinaryPath string
+	// UpdateBaseURL is the HTTPS base URL (e.g. https://enroll-host:port)
+	// agents can fetch update binaries from; empty streams over the channel.
+	UpdateBaseURL string
+	// AgentBinaryResolver overrides binary resolution (for tests).
+	AgentBinaryResolver func(goos, arch string) (string, error)
+	// ServerVersion overrides version.Version for agent-update checks (tests).
+	ServerVersion string
 }
 
 // MonitorIngestor receives the mon-data envelopes of a monitor agent;
@@ -149,7 +162,8 @@ type MachineInfo struct {
 	Running  int        `json:"running"`
 	Queued   int        `json:"queued"`
 	// Note explains a state the operator might not expect.
-	Note string `json:"note,omitempty"`
+	Note   string            `json:"note,omitempty"`
+	Update *AgentUpdateState `json:"agent_update,omitempty"`
 }
 
 // Summary is the fleet tiles on the Machines page.
@@ -198,16 +212,18 @@ const (
 )
 
 type node struct {
-	id       string
-	key      string // what the link was built for: the machine's IP, or keyAgentDial; a change restarts it
-	link     Link
-	q        *exec.Queue
-	qmu      sync.Mutex
-	cancel   context.CancelFunc
-	done     chan struct{}
-	online   bool
-	everUp   bool
-	lastSeen time.Time
+	id        string
+	key       string // what the link was built for: the machine's IP, or keyAgentDial; a change restarts it
+	link      Link
+	q         *exec.Queue
+	qmu       sync.Mutex
+	cancel    context.CancelFunc
+	done      chan struct{}
+	online    bool
+	everUp    bool
+	lastSeen  time.Time
+	agentOS   string
+	agentArch string
 }
 
 type outBuf struct {
@@ -235,6 +251,9 @@ type Manager struct {
 
 	scMu      sync.Mutex // guards scPending
 	scPending map[string]chan channel.ServiceControlResultPayload
+
+	updMu   sync.Mutex // guards updates
+	updates map[string]*AgentUpdateState
 
 	observeState // the Observe/Admin backends (observe.go)
 	maneuverState
@@ -301,6 +320,7 @@ func New(cfg Config) (*Manager, error) {
 		cfg: cfg, log: cfg.Logger, bus: newBus(), mon: cfg.Monitor, wsrc: cfg.Watchdog,
 		wd:            map[string]*wdState{},
 		scPending:     map[string]chan channel.ServiceControlResultPayload{},
+		updates:       map[string]*AgentUpdateState{},
 		observeState:  newObserveState(),
 		maneuverState: newManeuverState(),
 		nodes:         map[string]*node{},
@@ -578,6 +598,12 @@ func (m *Manager) agentHandler(n *node, role string, next channel.Handler) chann
 			m.recordPublicIP(n, env)
 		case channel.TypeDiskState:
 			m.recordDiskState(n, env)
+		case channel.TypeAgentVersion:
+			m.recordAgentVersion(n, env)
+		case channel.TypeAgentUpdateResult:
+			m.recordAgentUpdateResult(n, env)
+		case channel.TypeAgentUpdateChunkReq:
+			m.handleAgentUpdateChunkReq(ctx, n, env)
 		case channel.TypeManeuverAck:
 			if role == registry.RoleWorker {
 				m.handleManeuverAck(n, env)
@@ -779,6 +805,7 @@ func (m *Manager) info(mc registry.Machine, n *node) MachineInfo {
 		}
 	}
 	in.Machine.Online = in.State == StateOnline
+	in.Update = m.updateState(mc.ID)
 	return in
 }
 
@@ -1893,6 +1920,46 @@ func (m *Manager) recordDiskState(n *node, env channel.Envelope) {
 	}); err != nil {
 		m.log.Warn("update disk-state", "component", "fleet", "machine", n.id, "err", err)
 		return
+	}
+	m.publishMachine(n.id)
+}
+
+// --- agent version -----------------------------------------------------------
+
+func (m *Manager) recordAgentVersion(n *node, env channel.Envelope) {
+	var p channel.AgentVersionPayload
+	if err := json.Unmarshal(env.Payload, &p); err != nil {
+		m.log.Warn("bad agent-version payload", "component", "fleet", "machine", n.id, "err", err)
+		return
+	}
+	ver := strings.TrimSpace(p.Version)
+	if ver == "" {
+		m.log.Warn("empty agent-version", "component", "fleet", "machine", n.id)
+		return
+	}
+	if len(ver) > 128 {
+		ver = ver[:128]
+	}
+	if p.OS != "" || p.Arch != "" {
+		if goos, arch, err := config.NormalizeAgentPlatform(p.OS, p.Arch); err == nil {
+			m.mu.Lock()
+			n.agentOS = goos
+			n.agentArch = arch
+			m.mu.Unlock()
+		}
+	}
+	var changed bool
+	if err := m.cfg.Registry.Update(n.id, func(mc *registry.Machine) {
+		if mc.AgentVersion != ver {
+			changed = true
+			mc.AgentVersion = ver
+		}
+	}); err != nil {
+		m.log.Warn("update agent-version", "component", "fleet", "machine", n.id, "err", err)
+		return
+	}
+	if changed {
+		m.persistRegistry()
 	}
 	m.publishMachine(n.id)
 }

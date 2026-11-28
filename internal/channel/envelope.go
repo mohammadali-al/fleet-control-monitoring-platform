@@ -401,3 +401,67 @@ func readLoop(ctx context.Context, c *websocket.Conn, h Handler) error {
 		}
 	}
 }
+
+// Agent-version and self-update envelope types. Unknown types are ignored by
+// older peers, so adding these is backward-tolerant.
+const (
+	TypeAgentVersion        = "agent-version"          // agent -> server: running fleet-agent version and platform (AgentVersionPayload)
+	TypeAgentUpdate         = "agent-update"           // server -> agent: trigger self-update (AgentUpdatePayload)
+	TypeAgentUpdateResult   = "agent-update-result"    // agent -> server: progress/outcome of self-update (AgentUpdateResultPayload)
+	TypeAgentUpdateChunkReq = "agent-update-chunk-req" // agent -> server: request a binary chunk over the channel (AgentUpdateChunkReqPayload)
+	TypeAgentUpdateChunk    = "agent-update-chunk"     // server -> agent: binary chunk response (AgentUpdateChunkPayload)
+)
+
+// Agent-update result status values.
+const (
+	AgentUpdateDownloading = "downloading"
+	AgentUpdateApplying    = "applying"
+	AgentUpdateOK          = "ok"
+	AgentUpdateFailed      = "failed"
+)
+
+// AgentVersionPayload is the payload of an agent-version envelope (agent -> server).
+type AgentVersionPayload struct {
+	Version string    `json:"version"`
+	OS      string    `json:"os,omitempty"`
+	Arch    string    `json:"arch,omitempty"`
+	At      time.Time `json:"at,omitempty"`
+}
+
+// AgentUpdatePayload is the payload of an agent-update envelope (server -> agent).
+type AgentUpdatePayload struct {
+	TargetVersion string `json:"target_version"`
+	SHA256        string `json:"sha256"`
+	Size          int64  `json:"size,omitempty"`
+	OS            string `json:"os,omitempty"`
+	Arch          string `json:"arch,omitempty"`
+	URL           string `json:"url,omitempty"`
+	Method        string `json:"method,omitempty"` // "http" | "channel" (empty inferred from URL)
+}
+
+// AgentUpdateResultPayload is the payload of an agent-update-result envelope (agent -> server).
+type AgentUpdateResultPayload struct {
+	TargetVersion  string    `json:"target_version,omitempty"`
+	CurrentVersion string    `json:"current_version,omitempty"`
+	Status         string    `json:"status"` // downloading | applying | ok | failed
+	Error          string    `json:"error,omitempty"`
+	At             time.Time `json:"at,omitempty"`
+}
+
+// AgentUpdateChunkReqPayload requests a slice of the agent binary over the control channel.
+type AgentUpdateChunkReqPayload struct {
+	OS     string `json:"os"`
+	Arch   string `json:"arch"`
+	Offset int64  `json:"offset"`
+	Length int    `json:"length,omitempty"`
+}
+
+// AgentUpdateChunkPayload returns a slice of the agent binary over the control channel.
+type AgentUpdateChunkPayload struct {
+	Offset int64  `json:"offset"`
+	Total  int64  `json:"total"`
+	SHA256 string `json:"sha256,omitempty"`
+	Data   []byte `json:"data,omitempty"`
+	EOF    bool   `json:"eof,omitempty"`
+	Error  string `json:"error,omitempty"`
+}

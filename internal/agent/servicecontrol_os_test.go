@@ -96,4 +96,20 @@ func TestOSServiceControllerCommands(t *testing.T) {
 	if err := failing.Stop(ctx); err == nil || !strings.Contains(err.Error(), "permission denied") {
 		t.Errorf("failing Stop err = %v, want output included", err)
 	}
+
+	linR := newCtrl("linux", nil)
+	if err := linR.Restart(ctx); err != nil {
+		t.Fatalf("linux Restart: %v", err)
+	}
+	if len(calls) != 1 || calls[0].name+" "+strings.Join(calls[0].args, " ") != "systemctl restart --no-block fleet-agent.service" {
+		t.Errorf("linux Restart calls = %+v", calls)
+	}
+
+	macR := newCtrl("darwin", nil)
+	if err := macR.Restart(ctx); err != nil {
+		t.Fatalf("darwin Restart: %v", err)
+	}
+	if len(calls) != 1 || calls[0].name+" "+strings.Join(calls[0].args, " ") != "launchctl kickstart -k system/com.fleet.agent" {
+		t.Errorf("darwin Restart calls = %+v", calls)
+	}
 }

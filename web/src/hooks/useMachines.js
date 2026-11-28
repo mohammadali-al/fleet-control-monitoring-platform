@@ -20,6 +20,7 @@ const EMPTY_SUMMARY = {
 export function useMachines() {
   const [machines, setMachines] = useState([]);
   const [summary, setSummary] = useState(EMPTY_SUMMARY);
+  const [serverVersion, setServerVersion] = useState('');
   const [noBackend, setNoBackend] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -37,6 +38,7 @@ export function useMachines() {
       setError('');
       setMachines([]);
       setSummary(EMPTY_SUMMARY);
+      setServerVersion('');
       return;
     }
     if (!r.ok) {
@@ -47,6 +49,7 @@ export function useMachines() {
     setError('');
     setMachines(Array.isArray(r.data.machines) ? r.data.machines : []);
     setSummary(r.data.summary || EMPTY_SUMMARY);
+    setServerVersion(r.data.server_version || '');
   }, []);
 
   const refreshSoon = useCallback(() => {
@@ -91,5 +94,5 @@ export function useMachines() {
     pausedRef.current = paused;
   }, []);
 
-  return { machines, summary, noBackend, error, loading, refresh, setRefreshPaused };
+  return { machines, summary, serverVersion, noBackend, error, loading, refresh, setRefreshPaused };
 }
