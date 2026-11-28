@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { MachineLabel } from '../components/MachineLabel';
 import { Link } from 'react-router-dom';
 import { useMachineDetails } from '../hooks/useMachineDetails';
 import { useMachines } from '../hooks/useMachines';
@@ -402,7 +403,7 @@ function MachineDetailsDrawer({
             <div>
               <div className="crumbs">Machine details</div>
               <h2 id="machine-details-title" className="mono" style={{ fontSize: 'var(--fs-lg)', textTransform: 'none', overflowWrap: 'anywhere' }}>
-                {machine?.id || machineId}
+                {machine ? <MachineLabel machine={machine} /> : machineId}
               </h2>
             </div>
             {machine && (
@@ -1874,7 +1875,7 @@ export function MachinesPage() {
                             textAlign: 'left',
                           }}
                         >
-                          {m.id}
+                          <MachineLabel machine={m} variant="compact" />
                         </button>
                         {m.removed && (
                           <>

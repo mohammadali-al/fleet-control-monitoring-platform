@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { MachineLabel } from '../components/MachineLabel';
 import { Link } from 'react-router-dom';
 import { StatusAlert } from '../components/StatusAlert';
 import { useBaseline } from '../hooks/useBaseline';
@@ -1103,8 +1104,7 @@ export function ManeuverPage() {
                         />
                       </label>
                       <div className="list__main">
-                        <b>{w.id}</b>
-                        <small>{w.private_ips?.[0] || 'no ip'}</small>
+                        <b><MachineLabel machine={w} variant="compact" /></b>
                       </div>
                       {liveAg ? <AgentAckChip state={liveAg.state} /> : <MachineOnlineChip state={w.state} />}
                     </li>
