@@ -84,6 +84,7 @@ func Open(o Options) (*Manager, error) {
 		GateSecret:   key,
 		Capture:      o.Config.AgentCapture,
 		MonitorStore: o.Config.MonitorStore,
+		DataDir:      o.DataDir,
 		NewLink:      links,
 		Logger:       o.Logger,
 	})

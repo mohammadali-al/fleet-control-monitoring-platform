@@ -24,9 +24,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/baseline"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/channel"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/exec"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/maneuver"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/onboard"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/probe"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/registry"
@@ -234,6 +236,10 @@ type Manager struct {
 	scPending map[string]chan channel.ServiceControlResultPayload
 
 	observeState // the Observe/Admin backends (observe.go)
+	maneuverState
+
+	baseStore *baseline.Store
+	manStore  *maneuver.Store
 
 	shMu   sync.Mutex
 	shells map[string]*shellSession // live interactive shells (in-memory only; not persisted across restart)
@@ -291,22 +297,44 @@ func New(cfg Config) (*Manager, error) {
 	}
 	mgr := &Manager{
 		cfg: cfg, log: cfg.Logger, bus: newBus(), mon: cfg.Monitor, wsrc: cfg.Watchdog,
-		wd:           map[string]*wdState{},
-		scPending:    map[string]chan channel.ServiceControlResultPayload{},
-		observeState: newObserveState(),
-		nodes:        map[string]*node{},
-		shells:       map[string]*shellSession{},
-		outputs:      map[string]*outBuf{},
-		sessions:     map[string]string{},
-		history:      map[string]Command{},
-		historyPath:  historyPath,
-		regStore:     regStore,
+		wd:            map[string]*wdState{},
+		scPending:     map[string]chan channel.ServiceControlResultPayload{},
+		observeState:  newObserveState(),
+		maneuverState: newManeuverState(),
+		nodes:         map[string]*node{},
+		shells:        map[string]*shellSession{},
+		outputs:       map[string]*outBuf{},
+		sessions:      map[string]string{},
+		history:       map[string]Command{},
+		historyPath:   historyPath,
+		regStore:      regStore,
+	}
+	if cfg.DataDir != "" {
+		if bs, err := baseline.Open(cfg.DataDir); err == nil {
+			mgr.baseStore = bs
+		} else {
+			cfg.Logger.Warn("open baseline store", "component", "fleet", "err", err)
+		}
+		if ms, err := maneuver.Open(cfg.DataDir); err == nil {
+			mgr.manStore = ms
+		} else {
+			cfg.Logger.Warn("open maneuver store", "component", "fleet", "err", err)
+		}
 	}
 	if err := mgr.loadHistory(); err != nil {
 		cfg.Logger.Warn("load command history", "component", "fleet", "err", err)
 	}
 	return mgr, nil
 }
+
+// DataDir returns the manager's configured base data directory, if any.
+func (m *Manager) DataDir() string { return m.cfg.DataDir }
+
+// Baseline returns the opened baseline store, if DataDir was configured.
+func (m *Manager) Baseline() *baseline.Store { return m.baseStore }
+
+// ManeuverStore returns the opened maneuver store, if DataDir was configured.
+func (m *Manager) ManeuverStore() *maneuver.Store { return m.manStore }
 
 // Bus is the event bus for the panel's WebSocket streams.
 func (m *Manager) Bus() *Bus { return m.bus }
@@ -540,6 +568,14 @@ func (m *Manager) agentHandler(n *node, role string, next channel.Handler) chann
 			m.recordPublicIP(n, env)
 		case channel.TypeDiskState:
 			m.recordDiskState(n, env)
+		case channel.TypeManeuverAck:
+			if role == registry.RoleWorker {
+				m.handleManeuverAck(n, env)
+			}
+		case channel.TypeManeuverStatus:
+			if role == registry.RoleWorker {
+				m.handleManeuverStatus(n, env)
+			}
 		default:
 			next(ctx, env)
 		}
@@ -687,6 +723,7 @@ func (m *Manager) poll() {
 		_ = m.cfg.Registry.SetOnline(c.id, c.online)
 		if !c.online {
 			c.q.ConnectionLost() // the agent's exit can no longer arrive
+			m.maneuverMachineOffline(c.id)
 		}
 		m.publishMachine(c.id)
 	}

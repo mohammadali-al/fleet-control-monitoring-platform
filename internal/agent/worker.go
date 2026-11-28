@@ -88,6 +88,8 @@ type worker struct {
 	lastDisk     capture.DiskStatus
 	diskReported bool
 
+	man *maneuverRunner
+
 	wg sync.WaitGroup // runs waiting for the first config
 }
 
@@ -112,6 +114,7 @@ func newWorker(cfg Config) *worker {
 		defer w.mu.Unlock()
 		return w.base
 	})
+	w.man = newManeuverRunner(w)
 	w.initEvidence()
 	return w
 }
@@ -129,6 +132,7 @@ func (w *worker) start(ctx context.Context) {
 	w.base, w.stop = context.WithCancel(ctx)
 	w.startEvidence()
 	w.startDiskMonitor()
+	w.man.start(w.base)
 }
 
 // onConnect runs when the main server's connection is established: it asks for
@@ -148,6 +152,7 @@ func (w *worker) onConnect(peer string) {
 	go w.offerEvidence()
 	w.reportPublicIPOnConnect()
 	w.reportDiskOnConnect()
+	w.man.onConnect()
 }
 
 // handle is the channel.Handler. It never blocks on a running command.
@@ -171,6 +176,8 @@ func (w *worker) handle(ctx context.Context, env channel.Envelope) {
 		handleServiceControl(ctx, w.log, w.sender, w.serviceController(), env)
 	case channel.TypePublicIPRefresh:
 		w.handlePublicIPRefresh()
+	case channel.TypeManeuverPrepare, channel.TypeManeuverCommit, channel.TypeManeuverAbort:
+		w.man.handle(ctx, env)
 	default:
 		// input, resize, terminate, confirm: addressed by session id, so every
 		// executor gets them and the one that owns the session acts.
@@ -229,6 +236,7 @@ func (w *worker) shutdown() {
 	w.stop()
 	w.unbindPublicIP()
 	w.unbindDiskState()
+	w.man.shutdown()
 	w.mu.Lock()
 	w.closed = true
 	exs := append([]*exec.Executor(nil), w.retired...)

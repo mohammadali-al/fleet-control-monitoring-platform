@@ -152,6 +152,19 @@ func (e *Executor) Session(id string) (SessionInfo, bool) {
 	return a.sess.Info(), true
 }
 
+// AuthorizeOneShot checks whether cmd is permitted by the executor's gate.
+func (e *Executor) AuthorizeOneShot(command, confirmToken string) error {
+	return e.cfg.Gate.Authorize(e.cfg.MachineID, command, confirmToken)
+}
+
+// RunSync executes p synchronously until the session exits and its cgroup and
+// capture hooks complete.
+func (e *Executor) RunSync(p RunPayload) {
+	e.wg.Add(1)
+	defer e.wg.Done()
+	e.run(p)
+}
+
 // Handle is the channel.Handler for the agent: it dispatches envelopes from
 // the main server. It never blocks on a running command.
 func (e *Executor) Handle(_ context.Context, env channel.Envelope) {

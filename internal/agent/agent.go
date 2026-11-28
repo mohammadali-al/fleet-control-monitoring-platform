@@ -59,6 +59,8 @@ type Config struct {
 	TermGrace time.Duration
 	// Shell runs one-shot commands (`Shell -c command`); default /bin/sh.
 	Shell string
+	// Now overrides time.Now (tests).
+	Now func() time.Time
 	// Logger defaults to slog.Default().
 	Logger *slog.Logger
 }

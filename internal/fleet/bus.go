@@ -8,8 +8,9 @@ import (
 
 // Event kinds published on the bus.
 const (
-	EventMachine = "machine" // a machine's state or registry entry changed
-	EventExec    = "exec"    // a command or shell event from a machine's queue
+	EventMachine  = "machine"  // a machine's state or registry entry changed
+	EventExec     = "exec"     // a command or shell event from a machine's queue
+	EventManeuver = "maneuver" // a maneuver run changed state or agent ACK/status updated
 )
 
 // Event is one thing the panel may want to push to a browser.
@@ -20,6 +21,8 @@ type Event struct {
 	Info *MachineInfo
 	// Exec is set for EventExec (queued, running, refused, chunk, exited).
 	Exec *exec.Event
+	// Maneuver is set for EventManeuver.
+	Maneuver *ManeuverRun
 }
 
 // subBuffer is how many events a subscriber may lag behind before it is
