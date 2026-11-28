@@ -119,6 +119,8 @@
   text-transform: uppercase; letter-spacing: 0.05em; color: var(--text);
 }
 .field__hint { font-size: var(--fs-xs); color: var(--text-faint); }
+.field__hint--block { max-width: 65ch; color: var(--text-muted); line-height: 1.45; }
+.input--narrow { max-width: 10rem; }
 .field__error { font-size: var(--fs-xs); color: var(--danger); font-weight: 700; }
 .input, .select, .textarea {
   width: 100%; min-height: var(--control-h); padding: 0 var(--sp-3);
@@ -143,6 +145,8 @@
 .input-affix > .input { padding-left: 2.25rem; }
 fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(11.5rem, 1fr)); gap: var(--sp-4); }
+.form-grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 700px) { .form-grid--2 { grid-template-columns: minmax(0, 1fr); } }
 .check, .radio { display: inline-flex; align-items: center; gap: var(--sp-2); min-height: var(--control-h); cursor: pointer; font-size: var(--fs-sm); }
 .check input, .radio input { width: 1rem; height: 1rem; accent-color: var(--accent); margin: 0; }
 
