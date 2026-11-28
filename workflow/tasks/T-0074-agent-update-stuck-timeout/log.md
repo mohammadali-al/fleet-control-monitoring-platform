@@ -4,4 +4,4 @@ Deviations worth reviewing: (1) added a trivial optional `Config.AgentUpdateStal
 Frontend: `isAgentUpdateInProgress` now returns false when `updated_at` is older than 6 min (safety net; `formatUpdateStatus` unchanged). Used `Date.parse` since `fmtAgo` returns a display string, not a number. Bundle rebuilt (`web/assets/dist/app.js` changed; app.css and web/dist/index.html came out byte-identical).
 Tests (update_test.go): swept-when-stale, kept-fresh-by-progress-not-swept, terminal ok/failed untouched. gofmt/vet/build clean; `scripts/test.sh server` passes; update tests also pass under -race -count=3. `check-app` is not installed in this environment, so no browser smoke run was done; the esbuild bundle compiled cleanly.
 wf: T-0074 done
-<!-- wf: commits=PENDING left=- tests=server:pass blocked=no -->
+<!-- wf: commits=e4673a0 left=- tests=server:pass blocked=no -->
