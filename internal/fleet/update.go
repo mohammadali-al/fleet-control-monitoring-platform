@@ -22,6 +22,16 @@ import (
 const (
 	defaultUpdateChunkBytes = 512 << 10
 	maxUpdateChunkBytes     = 1 << 20
+
+	// agentUpdateStallTimeout is how long an in-progress self-update may go
+	// without an agent progress report before it is swept to failed. 5 minutes
+	// is comfortably longer than the agent's own ReconnectTimeout (60s) +
+	// GraceWindow (120s) + a channel download, so it only fires on genuine
+	// non-progress (e.g. an older agent build that ignores TypeAgentUpdate),
+	// never on a healthy slow update or a legitimate restart gap.
+	agentUpdateStallTimeout = 5 * time.Minute
+
+	agentUpdateStallError = "timed out: agent did not report update progress"
 )
 
 // AgentUpdateState tracks the latest push-triggered self-update state for one
@@ -32,6 +42,11 @@ type AgentUpdateState struct {
 	Status        string    `json:"status"` // requested | downloading | applying | ok | failed
 	Error         string    `json:"error,omitempty"`
 	UpdatedAt     time.Time `json:"updated_at"`
+
+	// progressAt is the server-side time of the last dispatch/agent report. The
+	// stall sweep uses it (falling back to UpdatedAt when zero) so a skewed
+	// agent clock in an agent-supplied UpdatedAt cannot cause a false timeout.
+	progressAt time.Time
 }
 
 func (s *AgentUpdateState) clone() *AgentUpdateState {
@@ -91,6 +106,50 @@ func (m *Manager) setUpdateState(id string, st AgentUpdateState) {
 	cp := st
 	m.updates[id] = &cp
 	m.updMu.Unlock()
+}
+
+// sweepStalledUpdates flips any requested/downloading/applying update whose
+// last progress is older than the stall timeout to failed (timed out) and
+// publishes the machine so the panel updates live. Terminal ok/failed states
+// are never touched. Ids are collected under the lock and published after.
+func (m *Manager) sweepStalledUpdates(now time.Time) {
+	timeout := m.cfg.AgentUpdateStallTimeout
+	if timeout <= 0 {
+		timeout = agentUpdateStallTimeout
+	}
+	var stalled []string
+	m.updMu.Lock()
+	for id, st := range m.updates {
+		if st == nil {
+			continue
+		}
+		switch st.Status {
+		case "requested", "downloading", "applying":
+		default:
+			continue
+		}
+		last := st.progressAt
+		if last.IsZero() {
+			last = st.UpdatedAt
+		}
+		if now.Sub(last) < timeout {
+			continue
+		}
+		m.updates[id] = &AgentUpdateState{
+			RequestID:     st.RequestID,
+			TargetVersion: st.TargetVersion,
+			Status:        "failed",
+			Error:         agentUpdateStallError,
+			UpdatedAt:     now.UTC(),
+			progressAt:    now.UTC(),
+		}
+		stalled = append(stalled, id)
+	}
+	m.updMu.Unlock()
+	for _, id := range stalled {
+		m.log.Warn("agent self-update timed out", "component", "fleet", "machine", id, "timeout", timeout)
+		m.publishMachine(id)
+	}
 }
 
 func (m *Manager) machinePlatform(id string, mc registry.Machine) (goos, arch string) {
@@ -281,6 +340,7 @@ func (m *Manager) recordAgentUpdateResult(n *node, env channel.Envelope) {
 		Status:        p.Status,
 		Error:         p.Error,
 		UpdatedAt:     at,
+		progressAt:    time.Now().UTC(),
 	}
 	m.updMu.Unlock()
 
