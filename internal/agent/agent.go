@@ -61,6 +61,8 @@ type Config struct {
 	Shell string
 	// Now overrides time.Now (tests).
 	Now func() time.Time
+	// AgentVersion overrides internal/version.Version (tests).
+	AgentVersion string
 	// Logger defaults to slog.Default().
 	Logger *slog.Logger
 }

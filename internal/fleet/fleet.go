@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -198,16 +199,18 @@ const (
 )
 
 type node struct {
-	id       string
-	key      string // what the link was built for: the machine's IP, or keyAgentDial; a change restarts it
-	link     Link
-	q        *exec.Queue
-	qmu      sync.Mutex
-	cancel   context.CancelFunc
-	done     chan struct{}
-	online   bool
-	everUp   bool
-	lastSeen time.Time
+	id        string
+	key       string // what the link was built for: the machine's IP, or keyAgentDial; a change restarts it
+	link      Link
+	q         *exec.Queue
+	qmu       sync.Mutex
+	cancel    context.CancelFunc
+	done      chan struct{}
+	online    bool
+	everUp    bool
+	lastSeen  time.Time
+	agentOS   string
+	agentArch string
 }
 
 type outBuf struct {
@@ -578,6 +581,8 @@ func (m *Manager) agentHandler(n *node, role string, next channel.Handler) chann
 			m.recordPublicIP(n, env)
 		case channel.TypeDiskState:
 			m.recordDiskState(n, env)
+		case channel.TypeAgentVersion:
+			m.recordAgentVersion(n, env)
 		case channel.TypeManeuverAck:
 			if role == registry.RoleWorker {
 				m.handleManeuverAck(n, env)
@@ -1893,6 +1898,46 @@ func (m *Manager) recordDiskState(n *node, env channel.Envelope) {
 	}); err != nil {
 		m.log.Warn("update disk-state", "component", "fleet", "machine", n.id, "err", err)
 		return
+	}
+	m.publishMachine(n.id)
+}
+
+// --- agent version -----------------------------------------------------------
+
+func (m *Manager) recordAgentVersion(n *node, env channel.Envelope) {
+	var p channel.AgentVersionPayload
+	if err := json.Unmarshal(env.Payload, &p); err != nil {
+		m.log.Warn("bad agent-version payload", "component", "fleet", "machine", n.id, "err", err)
+		return
+	}
+	ver := strings.TrimSpace(p.Version)
+	if ver == "" {
+		m.log.Warn("empty agent-version", "component", "fleet", "machine", n.id)
+		return
+	}
+	if len(ver) > 128 {
+		ver = ver[:128]
+	}
+	if p.OS != "" || p.Arch != "" {
+		if goos, arch, err := config.NormalizeAgentPlatform(p.OS, p.Arch); err == nil {
+			m.mu.Lock()
+			n.agentOS = goos
+			n.agentArch = arch
+			m.mu.Unlock()
+		}
+	}
+	var changed bool
+	if err := m.cfg.Registry.Update(n.id, func(mc *registry.Machine) {
+		if mc.AgentVersion != ver {
+			changed = true
+			mc.AgentVersion = ver
+		}
+	}); err != nil {
+		m.log.Warn("update agent-version", "component", "fleet", "machine", n.id, "err", err)
+		return
+	}
+	if changed {
+		m.persistRegistry()
 	}
 	m.publishMachine(n.id)
 }

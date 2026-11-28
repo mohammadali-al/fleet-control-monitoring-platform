@@ -15,6 +15,7 @@ import (
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/fleet"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/onboard"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/registry"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/version"
 )
 
 // Backend is what the live pages need from the main server. *fleet.Manager
@@ -168,8 +169,9 @@ func writeErr(w http.ResponseWriter, err error) {
 // ---- machines ----
 
 type machinesResponse struct {
-	Machines []fleet.MachineInfo `json:"machines"`
-	Summary  fleet.Summary       `json:"summary"`
+	Machines      []fleet.MachineInfo `json:"machines"`
+	Summary       fleet.Summary       `json:"summary"`
+	ServerVersion string              `json:"server_version"`
 }
 
 func (s *server) listMachines(w http.ResponseWriter, _ *http.Request) {
@@ -177,7 +179,11 @@ func (s *server) listMachines(w http.ResponseWriter, _ *http.Request) {
 	if ms == nil {
 		ms = []fleet.MachineInfo{}
 	}
-	writeJSON(w, http.StatusOK, machinesResponse{Machines: ms, Summary: fleet.Summarize(ms)})
+	writeJSON(w, http.StatusOK, machinesResponse{
+		Machines:      ms,
+		Summary:       fleet.Summarize(ms),
+		ServerVersion: version.Version,
+	})
 }
 
 type credentialsBody struct {

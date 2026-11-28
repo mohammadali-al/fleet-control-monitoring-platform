@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/registry"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/version"
 )
 
 // The Machines SPA route serves the React shell and the compiled bundle
@@ -72,6 +73,9 @@ func TestMachinesPageHasDetailsDrawerInBundle(t *testing.T) {
 		"data-machine-details",
 		"Close machine details",
 		"Live updates via /ws/events",
+		"Agent version",
+		"Server version",
+		"Outdated",
 	} {
 		if !strings.Contains(js, want) {
 			t.Errorf("SPA bundle lacks details drawer string %q", want)
@@ -89,6 +93,7 @@ func TestGetMachineDetailsEndpoint(t *testing.T) {
 		m.CertFingerprint = "abcdef0123456789"
 		m.SSHHostKey = "SHA256:testhostkey"
 		m.EnrolledVia = registry.EnrolledToken
+		m.AgentVersion = "0.9.0"
 		m.Disk = registry.DiskState{
 			Status:     "warn",
 			TotalBytes: 100 * 1000 * 1000 * 1000,
@@ -133,6 +138,9 @@ func TestGetMachineDetailsEndpoint(t *testing.T) {
 	}
 	if got.Machine.EnrolledVia != registry.EnrolledToken || !got.Machine.Provisioned {
 		t.Errorf("enrollment = via:%q provisioned:%v", got.Machine.EnrolledVia, got.Machine.Provisioned)
+	}
+	if got.Machine.AgentVersion != "0.9.0" || got.ServerVersion != version.Version {
+		t.Errorf("versions = agent:%q server:%q, want 0.9.0 / %q", got.Machine.AgentVersion, got.ServerVersion, version.Version)
 	}
 	if got.Machine.Specs == nil || got.Machine.Specs.Hostname != "worker-01" {
 		t.Errorf("specs = %+v", got.Machine.Specs)

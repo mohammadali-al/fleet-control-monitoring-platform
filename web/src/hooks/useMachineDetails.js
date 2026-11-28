@@ -23,6 +23,7 @@ function maxTimestampMs(m) {
 export function useMachineDetails(machineId, listMachine) {
   const [fetchedMachine, setFetchedMachine] = useState(null);
   const [watchdog, setWatchdog] = useState(null);
+  const [serverVersion, setServerVersion] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notFound, setNotFound] = useState(false);
@@ -57,6 +58,7 @@ export function useMachineDetails(machineId, listMachine) {
     setError('');
     setFetchedMachine(r.data.machine || null);
     setWatchdog(r.data.watchdog || null);
+    setServerVersion(r.data.server_version || '');
   }, []);
 
   const refreshSoon = useCallback(() => {
@@ -163,5 +165,5 @@ export function useMachineDetails(machineId, listMachine) {
     return maxTimestampMs(listed) > maxTimestampMs(fetched) ? listed : fetched;
   }, [machineId, fetchedMachine, listMachine, notFound]);
 
-  return { machine, watchdog, loading, error, notFound, refresh };
+  return { machine, watchdog, serverVersion, loading, error, notFound, refresh };
 }

@@ -141,12 +141,13 @@ func (a *DialingWorker) Run(ctx context.Context) error {
 // engine for the targets the server pushes (mon-config) and flushes the
 // results over the outbound connection, buffering them while it is down.
 type DialingMonitor struct {
-	log      *slog.Logger
-	d        *channel.AgentDialer
-	eng      *probe.Engine
-	fl       *monitor.Flusher
-	pipCache *capture.PublicIPCache
-	pip      *publicIPReporter
+	log          *slog.Logger
+	d            *channel.AgentDialer
+	eng          *probe.Engine
+	fl           *monitor.Flusher
+	pipCache     *capture.PublicIPCache
+	pip          *publicIPReporter
+	agentVersion string
 
 	mu   sync.Mutex
 	base context.Context // lifetime context, set by Run
@@ -169,7 +170,7 @@ func NewDialingMonitor(cfg MonitorConfig, ds DialSettings) (*DialingMonitor, err
 	if svc == nil {
 		svc = defaultServiceController()
 	}
-	m := &DialingMonitor{log: cfg.Logger, base: context.Background(), svc: svc}
+	m := &DialingMonitor{log: cfg.Logger, base: context.Background(), svc: svc, agentVersion: cfg.AgentVersion}
 	m.fl = monitor.NewFlusher(m.send, monitor.FlusherOptions{Interval: cfg.FlushInterval, MaxBuffered: cfg.MaxBuffered})
 	m.eng = probe.NewEngine(m.fl.Add)
 	for _, p := range cfg.Probers {
@@ -240,6 +241,7 @@ func (m *DialingMonitor) onConnect(peer string) {
 	if err != nil {
 		m.log.Warn("request config", "component", "fleet-agent", "err", err)
 	}
+	reportAgentVersion(m.baseCtx(), serviceSenderFunc(m.send), m.log, m.agentVersion)
 	m.pip.reportOnConnect()
 }
 

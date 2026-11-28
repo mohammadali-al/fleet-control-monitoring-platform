@@ -144,8 +144,9 @@ type Machine struct {
 
 	// Specs is what the machine reported at token enrollment (nil for an
 	// SSH-onboarded machine). EnrolledVia is "token" or empty/"ssh".
-	Specs       *Specs `json:"specs,omitempty"`
-	EnrolledVia string `json:"enrolled_via,omitempty"`
+	Specs        *Specs `json:"specs,omitempty"`
+	EnrolledVia  string `json:"enrolled_via,omitempty"`
+	AgentVersion string `json:"agent_version,omitempty"`
 	// Stopped is set when the operator stopped the agent from the panel (its
 	// service was disabled); a local start of the agent brings it back.
 	Stopped bool `json:"stopped,omitempty"`

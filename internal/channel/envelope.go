@@ -401,3 +401,17 @@ func readLoop(ctx context.Context, c *websocket.Conn, h Handler) error {
 		}
 	}
 }
+
+// Agent-version envelope types. Unknown types are ignored by older peers, so
+// adding these is backward-tolerant.
+const (
+	TypeAgentVersion = "agent-version" // agent -> server: running fleet-agent version and platform (AgentVersionPayload)
+)
+
+// AgentVersionPayload is the payload of an agent-version envelope (agent -> server).
+type AgentVersionPayload struct {
+	Version string    `json:"version"`
+	OS      string    `json:"os,omitempty"`
+	Arch    string    `json:"arch,omitempty"`
+	At      time.Time `json:"at,omitempty"`
+}

@@ -43,6 +43,8 @@ type MonitorConfig struct {
 	// Reflectors overrides the public-IP reflector URLs (empty selects
 	// capture.DefaultReflectors).
 	Reflectors []string
+	// AgentVersion overrides internal/version.Version (tests).
+	AgentVersion string
 	// Logger defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -201,6 +203,7 @@ func (m *Monitor) onConnect(peer string) {
 	if err != nil {
 		m.log.Warn("request config", "component", "fleet-agent", "err", err)
 	}
+	reportAgentVersion(m.baseCtx(), serviceSenderFunc(m.send), m.log, m.cfg.AgentVersion)
 	m.pip.reportOnConnect()
 }
 

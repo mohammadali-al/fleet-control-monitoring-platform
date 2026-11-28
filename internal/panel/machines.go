@@ -6,6 +6,7 @@ import (
 
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/fleet"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/registry"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/version"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/watchdog"
 )
 
@@ -13,8 +14,9 @@ import (
 // (/api/enroll/machines/{id}/stop|start, internal/enroll).
 
 type machineResponse struct {
-	Machine  fleet.MachineInfo `json:"machine"`
-	Watchdog *hostState        `json:"watchdog,omitempty"`
+	Machine       fleet.MachineInfo `json:"machine"`
+	Watchdog      *hostState        `json:"watchdog,omitempty"`
+	ServerVersion string            `json:"server_version"`
 }
 
 func (s *server) getMachine(w http.ResponseWriter, r *http.Request) {
@@ -27,8 +29,9 @@ func (s *server) getMachine(w http.ResponseWriter, r *http.Request) {
 		info.PrivateIPs = []string{}
 	}
 	writeJSON(w, http.StatusOK, machineResponse{
-		Machine:  info,
-		Watchdog: s.machineWatchdogState(info),
+		Machine:       info,
+		Watchdog:      s.machineWatchdogState(info),
+		ServerVersion: version.Version,
 	})
 }
 

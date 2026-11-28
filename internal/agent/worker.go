@@ -148,6 +148,7 @@ func (w *worker) onConnect(peer string) {
 	if err != nil {
 		w.log.Warn("request config", "component", "fleet-agent", "err", err)
 	}
+	reportAgentVersion(w.base, w.sender, w.log, w.cfg.AgentVersion)
 	// An idle agent offers segments the server lacks as soon as it is connected.
 	go w.offerEvidence()
 	w.reportPublicIPOnConnect()

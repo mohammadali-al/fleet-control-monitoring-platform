@@ -309,3 +309,25 @@ func TestGroupsCloneUpdateAndOmitEmpty(t *testing.T) {
 		t.Fatalf("empty groups should be omitted from JSON:\n%s", raw)
 	}
 }
+
+func TestAgentVersionPersistence(t *testing.T) {
+	r := New()
+	if err := r.Add(Machine{ID: "m1", Role: RoleWorker, AgentVersion: "1.2.3"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Update("m1", func(m *Machine) { m.AgentVersion = "1.2.4" }); err != nil {
+		t.Fatal(err)
+	}
+	st := NewStore(t.TempDir())
+	if err := st.Save(r); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := st.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := loaded.Get("m1")
+	if !ok || got.AgentVersion != "1.2.4" {
+		t.Fatalf("loaded AgentVersion = %q (ok=%v), want 1.2.4", got.AgentVersion, ok)
+	}
+}

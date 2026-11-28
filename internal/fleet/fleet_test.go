@@ -635,6 +635,46 @@ func TestDiskStateDispatch(t *testing.T) {
 	}
 }
 
+func TestAgentVersionDispatch(t *testing.T) {
+	m, links := newWatchdogMgr(t, fleet.WatchdogSource{}, false)
+	eventually(t, "w1 online", func() bool {
+		info, ok := m.Machine("w1")
+		return ok && info.State == fleet.StateOnline
+	})
+
+	sub := m.Bus().Subscribe(func(ev fleet.Event) bool {
+		return ev.Kind == fleet.EventMachine && ev.Machine == "w1"
+	})
+	defer sub.Close()
+
+	ctx := context.Background()
+	links["w1"].h(ctx, envOf(t, channel.TypeAgentVersion, channel.AgentVersionPayload{
+		Version: "1.4.2",
+		OS:      "linux",
+		Arch:    "amd64",
+		At:      time.Now().UTC(),
+	}))
+
+	eventually(t, "registry AgentVersion updated", func() bool {
+		info, ok := m.Machine("w1")
+		return ok && info.AgentVersion == "1.4.2"
+	})
+	select {
+	case ev := <-sub.C:
+		if ev.Info == nil || ev.Info.AgentVersion != "1.4.2" {
+			t.Fatalf("bus event = %+v, want AgentVersion 1.4.2", ev.Info)
+		}
+	case <-time.After(wait):
+		t.Fatal("timed out waiting for EventMachine after TypeAgentVersion")
+	}
+
+	// Empty version is ignored.
+	links["w1"].h(ctx, envOf(t, channel.TypeAgentVersion, channel.AgentVersionPayload{Version: "   "}))
+	if info, _ := m.Machine("w1"); info.AgentVersion != "1.4.2" {
+		t.Errorf("AgentVersion changed on empty payload: %q", info.AgentVersion)
+	}
+}
+
 func TestCommandHistoryPersistenceAndReload(t *testing.T) {
 	dataDir := t.TempDir()
 	reg := registry.New()

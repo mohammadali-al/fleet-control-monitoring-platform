@@ -186,7 +186,35 @@ function sameStringList(a, b) {
   return true;
 }
 
-function MachineDetailsDrawer({ machineId, machine, watchdog, loading, error, notFound, closeBtnRef, onClose, onGroupsSaved }) {
+function isAgentOutdated(machine, serverVersion) {
+  if (!machine || machine.removed || !serverVersion) return false;
+  if (machine.agent_version) return machine.agent_version !== serverVersion;
+  return machine.state === 'online';
+}
+
+function VersionCell({ machine, serverVersion }) {
+  const outdated = isAgentOutdated(machine, serverVersion);
+  const ver = machine?.agent_version;
+  return (
+    <div>
+      <div className="row" style={{ gap: 'var(--sp-1)', flexWrap: 'wrap' }}>
+        <span className={ver ? 'mono' : 'faint'}>
+          {ver || (machine?.state === 'online' ? 'Unreported' : 'Unknown')}
+        </span>
+        {outdated && (
+          <span
+            className="chip chip--warn"
+            title={serverVersion ? `Server version: ${serverVersion}` : undefined}
+          >
+            Outdated
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MachineDetailsDrawer({ machineId, machine, watchdog, serverVersion, loading, error, notFound, closeBtnRef, onClose, onGroupsSaved }) {
   const [groupDraft, setGroupDraft] = useState([]);
   const [groupInput, setGroupInput] = useState('');
   const [groupDirty, setGroupDirty] = useState(false);
@@ -395,6 +423,20 @@ function MachineDetailsDrawer({ machineId, machine, watchdog, loading, error, no
                     <dd className="mono" style={DETAIL_DD_STYLE}>{machine.state}</dd>
                     <dt style={DETAIL_DT_STYLE}>Connect mode</dt>
                     <dd className="mono" style={DETAIL_DD_STYLE}>{machine.connect_mode}</dd>
+                    <dt style={DETAIL_DT_STYLE}>Agent version</dt>
+                    <dd style={DETAIL_DD_STYLE}>
+                      <span className={machine.agent_version ? 'mono' : 'faint'}>
+                        {machine.agent_version || (machine.state === 'online' ? 'Unreported' : 'Unknown')}
+                      </span>
+                      {isAgentOutdated(machine, serverVersion) && (
+                        <>
+                          {' '}
+                          <span className="chip chip--warn">Outdated</span>
+                        </>
+                      )}
+                    </dd>
+                    <dt style={DETAIL_DT_STYLE}>Server version</dt>
+                    <dd className="mono" style={DETAIL_DD_STYLE}>{serverVersion || 'Unknown'}</dd>
                     <dt style={DETAIL_DT_STYLE}>Last seen</dt>
                     <dd style={DETAIL_DD_STYLE}>
                       {machine.last_seen ? `${fmtAgo(machine.last_seen)} (${fmtDateTime(machine.last_seen)})` : 'Never'}
@@ -741,7 +783,7 @@ function MachineDetailsDrawer({ machineId, machine, watchdog, loading, error, no
 export function MachinesPage() {
   usePageTitle('Machines');
   const pushToast = useToast();
-  const { machines, summary, noBackend, error: loadError, refresh, setRefreshPaused } = useMachines();
+  const { machines, summary, serverVersion, noBackend, error: loadError, refresh, setRefreshPaused } = useMachines();
 
   // Panels
   const [onboardOpen, setOnboardOpen] = useState(false);
@@ -810,6 +852,7 @@ export function MachinesPage() {
   const {
     machine: detailsMachine,
     watchdog: detailsWatchdog,
+    serverVersion: detailsServerVersion,
     loading: detailsLoading,
     error: detailsError,
     notFound: detailsNotFound,
@@ -1612,6 +1655,7 @@ export function MachinesPage() {
                 <th scope="col">Machine</th>
                 <th scope="col">Role</th>
                 <th scope="col">State</th>
+                <th scope="col">Version</th>
                 <th scope="col">Connect mode</th>
                 <th scope="col">Addresses</th>
                 <th scope="col">Disk</th>
@@ -1622,7 +1666,7 @@ export function MachinesPage() {
             <tbody id="machines-rows">
               {machines.length === 0 ? (
                 <tr data-empty-row>
-                  <td colSpan={8} className="empty">
+                  <td colSpan={9} className="empty">
                     No machines are registered yet. Use <strong>Onboard machine</strong> to add the first one.
                   </td>
                 </tr>
@@ -1697,6 +1741,7 @@ export function MachinesPage() {
                       </th>
                       <td><RoleChip role={m.role} /></td>
                       <td><StateChip state={m.state} /></td>
+                      <td><VersionCell machine={m} serverVersion={serverVersion} /></td>
                       <td className="mono">{m.connect_mode}</td>
                       <td>
                         {privateIPs.length > 0 ? (
@@ -2094,6 +2139,7 @@ export function MachinesPage() {
         machineId={detailsId}
         machine={detailsMachine}
         watchdog={detailsWatchdog}
+        serverVersion={detailsServerVersion || serverVersion}
         loading={detailsLoading}
         error={detailsError}
         notFound={detailsNotFound}
