@@ -71,6 +71,7 @@ _none_
 - **T-0065** monitor-history-semantic-zoom  `after: [T-0055, T-0058]`
 - **T-0066** projects-tests  `after: [T-0063]`
 - **T-0062** report-generator-wiring  `after: [T-0047, T-0055, T-0066]`
+- **T-0067** upgrade-converge-components  `after: [T-0055, T-0064]`
 
 ## Blocked
 _none_

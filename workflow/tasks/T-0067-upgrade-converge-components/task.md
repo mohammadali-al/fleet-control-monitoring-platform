@@ -1,7 +1,7 @@
 ---
 id: T-0067
 title: upgrade-converge-components
-state: ready
+state: merged
 touches: [deploy/upgrade-server.sh, deploy/install-server.sh, deploy/README.md, deploy/REQUIREMENTS.md]
 tests: []
 after: [T-0055, T-0064]
