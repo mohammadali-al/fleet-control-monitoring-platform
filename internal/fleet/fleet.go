@@ -126,6 +126,18 @@ type Config struct {
 	// ShellScrollbackBytes is the per-session bounded scrollback ring buffer
 	// size for interactive shells (default 128 KiB).
 	ShellScrollbackBytes int
+
+	// AgentBinaryDir and AgentBinaryPath locate fleet-agent-<os>-<arch>
+	// binaries for agent self-update (mirrors Provisioner / enroll.BinaryDir).
+	AgentBinaryDir  string
+	AgentBinaryPath string
+	// UpdateBaseURL is the HTTPS base URL (e.g. https://enroll-host:port)
+	// agents can fetch update binaries from; empty streams over the channel.
+	UpdateBaseURL string
+	// AgentBinaryResolver overrides binary resolution (for tests).
+	AgentBinaryResolver func(goos, arch string) (string, error)
+	// ServerVersion overrides version.Version for agent-update checks (tests).
+	ServerVersion string
 }
 
 // MonitorIngestor receives the mon-data envelopes of a monitor agent;
@@ -150,7 +162,8 @@ type MachineInfo struct {
 	Running  int        `json:"running"`
 	Queued   int        `json:"queued"`
 	// Note explains a state the operator might not expect.
-	Note string `json:"note,omitempty"`
+	Note   string            `json:"note,omitempty"`
+	Update *AgentUpdateState `json:"agent_update,omitempty"`
 }
 
 // Summary is the fleet tiles on the Machines page.
@@ -239,6 +252,9 @@ type Manager struct {
 	scMu      sync.Mutex // guards scPending
 	scPending map[string]chan channel.ServiceControlResultPayload
 
+	updMu   sync.Mutex // guards updates
+	updates map[string]*AgentUpdateState
+
 	observeState // the Observe/Admin backends (observe.go)
 	maneuverState
 
@@ -304,6 +320,7 @@ func New(cfg Config) (*Manager, error) {
 		cfg: cfg, log: cfg.Logger, bus: newBus(), mon: cfg.Monitor, wsrc: cfg.Watchdog,
 		wd:            map[string]*wdState{},
 		scPending:     map[string]chan channel.ServiceControlResultPayload{},
+		updates:       map[string]*AgentUpdateState{},
 		observeState:  newObserveState(),
 		maneuverState: newManeuverState(),
 		nodes:         map[string]*node{},
@@ -583,6 +600,10 @@ func (m *Manager) agentHandler(n *node, role string, next channel.Handler) chann
 			m.recordDiskState(n, env)
 		case channel.TypeAgentVersion:
 			m.recordAgentVersion(n, env)
+		case channel.TypeAgentUpdateResult:
+			m.recordAgentUpdateResult(n, env)
+		case channel.TypeAgentUpdateChunkReq:
+			m.handleAgentUpdateChunkReq(ctx, n, env)
 		case channel.TypeManeuverAck:
 			if role == registry.RoleWorker {
 				m.handleManeuverAck(n, env)
@@ -784,6 +805,7 @@ func (m *Manager) info(mc registry.Machine, n *node) MachineInfo {
 		}
 	}
 	in.Machine.Online = in.State == StateOnline
+	in.Update = m.updateState(mc.ID)
 	return in
 }
 

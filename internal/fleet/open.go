@@ -80,14 +80,33 @@ func Open(o Options) (*Manager, error) {
 			ServerAddr:      agentDialServerAddr(o.Config),
 			ServerID:        o.Config.ServerIDOrDefault(),
 		},
-		Gate:         gate,
-		GateSecret:   key,
-		Capture:      o.Config.AgentCapture,
-		MonitorStore: o.Config.MonitorStore,
-		DataDir:      o.DataDir,
-		NewLink:      links,
-		Logger:       o.Logger,
+		Gate:            gate,
+		GateSecret:      key,
+		Capture:         o.Config.AgentCapture,
+		MonitorStore:    o.Config.MonitorStore,
+		DataDir:         o.DataDir,
+		AgentBinaryDir:  o.Config.AgentBinaryDir,
+		AgentBinaryPath: o.Config.AgentBinaryPath,
+		UpdateBaseURL:   enrollUpdateBaseURL(o.Config),
+		NewLink:         links,
+		Logger:          o.Logger,
 	})
+}
+
+func enrollUpdateBaseURL(cfg config.ServerConfig) string {
+	host := strings.TrimSpace(cfg.EnrollHost)
+	if cfg.EnrollAddr == "" || host == "" {
+		return ""
+	}
+	_, port, err := net.SplitHostPort(cfg.EnrollAddr)
+	if err != nil {
+		return ""
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n <= 0 || n > 65535 {
+		return ""
+	}
+	return "https://" + net.JoinHostPort(host, strconv.Itoa(n))
 }
 
 func loadOrCreateCA(dir string) (*pki.CA, error) {

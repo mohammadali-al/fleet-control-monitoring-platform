@@ -659,14 +659,18 @@ func TestAgentVersionDispatch(t *testing.T) {
 		info, ok := m.Machine("w1")
 		return ok && info.AgentVersion == "1.4.2"
 	})
-	select {
-	case ev := <-sub.C:
-		if ev.Info == nil || ev.Info.AgentVersion != "1.4.2" {
-			t.Fatalf("bus event = %+v, want AgentVersion 1.4.2", ev.Info)
+	deadline := time.After(wait)
+	for {
+		select {
+		case ev := <-sub.C:
+			if ev.Info != nil && ev.Info.AgentVersion == "1.4.2" {
+				goto sawVersion
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for EventMachine after TypeAgentVersion")
 		}
-	case <-time.After(wait):
-		t.Fatal("timed out waiting for EventMachine after TypeAgentVersion")
 	}
+sawVersion:
 
 	// Empty version is ignored.
 	links["w1"].h(ctx, envOf(t, channel.TypeAgentVersion, channel.AgentVersionPayload{Version: "   "}))
