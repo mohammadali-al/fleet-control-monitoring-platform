@@ -958,3 +958,33 @@ func TestServeUpdateAgentAndSHA256(t *testing.T) {
 		t.Errorf("removed machine = %d, want 403", resp.StatusCode)
 	}
 }
+
+func TestTokenStatusLinksMachine(t *testing.T) {
+	e := newEnv(t)
+	h := e.svc.APIHandler()
+	get := func(code string) (int, string) {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", "/api/enroll/tokens/"+code, nil))
+		return rec.Code, rec.Body.String()
+	}
+	m, _ := e.svc.Mint("worker", "alice")
+	if c, b := get(m.Token.Code); c != 200 || !strings.Contains(b, `"state":"pending"`) || strings.Contains(b, "machine_id") {
+		t.Errorf("pending = %d %s", c, b)
+	}
+	c1, _ := csr(t)
+	res, err := e.svc.Enroll(linuxReq(m.Token.Token, c1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c, b := get(strings.ToLower(m.Token.Code)); c != 200 || !strings.Contains(b, `"state":"used"`) || !strings.Contains(b, `"machine_id":"`+res.MachineID+`"`) {
+		t.Errorf("used = %d %s", c, b)
+	}
+	m2, _ := e.svc.Mint("worker", "alice")
+	e.clk.advance(11 * time.Minute)
+	if c, b := get(m2.Token.Code); c != 200 || !strings.Contains(b, `"state":"expired"`) {
+		t.Errorf("expired = %d %s", c, b)
+	}
+	if c, _ := get("NOPE"); c != 404 {
+		t.Errorf("unknown = %d, want 404", c)
+	}
+}

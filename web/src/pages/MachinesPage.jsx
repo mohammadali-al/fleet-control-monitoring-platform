@@ -916,6 +916,8 @@ export function MachinesPage() {
   const [enrollStatus, setEnrollStatus] = useState(null);
   const [enrollResult, setEnrollResult] = useState(null);
   const [enrollExpiryText, setEnrollExpiryText] = useState('');
+  // Outcome of the issued token: null (still pending) | { state: 'used', machineId } | { state: 'expired' }
+  const [enrollOutcome, setEnrollOutcome] = useState(null);
   const enrollBusyRef = useRef(false);
 
   // Row menu state
@@ -988,9 +990,36 @@ export function MachinesPage() {
     };
   }, [refreshEnrolled]);
 
+  // Watch the issued token (T-0071): GET /api/enroll/tokens/{code} says pending|used|expired
+  // and, once used, which machine it enrolled.
+  const enrollCode = enrollResult?.code || '';
+  const checkEnrollToken = useCallback(async () => {
+    if (!enrollCode) return;
+    const r = await api('GET', `/api/enroll/tokens/${encodeURIComponent(enrollCode)}`);
+    if (!r.ok) return;
+    if (r.data.state === 'used') {
+      setEnrollOutcome((cur) =>
+        cur && cur.state === 'used' ? cur : { state: 'used', machineId: r.data.machine_id }
+      );
+      refreshEnrolled();
+    } else if (r.data.state === 'expired') {
+      setEnrollOutcome((cur) => cur || { state: 'expired' });
+    }
+  }, [enrollCode, refreshEnrolled]);
+
+  useEffect(() => {
+    if (!enrollCode || enrollOutcome) return undefined;
+    checkEnrollToken();
+    const iv = window.setInterval(checkEnrollToken, 3000);
+    return () => window.clearInterval(iv);
+  }, [enrollCode, enrollOutcome, checkEnrollToken]);
+
   useEvents(
     (msg) => {
-      if (msg && msg.type === 'machine') refreshEnrolledSoon();
+      if (msg && msg.type === 'machine') {
+        refreshEnrolledSoon();
+        checkEnrollToken();
+      }
     },
     refreshEnrolled
   );
@@ -1255,6 +1284,7 @@ export function MachinesPage() {
     setEnrollStatus({ kind: 'info', msg: 'Generating...' });
     const r = await api('POST', '/api/enroll/tokens', { role: enrollRole });
     setEnrollBusy(false);
+    setEnrollOutcome(null);
     if (!r.ok) {
       setEnrollResult(null);
       setEnrollStatus({
@@ -1268,6 +1298,19 @@ export function MachinesPage() {
       msg: 'Token ready. It works once, for one machine, within 10 minutes.',
     });
     setEnrollResult(r.data);
+  }
+
+  // "Add another": retire the finished token and return to the generate form.
+  function resetEnroll() {
+    setEnrollResult(null);
+    setEnrollOutcome(null);
+    setEnrollStatus(null);
+    window.setTimeout(() => enrollRoleRef.current?.focus(), 0);
+  }
+
+  function doneEnroll() {
+    resetEnroll();
+    setEnrollOpen(false);
   }
 
   function copyEnrollCmd(text) {
@@ -1663,7 +1706,41 @@ export function MachinesPage() {
           </div>
         </form>
 
-        <div className="card__body stack" data-enroll-result hidden={!enrollResult}>
+        {enrollOutcome?.state === 'used' && (() => {
+          const em = enrolledMachines.find((x) => x.id === enrollOutcome.machineId);
+          const ips = em ? [em.public_ip, ...(em.private_ips || [])].filter(Boolean) : [];
+          return (
+            <div className="card__body stack" data-enroll-success role="status" aria-live="polite">
+              <div>
+                <span className="chip chip--ok">Enrolled</span>{' '}
+                <strong>{enrollOutcome.machineId}</strong> joined the fleet.
+              </div>
+              <div className="stack" style={{ gap: 'var(--sp-1)' }}>
+                <div><span className="muted">Machine id:</span> {enrollOutcome.machineId}</div>
+                <div><span className="muted">Role:</span> {em ? em.role : enrollRole}</div>
+                {em?.specs && <div><span className="muted">Specs:</span> {specText(em.specs)}</div>}
+                {ips.length > 0 && <div><span className="muted">IP:</span> {ips.join(', ')}</div>}
+              </div>
+              <p className="muted">The one-time code has been used and is no longer valid.</p>
+              <div className="row">
+                <button className="btn btn--primary" type="button" data-enroll-done onClick={doneEnroll}>Done</button>
+                <button className="btn" type="button" data-enroll-another onClick={resetEnroll}>Add another</button>
+              </div>
+            </div>
+          );
+        })()}
+
+        {enrollOutcome?.state === 'expired' && (
+          <div className="card__body stack" data-enroll-expired role="status" aria-live="polite">
+            <div><span className="chip chip--warn">Expired</span> The code expired before any machine used it.</div>
+            <div className="row">
+              <button className="btn btn--primary" type="button" data-enroll-another onClick={resetEnroll}>Generate a new token</button>
+              <button className="btn" type="button" onClick={doneEnroll}>Close</button>
+            </div>
+          </div>
+        )}
+
+        <div className="card__body stack" data-enroll-result hidden={!enrollResult || Boolean(enrollOutcome)}>
           <div>
             <div className="muted">Code (valid for 10 minutes, one machine, one use)</div>
             <div className="enroll-code" data-enroll-code>{enrollResult?.code || ''}</div>

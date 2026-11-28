@@ -160,3 +160,33 @@ func (s *tokenStore) redeem(secret string, fn func(Token) (string, error)) error
 	live.RedeemedAt = s.now()
 	return nil
 }
+
+// Token states reported to the operator panel.
+const (
+	TokenPending = "pending"
+	TokenUsed    = "used"
+	TokenExpired = "expired"
+)
+
+// status reports where a token stands, found by its short code (the handle the
+// operator already holds). Read-only: it never consumes or extends a token.
+func (s *tokenStore) status(code string) (state, machineID string, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t := s.codes[strings.ToUpper(strings.TrimSpace(code))]
+	switch {
+	case t == nil:
+		return "", "", false
+	case t.RedeemedBy != "":
+		return TokenUsed, t.RedeemedBy, true
+	case !s.now().Before(t.ExpiresAt):
+		return TokenExpired, "", true
+	}
+	return TokenPending, "", true
+}
+
+// TokenStatus is the operator-panel view of a minted token (by its short code):
+// pending, used (with the machine it enrolled) or expired.
+func (s *Service) TokenStatus(code string) (state, machineID string, ok bool) {
+	return s.tokens.status(code)
+}
