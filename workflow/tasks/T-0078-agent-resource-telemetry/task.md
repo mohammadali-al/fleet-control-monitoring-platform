@@ -1,7 +1,7 @@
 ---
 id: T-0078
 title: agent-resource-telemetry
-state: ready            # draft | ready | running | blocked | review | changes | merged | closed
+state: merged
 touches: [internal/channel/envelope.go, internal/channel/envelope_test.go,
           internal/agent/resource.go, internal/agent/worker.go, internal/agent/resource_test.go,
           internal/fleet/fleet.go, internal/fleet/resource_test.go,

@@ -1,7 +1,7 @@
 ---
 id: T-0076
 title: pastebin-panel-section
-state: ready            # draft | ready | running | blocked | review | changes | merged | closed
+state: merged
 touches: [internal/pastebin/, internal/panel/pastebin.go, internal/panel/pastebin_test.go,
           internal/panel/ws.go, internal/panel/api.go, internal/config/config.go,
           web/src/pages/PastebinPage.jsx, web/src/hooks/usePastebin.js, web/src/routes.js,

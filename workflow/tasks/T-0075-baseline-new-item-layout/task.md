@@ -1,7 +1,7 @@
 ---
 id: T-0075
 title: baseline-new-item-layout
-state: ready            # draft | ready | running | blocked | review | changes | merged | closed
+state: merged
 touches: [web/src/pages/BaselinePage.jsx, web/assets/css/components.css, web/assets/dist/, web/dist/index.html]
 tests: [server]
 after: [T-0054]

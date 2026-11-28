@@ -1,7 +1,7 @@
 ---
 id: T-0074
 title: agent-update-stuck-timeout
-state: ready            # draft | ready | running | blocked | review | changes | merged | closed
+state: merged
 touches: [internal/fleet/update.go, internal/fleet/fleet.go, internal/fleet/update_test.go,
           web/src/pages/MachinesPage.jsx, web/assets/dist/, web/dist/index.html]
 tests: [server]
