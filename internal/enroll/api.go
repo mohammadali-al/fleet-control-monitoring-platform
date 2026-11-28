@@ -20,6 +20,7 @@ const APIPrefix = "/api/enroll/"
 // APIHandler serves:
 //
 //	POST /api/enroll/tokens                 {role}  -> code, expiry, Linux and macOS one-liners
+//	GET  /api/enroll/tokens/{code}          -> state pending|used|expired, machine_id once used
 //	GET  /api/enroll/script?role=worker     the bootstrap script, read-only ("show script")
 //	GET  /api/enroll/machines               the token-enrolled machines, with specs
 //	POST /api/enroll/machines/{id}/stop     disable the service (stays down across reboot)
@@ -27,6 +28,7 @@ const APIPrefix = "/api/enroll/"
 func (s *Service) APIHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST "+APIPrefix+"tokens", s.apiMint)
+	mux.HandleFunc("GET "+APIPrefix+"tokens/{code}", s.apiTokenStatus)
 	mux.HandleFunc("GET "+APIPrefix+"script", s.apiScript)
 	mux.HandleFunc("GET "+APIPrefix+"machines", s.apiMachines)
 	mux.HandleFunc("POST "+APIPrefix+"machines/{id}/stop", s.apiStop)
@@ -111,6 +113,19 @@ func (s *Service) apiMint(w http.ResponseWriter, r *http.Request) {
 		TTLSeconds: int(m.Token.ExpiresAt.Sub(m.Token.CreatedAt).Seconds()),
 		Linux:      m.Linux, MacOS: m.MacOS, URL: s.BaseURL(),
 	})
+}
+
+func (s *Service) apiTokenStatus(w http.ResponseWriter, r *http.Request) {
+	state, id, ok := s.TokenStatus(r.PathValue("code"))
+	if !ok {
+		writeJSON(w, http.StatusNotFound, errBody("unknown token"))
+		return
+	}
+	body := map[string]string{"state": state}
+	if id != "" {
+		body["machine_id"] = id
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 func (s *Service) apiScript(w http.ResponseWriter, r *http.Request) {
