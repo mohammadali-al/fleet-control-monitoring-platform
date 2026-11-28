@@ -65,6 +65,7 @@ func (s *server) routesAPI(mux *http.ServeMux) {
 
 	s.routesBaseline(mux)
 	s.routesManeuver(mux)
+	s.routesProject(mux)
 	s.routesObserve(mux)
 }
 

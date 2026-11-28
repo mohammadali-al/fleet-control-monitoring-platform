@@ -31,6 +31,7 @@ import (
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/maneuver"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/onboard"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/probe"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/project"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/registry"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/watchdog"
 )
@@ -240,6 +241,7 @@ type Manager struct {
 
 	baseStore *baseline.Store
 	manStore  *maneuver.Store
+	projStore *project.Store
 
 	shMu   sync.Mutex
 	shells map[string]*shellSession // live interactive shells (in-memory only; not persisted across restart)
@@ -320,6 +322,11 @@ func New(cfg Config) (*Manager, error) {
 		} else {
 			cfg.Logger.Warn("open maneuver store", "component", "fleet", "err", err)
 		}
+		if ps, err := project.Open(cfg.DataDir); err == nil {
+			mgr.projStore = ps
+		} else {
+			cfg.Logger.Warn("open project store", "component", "fleet", "err", err)
+		}
 	}
 	if err := mgr.loadHistory(); err != nil {
 		cfg.Logger.Warn("load command history", "component", "fleet", "err", err)
@@ -335,6 +342,9 @@ func (m *Manager) Baseline() *baseline.Store { return m.baseStore }
 
 // ManeuverStore returns the opened maneuver store, if DataDir was configured.
 func (m *Manager) ManeuverStore() *maneuver.Store { return m.manStore }
+
+// ProjectStore returns the opened project store, if DataDir was configured.
+func (m *Manager) ProjectStore() *project.Store { return m.projStore }
 
 // Bus is the event bus for the panel's WebSocket streams.
 func (m *Manager) Bus() *Bus { return m.bus }

@@ -715,6 +715,7 @@ func (m *Manager) sendManeuverEnvelope(ctx context.Context, machineID, typ, id s
 
 func (m *Manager) publishManeuver(r ManeuverRun) {
 	cp := cloneManeuverRun(r)
+	m.syncProjectTestFromRun(cp)
 	m.bus.publish(Event{Kind: EventManeuver, Maneuver: &cp})
 }
 
