@@ -39,9 +39,11 @@
 #   --agent-port PORT        Agent control channel port (default: 7443)
 #   --auth-port PORT         Loopback Authelia port (default: 9091)
 #   --tsdb-port PORT         Loopback VictoriaMetrics port (default: 8428)
+#   --grafana-port PORT      Loopback Grafana port (default: 3000)
 #   --data-dir DIR           fleet-server data directory (default: /var/lib/fleet-server)
 #   --tsdb-dir DIR           VictoriaMetrics data directory (default: /var/lib/fleet-victoriametrics)
 #   --tsdb-retention PERIOD  VictoriaMetrics retention period (default: 90d)
+#   --grafana-dir DIR        Grafana data directory (default: /var/lib/fleet-grafana)
 #   --proxy-dir DIR          Proxy configuration directory (default: /opt/fleet/proxy)
 #   --proxy-state-dir DIR    Proxy mutable state directory (default: /var/lib/fleet-proxy)
 #
@@ -55,6 +57,9 @@ AUTHELIA_VERSION="4.39.27"
 VICTORIAMETRICS_VERSION="1.157.0"
 VICTORIAMETRICS_SHA256_AMD64="7b31192da6cf805b8b9244a904b022948e8022a067a822c30cb9f94600d0c387"
 VICTORIAMETRICS_SHA256_ARM64="e5368dec72d212dcb2b994345ab872245299000d37197f723123e63a50e573b5"
+GRAFANA_VERSION="11.6.1"
+GRAFANA_SHA256_AMD64="35a5efca8c535ce961217765faf8d6895c6d1c1587eaeec50d606a5cb218603b"
+GRAFANA_SHA256_ARM64="6b45fc6c2e534aee02220c1e8ed792bf4bb44ceac2da5ba0cd66e9579496f73e"
 
 SCRIPT_DIR=""
 if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
@@ -93,9 +98,13 @@ FLEET_AGENT_DIAL_PORT="${FLEET_AGENT_DIAL_PORT:-}"
 FLEET_ENROLL_PORT="${FLEET_ENROLL_PORT:-}"
 FLEET_AUTH_PORT="${FLEET_AUTH_PORT:-}"
 FLEET_TSDB_PORT="${FLEET_TSDB_PORT:-}"
+FLEET_GRAFANA_PORT="${FLEET_GRAFANA_PORT:-}"
 FLEET_DATA_DIR="${FLEET_DATA_DIR:-}"
 FLEET_TSDB_DIR="${FLEET_TSDB_DIR:-}"
 FLEET_TSDB_RETENTION="${FLEET_TSDB_RETENTION:-}"
+FLEET_GRAFANA_DIR="${FLEET_GRAFANA_DIR:-}"
+FLEET_GRAFANA_CONF_DIR="${FLEET_GRAFANA_CONF_DIR:-/etc/fleet-grafana}"
+FLEET_GRAFANA_HOME="${FLEET_GRAFANA_HOME:-/usr/local/share/grafana}"
 FLEET_PROXY_DIR="${FLEET_PROXY_DIR:-}"
 FLEET_PROXY_STATE_DIR="${FLEET_PROXY_STATE_DIR:-}"
 FLEET_CONF_DIR="${FLEET_CONF_DIR:-/etc/fleet-server}"
@@ -144,9 +153,11 @@ Configuration overrides (also settable in --answers FILE):
   --agent-port PORT        Agent control channel port (default: 7443)
   --auth-port PORT         Loopback Authelia port (default: 9091)
   --tsdb-port PORT         Loopback VictoriaMetrics port (default: 8428)
+  --grafana-port PORT      Loopback Grafana port (default: 3000)
   --data-dir DIR           fleet-server data directory (default: /var/lib/fleet-server)
   --tsdb-dir DIR           VictoriaMetrics data directory (default: /var/lib/fleet-victoriametrics)
   --tsdb-retention PERIOD  VictoriaMetrics retention period (default: 90d)
+  --grafana-dir DIR        Grafana data directory (default: /var/lib/fleet-grafana)
   --proxy-dir DIR          Proxy configuration directory (default: /opt/fleet/proxy)
   --proxy-state-dir DIR    Proxy mutable state directory (default: /var/lib/fleet-proxy)
 
@@ -190,9 +201,11 @@ while [ "$#" -gt 0 ]; do
     --agent-port) need_val "$@"; FLEET_AGENT_PORT="$2"; shift 2 ;;
     --auth-port) need_val "$@"; FLEET_AUTH_PORT="$2"; shift 2 ;;
     --tsdb-port) need_val "$@"; FLEET_TSDB_PORT="$2"; shift 2 ;;
+    --grafana-port) need_val "$@"; FLEET_GRAFANA_PORT="$2"; shift 2 ;;
     --data-dir) need_val "$@"; FLEET_DATA_DIR="$2"; shift 2 ;;
     --tsdb-dir) need_val "$@"; FLEET_TSDB_DIR="$2"; shift 2 ;;
     --tsdb-retention) need_val "$@"; FLEET_TSDB_RETENTION="$2"; shift 2 ;;
+    --grafana-dir) need_val "$@"; FLEET_GRAFANA_DIR="$2"; shift 2 ;;
     --proxy-dir) need_val "$@"; FLEET_PROXY_DIR="$2"; shift 2 ;;
     --proxy-state-dir) need_val "$@"; FLEET_PROXY_STATE_DIR="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -251,9 +264,11 @@ load_answers_file() {
       FLEET_ENROLL_PORT) [ -z "$FLEET_ENROLL_PORT" ] && FLEET_ENROLL_PORT="$val" ;;
       FLEET_AUTH_PORT) [ -z "$FLEET_AUTH_PORT" ] && FLEET_AUTH_PORT="$val" ;;
       FLEET_TSDB_PORT) [ -z "$FLEET_TSDB_PORT" ] && FLEET_TSDB_PORT="$val" ;;
+      FLEET_GRAFANA_PORT) [ -z "$FLEET_GRAFANA_PORT" ] && FLEET_GRAFANA_PORT="$val" ;;
       FLEET_DATA_DIR) [ -z "$FLEET_DATA_DIR" ] && FLEET_DATA_DIR="$val" ;;
       FLEET_TSDB_DIR) [ -z "$FLEET_TSDB_DIR" ] && FLEET_TSDB_DIR="$val" ;;
       FLEET_TSDB_RETENTION) [ -z "$FLEET_TSDB_RETENTION" ] && FLEET_TSDB_RETENTION="$val" ;;
+      FLEET_GRAFANA_DIR) [ -z "$FLEET_GRAFANA_DIR" ] && FLEET_GRAFANA_DIR="$val" ;;
       FLEET_PROXY_DIR) [ -z "$FLEET_PROXY_DIR" ] && FLEET_PROXY_DIR="$val" ;;
       FLEET_PROXY_STATE_DIR) [ -z "$FLEET_PROXY_STATE_DIR" ] && FLEET_PROXY_STATE_DIR="$val" ;;
       FLEET_ADMIN_PASSWORD) [ -z "$ADMIN_PASSWORD" ] && ADMIN_PASSWORD="$val" ;;
@@ -342,15 +357,18 @@ FLEET_AGENT_DIAL_PORT="${FLEET_AGENT_DIAL_PORT:-7444}"
 FLEET_ENROLL_PORT="${FLEET_ENROLL_PORT:-7445}"
 FLEET_AUTH_PORT="${FLEET_AUTH_PORT:-9091}"
 FLEET_TSDB_PORT="${FLEET_TSDB_PORT:-8428}"
+FLEET_GRAFANA_PORT="${FLEET_GRAFANA_PORT:-3000}"
 FLEET_DATA_DIR="${FLEET_DATA_DIR:-/var/lib/fleet-server}"
 FLEET_TSDB_DIR="${FLEET_TSDB_DIR:-/var/lib/fleet-victoriametrics}"
 FLEET_TSDB_RETENTION="${FLEET_TSDB_RETENTION:-90d}"
+FLEET_GRAFANA_DIR="${FLEET_GRAFANA_DIR:-/var/lib/fleet-grafana}"
 FLEET_PROXY_DIR="${FLEET_PROXY_DIR:-/opt/fleet/proxy}"
 FLEET_PROXY_STATE_DIR="${FLEET_PROXY_STATE_DIR:-/var/lib/fleet-proxy}"
 
 SVC_USER="fleet"
 PROXY_USER="fleet-proxy"
 TSDB_USER="fleet-tsdb"
+GRAFANA_USER="fleet-grafana"
 
 has_tty() {
   [ "$NON_INTERACTIVE" -eq 0 ] && [ -r /dev/tty ] && [ -w /dev/tty ]
@@ -439,7 +457,7 @@ check_port_state() {
     return 0
   fi
   # Allow existing Fleet components on re-run.
-  if printf '%s' "$proc_info" | grep -qiE 'fleet-server|caddy|authelia|docker-proxy|victoria-metrics'; then
+  if printf '%s' "$proc_info" | grep -qiE 'fleet-server|caddy|authelia|docker-proxy|victoria-metrics|grafana'; then
     say "preflight: port $port/tcp is already held by a Fleet/proxy process (re-run OK)"
     return 0
   fi
@@ -597,8 +615,8 @@ run_preflight() {
   else
     say "preflight: disk space on $check_var_path (${avail_var} MiB free) OK"
   fi
-  if [ "${avail_usr:-0}" -lt 512 ]; then
-    echo "preflight: FAIL - /usr/local has ${avail_usr} MiB free (need >= 512 MiB)" >&2
+  if [ "${avail_usr:-0}" -lt 1024 ]; then
+    echo "preflight: FAIL - /usr/local has ${avail_usr} MiB free (need >= 1024 MiB)" >&2
     hard_fail=1
   fi
 
@@ -641,6 +659,7 @@ run_preflight() {
     check_port_state "$FLEET_ENROLL_PORT" "service" || p_fail=1
     check_port_state "$FLEET_AUTH_PORT" "service" || p_fail=1
     check_port_state "$FLEET_TSDB_PORT" "service" || p_fail=1
+    check_port_state "$FLEET_GRAFANA_PORT" "service" || p_fail=1
     check_port_state 22 "ssh" || p_fail=1
     [ "$p_fail" -eq 0 ] || die "one or more required ports are already occupied"
   fi
@@ -861,6 +880,48 @@ install_victoriametrics_binary() {
   fi
 }
 
+install_grafana_binary() {
+  [ -z "$DESTDIR" ] || return 0
+  make_tmp_dir
+  local arch; arch="$(host_arch)"
+  local gf_dir="$TMP_DIR/grafana"
+  mkdir -p "$gf_dir"
+
+  local gf_tgz="grafana-${GRAFANA_VERSION}.linux-${arch}.tar.gz"
+  local gf_base="https://dl.grafana.com/oss/release"
+  local expected_sha=""
+  case "$arch" in
+    amd64) expected_sha="$GRAFANA_SHA256_AMD64" ;;
+    arm64) expected_sha="$GRAFANA_SHA256_ARM64" ;;
+    *) die "unsupported arch for Grafana: $arch" ;;
+  esac
+
+  if [ ! -x "${FLEET_GRAFANA_HOME}/bin/grafana" ] || ! "${FLEET_GRAFANA_HOME}/bin/grafana" --version 2>&1 | grep -q "version ${GRAFANA_VERSION}"; then
+    say "downloading Grafana v${GRAFANA_VERSION} (${arch})..."
+    curl -fsSL -L "${gf_base}/${gf_tgz}" -o "$gf_dir/$gf_tgz"
+    curl -fsSL -L "${gf_base}/${gf_tgz}.sha256" -o "$gf_dir/${gf_tgz}.sha256"
+    local actual_sha remote_sha
+    actual_sha="$(sha256sum "$gf_dir/$gf_tgz" | awk '{print $1}')"
+    remote_sha="$(awk '{print $1}' "$gf_dir/${gf_tgz}.sha256")"
+    [ "$actual_sha" = "$expected_sha" ] || \
+      die "pinned SHA256 mismatch for $gf_tgz (got $actual_sha, want $expected_sha)"
+    [ "$actual_sha" = "$remote_sha" ] || \
+      die "remote .sha256 mismatch for $gf_tgz (got $actual_sha, remote $remote_sha)"
+    mkdir -p "$gf_dir/extract"
+    tar -xzf "$gf_dir/$gf_tgz" -C "$gf_dir/extract"
+    local extracted="$gf_dir/extract/grafana-v${GRAFANA_VERSION}"
+    [ -x "$extracted/bin/grafana" ] || die "grafana binary not found inside $gf_tgz"
+    rm -rf "${FLEET_GRAFANA_HOME}.new"
+    mkdir -p "$(dirname "$FLEET_GRAFANA_HOME")"
+    cp -a "$extracted" "${FLEET_GRAFANA_HOME}.new"
+    rm -rf "$FLEET_GRAFANA_HOME"
+    mv "${FLEET_GRAFANA_HOME}.new" "$FLEET_GRAFANA_HOME"
+    ln -sf "${FLEET_GRAFANA_HOME}/bin/grafana" /usr/local/bin/grafana
+    CHANGED=1
+    say "installed ${FLEET_GRAFANA_HOME} (v${GRAFANA_VERSION})"
+  fi
+}
+
 # ---- Interactive / Non-interactive Configuration Collection ----
 
 collect_answers() {
@@ -937,7 +998,7 @@ collect_answers() {
 
   if [ "$NON_INTERACTIVE" -eq 0 ] && has_tty; then
     local custom_ports=""
-    printf "Customize default ports/paths (443, 6789, 7443, 7444, 7445, 8428, 9091, %s)? [y/N]: " "$FLEET_DATA_DIR" >/dev/tty
+    printf "Customize default ports/paths (443, 3000, 6789, 7443, 7444, 7445, 8428, 9091, %s)? [y/N]: " "$FLEET_DATA_DIR" >/dev/tty
     IFS= read -r custom_ports </dev/tty || true
     case "$custom_ports" in
       y|Y|yes|YES)
@@ -948,9 +1009,11 @@ collect_answers() {
         prompt_val "Token enrollment HTTPS port" "$FLEET_ENROLL_PORT" FLEET_ENROLL_PORT
         prompt_val "Loopback Authelia port" "$FLEET_AUTH_PORT" FLEET_AUTH_PORT
         prompt_val "Loopback VictoriaMetrics port" "$FLEET_TSDB_PORT" FLEET_TSDB_PORT
+        prompt_val "Loopback Grafana port" "$FLEET_GRAFANA_PORT" FLEET_GRAFANA_PORT
         prompt_val "Server data directory" "$FLEET_DATA_DIR" FLEET_DATA_DIR
         prompt_val "VictoriaMetrics data directory" "$FLEET_TSDB_DIR" FLEET_TSDB_DIR
         prompt_val "VictoriaMetrics retention period" "$FLEET_TSDB_RETENTION" FLEET_TSDB_RETENTION
+        prompt_val "Grafana data directory" "$FLEET_GRAFANA_DIR" FLEET_GRAFANA_DIR
         prompt_val "Proxy config directory" "$FLEET_PROXY_DIR" FLEET_PROXY_DIR
         prompt_val "Proxy mutable state directory" "$FLEET_PROXY_STATE_DIR" FLEET_PROXY_STATE_DIR
         ;;
@@ -982,9 +1045,11 @@ FLEET_AGENT_DIAL_PORT=$FLEET_AGENT_DIAL_PORT
 FLEET_ENROLL_PORT=$FLEET_ENROLL_PORT
 FLEET_AUTH_PORT=$FLEET_AUTH_PORT
 FLEET_TSDB_PORT=$FLEET_TSDB_PORT
+FLEET_GRAFANA_PORT=$FLEET_GRAFANA_PORT
 FLEET_DATA_DIR=$FLEET_DATA_DIR
 FLEET_TSDB_DIR=$FLEET_TSDB_DIR
 FLEET_TSDB_RETENTION=$FLEET_TSDB_RETENTION
+FLEET_GRAFANA_DIR=$FLEET_GRAFANA_DIR
 FLEET_PROXY_DIR=$FLEET_PROXY_DIR
 FLEET_PROXY_STATE_DIR=$FLEET_PROXY_STATE_DIR
 FLEET_CONF_DIR=$FLEET_CONF_DIR
@@ -1033,7 +1098,8 @@ render_caddyfile() {
   if [ "$FLEET_DOMAIN_MODE" = "single" ]; then
     cat <<EOF
 # Reverse proxy for the Fleet panel (generated by install-server.sh, single-domain mode).
-# Reserved panel path: /authelia* (Authelia portal + API + forward-auth; fleet-server must not serve it).
+# Reserved panel paths: /authelia* (Authelia portal + API + forward-auth) and /grafana* (Grafana UI).
+# fleet-server must not serve either prefix.
 {
 	auto_https disable_redirects
 	https_port ${FLEET_PANEL_PORT}
@@ -1044,6 +1110,14 @@ ${FLEET_PANEL_DOMAIN}${port_suffix} {
 
 	handle /authelia* {
 		reverse_proxy 127.0.0.1:${FLEET_AUTH_PORT}
+	}
+
+	handle /grafana* {
+		forward_auth 127.0.0.1:${FLEET_AUTH_PORT} {
+			uri /authelia/api/authz/forward-auth
+			copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
+		}
+		reverse_proxy 127.0.0.1:${FLEET_GRAFANA_PORT}
 	}
 
 	handle {
@@ -1074,12 +1148,22 @@ ${FLEET_AUTH_DOMAIN}${port_suffix} {
 ${FLEET_PANEL_DOMAIN}${port_suffix} {
 	${tls_line}
 
-	forward_auth 127.0.0.1:${FLEET_AUTH_PORT} {
-		uri /api/authz/forward-auth
-		copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
+	handle /grafana* {
+		forward_auth 127.0.0.1:${FLEET_AUTH_PORT} {
+			uri /api/authz/forward-auth
+			copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
+		}
+		reverse_proxy 127.0.0.1:${FLEET_GRAFANA_PORT}
 	}
 
-	reverse_proxy 127.0.0.1:${FLEET_SERVER_PORT}
+	handle {
+		forward_auth 127.0.0.1:${FLEET_AUTH_PORT} {
+			uri /api/authz/forward-auth
+			copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
+		}
+
+		reverse_proxy 127.0.0.1:${FLEET_SERVER_PORT}
+	}
 }
 EOF
 }
@@ -1125,6 +1209,10 @@ authentication_backend:
 access_control:
   default_policy: 'deny'
   rules:
+    - domain: '${FLEET_PANEL_DOMAIN}'
+      resources:
+        - '^/grafana(/.*)?$'
+      policy: 'two_factor'
     - domain: '${FLEET_PANEL_DOMAIN}'
       policy: 'two_factor'
 
@@ -1225,6 +1313,178 @@ WantedBy=multi-user.target
 EOF
 }
 
+render_grafana_ini() {
+  local port_suffix=""
+  [ "$FLEET_PANEL_PORT" != "443" ] && port_suffix=":${FLEET_PANEL_PORT}"
+  cat <<EOF
+# Grafana configuration for Fleet panel (Grafana ${GRAFANA_VERSION}).
+# Managed by deploy/install-server.sh; listens on loopback only behind Caddy + Authelia.
+
+[paths]
+data = ${FLEET_GRAFANA_DIR}
+logs = ${FLEET_GRAFANA_DIR}/logs
+plugins = ${FLEET_GRAFANA_DIR}/plugins
+provisioning = ${FLEET_GRAFANA_CONF_DIR}/provisioning
+
+[server]
+protocol = http
+http_addr = 127.0.0.1
+http_port = ${FLEET_GRAFANA_PORT}
+domain = ${FLEET_PANEL_DOMAIN}
+root_url = https://${FLEET_PANEL_DOMAIN}${port_suffix}/grafana/
+serve_from_sub_path = true
+
+[database]
+type = sqlite3
+path = grafana.db
+
+[analytics]
+reporting_enabled = false
+check_for_updates = false
+check_for_plugin_updates = false
+
+[security]
+allow_embedding = true
+cookie_secure = true
+cookie_samesite = lax
+disable_gravatar = true
+
+[snapshots]
+external_enabled = false
+
+[dashboards]
+default_home_dashboard_path = ${FLEET_GRAFANA_CONF_DIR}/dashboards/fleet-overview.json
+
+[users]
+allow_sign_up = false
+auto_assign_org = true
+auto_assign_org_role = Viewer
+viewers_can_edit = false
+default_theme = dark
+
+[auth]
+disable_login_form = true
+disable_signout_menu = true
+
+[auth.proxy]
+enabled = true
+header_name = Remote-User
+header_property = username
+auto_sign_up = true
+sync_ttl = 60
+whitelist = 127.0.0.1, ::1
+headers = Email:Remote-Email Name:Remote-Name Groups:Remote-Groups
+enable_login_token = false
+
+[log]
+mode = console
+level = info
+EOF
+}
+
+render_grafana_datasource() {
+  cat <<EOF
+apiVersion: 1
+
+datasources:
+  - name: VictoriaMetrics
+    uid: fleet-victoriametrics
+    type: prometheus
+    access: proxy
+    url: http://127.0.0.1:${FLEET_TSDB_PORT}
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      timeInterval: 5s
+EOF
+}
+
+render_grafana_dashboard_provider() {
+  cat <<EOF
+apiVersion: 1
+
+providers:
+  - name: Fleet Monitor
+    orgId: 1
+    folder: Fleet
+    folderUid: fleet
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: ${FLEET_GRAFANA_CONF_DIR}/dashboards
+      foldersFromFilesStructure: false
+EOF
+}
+
+render_grafana_service() {
+  local port_suffix=""
+  [ "$FLEET_PANEL_PORT" != "443" ] && port_suffix=":${FLEET_PANEL_PORT}"
+  cat <<EOF
+# Grafana monitor dashboards systemd unit (installed by deploy/install-server.sh).
+[Unit]
+Description=Grafana monitor dashboards for Fleet
+After=network-online.target fleet-victoriametrics.service
+Wants=network-online.target fleet-victoriametrics.service
+
+[Service]
+Type=simple
+User=${GRAFANA_USER}
+Group=${GRAFANA_USER}
+Environment=GF_SERVER_ROOT_URL=https://${FLEET_PANEL_DOMAIN}${port_suffix}/grafana/
+Environment=GF_SERVER_SERVE_FROM_SUB_PATH=true
+Environment=GF_AUTH_PROXY_ENABLED=true
+Environment=GF_SECURITY_SECRET_KEY__FILE=${FLEET_GRAFANA_DIR}/secret_key
+ExecStart=${FLEET_GRAFANA_HOME}/bin/grafana server --homepath=${FLEET_GRAFANA_HOME} --config=${FLEET_GRAFANA_CONF_DIR}/grafana.ini
+StateDirectory=fleet-grafana
+StateDirectoryMode=0750
+ReadWritePaths=${FLEET_GRAFANA_DIR}
+ReadOnlyPaths=${FLEET_GRAFANA_HOME} ${FLEET_GRAFANA_CONF_DIR}
+UMask=0077
+Restart=on-failure
+RestartSec=3
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+install_grafana_dashboards() {
+  local dash_dir="$FLEET_GRAFANA_CONF_DIR/dashboards"
+  install -d -m 0755 "$DESTDIR$dash_dir"
+  make_tmp_dir
+  if [ -n "$SCRIPT_DIR" ] && [ -d "$SCRIPT_DIR/grafana/dashboards" ]; then
+    local f
+    for f in "$SCRIPT_DIR/grafana/dashboards"/*.json; do
+      [ -f "$f" ] || continue
+      put_file 0644 "$f" "$dash_dir/$(basename "$f")"
+    done
+    return 0
+  fi
+  # Remote curl | bash fallback: fetch pinned dashboards from the same repository.
+  local base="https://raw.githubusercontent.com/${FLEET_REPO}/main/deploy/grafana/dashboards"
+  local name
+  for name in fleet-overview.json fleet-agents.json; do
+    if curl -fsSL "${base}/${name}" -o "$TMP_DIR/$name"; then
+      put_file 0644 "$TMP_DIR/$name" "$dash_dir/$name"
+    else
+      warn "could not download default Grafana dashboard $name from $base"
+    fi
+  done
+}
+
 render_fleet_server_service() {
   cat <<EOF
 # Fleet main server systemd unit (installed by deploy/install-server.sh).
@@ -1270,8 +1530,9 @@ render_proxy_systemd_units() {
 # Fleet auth proxy (Caddy + Authelia via Docker Compose from ${FLEET_PROXY_DIR}).
 [Unit]
 Description=Fleet Auth Proxy (Caddy + Authelia)
-After=network-online.target docker.service fleet-server.service
-Wants=network-online.target fleet-server.service
+After=network-online.target docker.service fleet-server.service fleet-grafana.service
+Wants=network-online.target fleet-server.service fleet-grafana.service
+Requires=docker.service
 Requires=docker.service
 
 [Service]
@@ -1320,8 +1581,8 @@ EOF
 [Unit]
 Description=Caddy reverse proxy for Fleet
 PartOf=fleet-proxy.service
-After=network-online.target fleet-authelia.service fleet-server.service
-Wants=network-online.target fleet-authelia.service fleet-server.service
+After=network-online.target fleet-authelia.service fleet-server.service fleet-grafana.service
+Wants=network-online.target fleet-authelia.service fleet-server.service fleet-grafana.service
 
 [Service]
 Type=simple
@@ -1349,7 +1610,7 @@ EOF
 [Unit]
 Description=Fleet Auth Proxy (native Caddy + Authelia)
 Requires=fleet-authelia.service fleet-caddy.service
-After=fleet-authelia.service fleet-caddy.service fleet-server.service
+After=fleet-authelia.service fleet-caddy.service fleet-server.service fleet-grafana.service
 
 [Service]
 Type=oneshot
@@ -1484,6 +1745,7 @@ fi
 
 CHANGED=0
 install_victoriametrics_binary
+install_grafana_binary
 if [ "$FLEET_PROXY_MODE" = "native" ]; then
   install_native_proxy_binaries
 fi
@@ -1499,6 +1761,10 @@ if [ -z "$DESTDIR" ]; then
   if ! id -u "$TSDB_USER" >/dev/null 2>&1; then
     useradd --system --user-group --home-dir "$FLEET_TSDB_DIR" --no-create-home --shell /usr/sbin/nologin "$TSDB_USER"
     say "created system user $TSDB_USER"
+  fi
+  if ! id -u "$GRAFANA_USER" >/dev/null 2>&1; then
+    useradd --system --user-group --home-dir "$FLEET_GRAFANA_DIR" --no-create-home --shell /usr/sbin/nologin "$GRAFANA_USER"
+    say "created system user $GRAFANA_USER"
   fi
   if [ "$FLEET_PROXY_MODE" = "native" ] && ! id -u "$PROXY_USER" >/dev/null 2>&1; then
     useradd --system --user-group --home-dir "$FLEET_PROXY_STATE_DIR" --no-create-home --shell /usr/sbin/nologin "$PROXY_USER"
@@ -1547,17 +1813,46 @@ fi
 
 write_install_answers
 
-# 4. Data dirs & systemd units for fleet-victoriametrics and fleet-server.
+# 4. Data dirs & systemd units for fleet-victoriametrics, fleet-grafana, and fleet-server.
 install -d -m 0750 "$DESTDIR$FLEET_DATA_DIR"
 install -d -m 0750 "$DESTDIR$FLEET_TSDB_DIR"
+install -d -m 0750 "$DESTDIR$FLEET_GRAFANA_DIR" "$DESTDIR$FLEET_GRAFANA_DIR/logs" "$DESTDIR$FLEET_GRAFANA_DIR/plugins"
+if [ ! -s "$DESTDIR$FLEET_GRAFANA_DIR/secret_key" ]; then
+  openssl rand -hex 32 > "$DESTDIR$FLEET_GRAFANA_DIR/secret_key"
+  chmod 0600 "$DESTDIR$FLEET_GRAFANA_DIR/secret_key"
+  say "generated Grafana secret_key at $FLEET_GRAFANA_DIR/secret_key"
+fi
 if [ -z "$DESTDIR" ]; then
   chown "$SVC_USER:$SVC_USER" "$FLEET_DATA_DIR"
   chown "$TSDB_USER:$TSDB_USER" "$FLEET_TSDB_DIR"
+  chown -R "$GRAFANA_USER:$GRAFANA_USER" "$FLEET_GRAFANA_DIR"
 fi
+
+# Grafana config & provisioning (/etc/fleet-grafana).
+install -d -m 0755 "$DESTDIR$FLEET_GRAFANA_CONF_DIR" \
+  "$DESTDIR$FLEET_GRAFANA_CONF_DIR/provisioning/datasources" \
+  "$DESTDIR$FLEET_GRAFANA_CONF_DIR/provisioning/dashboards" \
+  "$DESTDIR$FLEET_GRAFANA_CONF_DIR/dashboards"
+render_grafana_ini > "$DESTDIR$FLEET_GRAFANA_CONF_DIR/grafana.ini.example"
+chmod 0644 "$DESTDIR$FLEET_GRAFANA_CONF_DIR/grafana.ini.example"
+if [ ! -e "$DESTDIR$FLEET_GRAFANA_CONF_DIR/grafana.ini" ]; then
+  cp "$DESTDIR$FLEET_GRAFANA_CONF_DIR/grafana.ini.example" "$DESTDIR$FLEET_GRAFANA_CONF_DIR/grafana.ini"
+  chmod 0644 "$DESTDIR$FLEET_GRAFANA_CONF_DIR/grafana.ini"
+  say "wrote $FLEET_GRAFANA_CONF_DIR/grafana.ini"
+else
+  say "preserving existing $FLEET_GRAFANA_CONF_DIR/grafana.ini (updated grafana.ini.example)"
+fi
+render_grafana_datasource > "$DESTDIR$FLEET_GRAFANA_CONF_DIR/provisioning/datasources/victoriametrics.yaml"
+chmod 0644 "$DESTDIR$FLEET_GRAFANA_CONF_DIR/provisioning/datasources/victoriametrics.yaml"
+render_grafana_dashboard_provider > "$DESTDIR$FLEET_GRAFANA_CONF_DIR/provisioning/dashboards/fleet.yaml"
+chmod 0644 "$DESTDIR$FLEET_GRAFANA_CONF_DIR/provisioning/dashboards/fleet.yaml"
+install_grafana_dashboards
 
 install -d -m 0755 "$DESTDIR/etc/systemd/system"
 render_victoriametrics_service > "$DESTDIR/etc/systemd/system/fleet-victoriametrics.service"
 chmod 0644 "$DESTDIR/etc/systemd/system/fleet-victoriametrics.service"
+render_grafana_service > "$DESTDIR/etc/systemd/system/fleet-grafana.service"
+chmod 0644 "$DESTDIR/etc/systemd/system/fleet-grafana.service"
 render_fleet_server_service > "$DESTDIR/etc/systemd/system/fleet-server.service"
 chmod 0644 "$DESTDIR/etc/systemd/system/fleet-server.service"
 
@@ -1607,11 +1902,11 @@ if [ -n "$DESTDIR" ]; then
 fi
 
 if [ "$START" -eq 0 ]; then
-  say "installed (--no-start). Start with: systemctl enable --now fleet-victoriametrics fleet-server fleet-proxy"
+  say "installed (--no-start). Start with: systemctl enable --now fleet-victoriametrics fleet-grafana fleet-server fleet-proxy"
   exit 0
 fi
 
-# 6. Enable & start VictoriaMetrics, then fleet-server, wait for internal CA, then bring up proxy.
+# 6. Enable & start VictoriaMetrics, Grafana, then fleet-server, wait for internal CA, then bring up proxy.
 systemctl daemon-reload
 systemctl enable fleet-victoriametrics.service >/dev/null 2>&1
 if systemctl is-active --quiet fleet-victoriametrics.service; then
@@ -1633,6 +1928,27 @@ for _ in $(seq 1 15); do
 done
 [ "$vm_ok" -eq 1 ] || die "fleet-victoriametrics health check failed on http://127.0.0.1:${FLEET_TSDB_PORT}/health"
 say "VictoriaMetrics ready on 127.0.0.1:${FLEET_TSDB_PORT} (state: $FLEET_TSDB_DIR)"
+
+systemctl enable fleet-grafana.service >/dev/null 2>&1
+if systemctl is-active --quiet fleet-grafana.service; then
+  if [ "$CHANGED" -eq 1 ]; then
+    systemctl restart fleet-grafana.service
+    say "restarted fleet-grafana"
+  fi
+else
+  systemctl start fleet-grafana.service
+  say "started fleet-grafana"
+fi
+gf_ok=0
+for _ in $(seq 1 30); do
+  if curl -fsS "http://127.0.0.1:${FLEET_GRAFANA_PORT}/grafana/api/health" >/dev/null 2>&1; then
+    gf_ok=1
+    break
+  fi
+  sleep 1
+done
+[ "$gf_ok" -eq 1 ] || die "fleet-grafana health check failed on http://127.0.0.1:${FLEET_GRAFANA_PORT}/grafana/api/health"
+say "Grafana ready on 127.0.0.1:${FLEET_GRAFANA_PORT}/grafana (state: $FLEET_GRAFANA_DIR)"
 
 systemctl enable fleet-server.service >/dev/null 2>&1
 if systemctl is-active --quiet fleet-server.service; then
@@ -1678,11 +1994,12 @@ if [ "$FLEET_PANEL_PORT" != "443" ]; then
   port_hint=":${FLEET_PANEL_PORT}"
 fi
 say "fleet-server and fleet-proxy ($FLEET_PROXY_MODE) are up!"
-say "panel URL: https://${FLEET_PANEL_DOMAIN}${port_hint}/"
+say "panel URL:   https://${FLEET_PANEL_DOMAIN}${port_hint}/"
+say "Grafana URL: https://${FLEET_PANEL_DOMAIN}${port_hint}/grafana/"
 if [ "$FLEET_DOMAIN_MODE" = "single" ]; then
-  say "auth URL:  https://${FLEET_PANEL_DOMAIN}${port_hint}/authelia"
+  say "auth URL:    https://${FLEET_PANEL_DOMAIN}${port_hint}/authelia"
 else
-  say "auth URL:  https://${FLEET_AUTH_DOMAIN}${port_hint}/"
+  say "auth URL:    https://${FLEET_AUTH_DOMAIN}${port_hint}/"
 fi
 if [ "$FLEET_TLS_MODE" = "internal" ]; then
   say "TLS cert:  $FLEET_PROXY_STATE_DIR/certs/tls.crt (trust on operator browsers or replace with CA-signed cert)"

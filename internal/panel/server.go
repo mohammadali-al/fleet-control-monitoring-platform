@@ -79,13 +79,14 @@ func New(o Options) (http.Handler, error) {
 	s.routesWS(mux)
 
 	// Guard non-app prefixes so unknown API/WS/fragment/source paths never fall
-	// through to the SPA shell catch-all.
+	// through to the SPA shell catch-all, and keep proxy-reserved paths (/grafana*)
+	// out of fleet-server.
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusNotFound, errBody("not found"))
 	})
 	mux.HandleFunc("/ws/", http.NotFound)
 	mux.HandleFunc("/fragments/", http.NotFound)
-	for _, p := range []string{"/_src/", "/pages/", "/dist/", "/src/", "/embed.go", "/templates.go"} {
+	for _, p := range []string{"/grafana", "/grafana/", "/_src/", "/pages/", "/dist/", "/src/", "/embed.go", "/templates.go"} {
 		mux.HandleFunc(p, http.NotFound)
 	}
 
