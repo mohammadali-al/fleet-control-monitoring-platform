@@ -78,10 +78,12 @@ export function BaselinePage() {
 
   const [saving, setSaving] = useState(false);
   const [formStatus, setFormStatus] = useState(null);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
   const nameInputRef = useRef(null);
+  const editorDialogRef = useRef(null);
   const deleteDialogRef = useRef(null);
   const previewSeqRef = useRef(0);
 
@@ -89,6 +91,17 @@ export function BaselinePage() {
     () => (selectedId ? items.find((it) => it.id === selectedId) || null : null),
     [items, selectedId]
   );
+
+  // Sync editor <dialog>.
+  useEffect(() => {
+    const dlg = editorDialogRef.current;
+    if (!dlg) return;
+    if (editorOpen && !dlg.open) {
+      dlg.showModal();
+      nameInputRef.current?.focus();
+    }
+    if (!editorOpen && dlg.open) dlg.close();
+  }, [editorOpen]);
 
   // Sync delete confirmation <dialog>.
   useEffect(() => {
@@ -138,7 +151,7 @@ export function BaselinePage() {
   // Live substitution preview via POST /api/baseline/preview.
   useEffect(() => {
     const tmpl = draft.command_template;
-    if (noBackend || !tmpl.trim()) {
+    if (!editorOpen || noBackend || !tmpl.trim()) {
       setPreviewState({ loading: false, command: '', error: '', unresolved: [] });
       return undefined;
     }
@@ -177,14 +190,14 @@ export function BaselinePage() {
     }, 120);
 
     return () => window.clearTimeout(timer);
-  }, [draft.command_template, draft.defaults, previewInputs, noBackend, previewTemplate]);
+  }, [editorOpen, draft.command_template, draft.defaults, previewInputs, noBackend, previewTemplate]);
 
   function startNewItem() {
     setSelectedId(null);
     setDraft(emptyDraft());
     setPreviewInputs({});
     setFormStatus(null);
-    window.setTimeout(() => nameInputRef.current?.focus(), 0);
+    setEditorOpen(true);
   }
 
   function selectItem(item) {
@@ -192,9 +205,16 @@ export function BaselinePage() {
     setDraft(draftFromItem(item));
     setPreviewInputs({});
     setFormStatus(null);
+    setEditorOpen(true);
+  }
+
+  function closeEditor() {
+    if (saving) return;
+    setEditorOpen(false);
   }
 
   function discardChanges() {
+    if (saving) return;
     setFormStatus(null);
     if (selectedItem) {
       setDraft(draftFromItem(selectedItem));
@@ -202,6 +222,7 @@ export function BaselinePage() {
       setDraft(emptyDraft());
     }
     setPreviewInputs({});
+    setEditorOpen(false);
   }
 
   async function handleSave(e) {
@@ -243,10 +264,8 @@ export function BaselinePage() {
     const saved = r.data.item;
     setSelectedId(saved.id);
     setDraft(draftFromItem(saved));
-    setFormStatus({
-      kind: 'ok',
-      msg: selectedId ? `Saved "${saved.name}".` : `Created "${saved.name}".`,
-    });
+    setFormStatus(null);
+    setEditorOpen(false);
     pushToast(selectedId ? `Updated ${saved.name}.` : `Created ${saved.name}.`);
   }
 
@@ -279,7 +298,11 @@ export function BaselinePage() {
     const removed = deleteTarget;
     setDeleteTarget(null);
     if (selectedId === removed.id) {
-      startNewItem();
+      setSelectedId(null);
+      setDraft(emptyDraft());
+      setPreviewInputs({});
+      setFormStatus(null);
+      setEditorOpen(false);
     }
     pushToast(`Deleted "${removed.name}".`);
   }
@@ -321,294 +344,8 @@ export function BaselinePage() {
         </div>
       )}
 
-      <div className="stack">
-        {/* ============ Create / Edit form ============ */}
-        <section className="card" aria-labelledby="ed-title">
-          <div className="card__head">
-            <div>
-              <h2 id="ed-title">{selectedId ? 'Edit item' : 'New item'}</h2>
-              <p>
-                {selectedItem ? (
-                  <>
-                    {selectedItem.name}{' '}
-                    <span className="mono faint">({selectedItem.id})</span>
-                  </>
-                ) : (
-                  'Create a reusable command template'
-                )}
-              </p>
-            </div>
-          </div>
-
-          <form className="card__body stack" onSubmit={handleSave}>
-            <div className="form-grid form-grid--2">
-              <div className="field">
-                <label htmlFor="b-name">
-                  Name <span className="faint">(required)</span>
-                </label>
-                <input
-                  ref={nameInputRef}
-                  className="input"
-                  id="b-name"
-                  name="name"
-                  required
-                  placeholder="HTTP GET flood"
-                  value={draft.name}
-                  aria-describedby="b-name-h"
-                  onChange={(e) => setDraft((p) => ({ ...p, name: e.target.value }))}
-                />
-                <span className="field__hint field__hint--block" id="b-name-h">
-                  What you will see when picking this preset for a Maneuver. Make it recognizable, e.g. "HTTP GET flood".
-                </span>
-              </div>
-
-              <div className="field">
-                <label htmlFor="b-desc">Description</label>
-                <input
-                  className="input"
-                  id="b-desc"
-                  name="description"
-                  placeholder="Optional short note for operators"
-                  value={draft.description}
-                  aria-describedby="b-desc-h"
-                  onChange={(e) => setDraft((p) => ({ ...p, description: e.target.value }))}
-                />
-                <span className="field__hint field__hint--block" id="b-desc-h">
-                  Optional note for operators. Shown under the name in the Library.
-                </span>
-              </div>
-
-            </div>
-
-            <div className="field">
-              <label htmlFor="b-tpl">
-                Command template <span className="faint">(required)</span>
-              </label>
-              <textarea
-                className="textarea input--mono"
-                style={{ maxWidth: '60rem' }}
-                id="b-tpl"
-                name="command_template"
-                rows={3}
-                required
-                spellCheck={false}
-                placeholder="hey -z {duration}s -q {rate} {url}"
-                aria-describedby="b-tpl-h"
-                value={draft.command_template}
-                onChange={(e) => setDraft((p) => ({ ...p, command_template: e.target.value }))}
-              />
-              <span className="field__hint field__hint--block" id="b-tpl-h">
-                The exact command run on each target. Write <span className="token">{'{name}'}</span> wherever a
-                value changes; each placeholder is filled in per Maneuver, or from the Default inputs below. To print a
-                literal brace, type <span className="token">{'{{'}</span> or <span className="token">{'}}'}</span>.{' '}
-                {detectedPlaceholders.length > 0 && (
-                  <>
-                    Detected:{' '}
-                    {detectedPlaceholders.map((p) => (
-                      <span key={p} className="token" style={{ marginRight: '0.25rem' }}>
-                        {`{${p}}`}
-                      </span>
-                    ))}
-                  </>
-                )}
-              </span>
-            </div>
-
-            <div className="form-grid form-grid--2">
-              <div className="field">
-                <label htmlFor="b-warm">Warm-up (startup lag, s)</label>
-                <input
-                  className="input input--mono input--narrow"
-                  id="b-warm"
-                  name="warmup_sec"
-                  inputMode="decimal"
-                  placeholder="0"
-                  aria-describedby="b-warm-h"
-                  value={draft.warmup_sec}
-                  onChange={(e) => setDraft((p) => ({ ...p, warmup_sec: e.target.value }))}
-                />
-                <span className="field__hint field__hint--block" id="b-warm-h">
-                  Seconds the tool needs to ramp up before it does real work, so Maneuver timing can allow for it.
-                  Use 0 if there is no lag.
-                </span>
-              </div>
-              <div className="field">
-                <label htmlFor="b-tags">Tags</label>
-                <input
-                  className="input"
-                  id="b-tags"
-                  name="tags"
-                  placeholder="http, l7"
-                  aria-describedby="b-tags-h"
-                  value={draft.tags}
-                  onChange={(e) => setDraft((p) => ({ ...p, tags: e.target.value }))}
-                />
-                <span className="field__hint field__hint--block" id="b-tags-h">
-                  Optional labels for filtering and grouping, separated by commas (for example: http, l7).
-                </span>
-              </div>
-            </div>
-
-            <div className="stack" style={{ gap: 'var(--sp-2)' }}>
-              <div className="field">
-                <div className="label">Default inputs</div>
-                <span className="field__hint field__hint--block">
-                  {allDefaultKeys.length > 0
-                    ? 'Values used for a placeholder when a Maneuver does not set its own. Leave a field blank to require a value when the item is placed.'
-                    : 'Placeholders from your command template appear here once you add them (for example {url}). Each gets a default value used when a Maneuver does not set its own.'}
-                </span>
-              </div>
-              {allDefaultKeys.length > 0 && (
-                <div className="form-grid">
-                  {allDefaultKeys.map((key) => {
-                    const isExtra = !detectedPlaceholders.includes(key);
-                    return (
-                      <div className="field" key={`def-${key}`}>
-                        <label htmlFor={`b-def-${key}`}>
-                          <span className="mono">{`{${key}}`}</span> default
-                          {isExtra && <span className="faint"> (unused)</span>}
-                        </label>
-                        <div className="row" style={{ gap: 'var(--sp-1)' }}>
-                          <input
-                            className="input input--mono"
-                            id={`b-def-${key}`}
-                            placeholder="Leave blank if filled per Maneuver"
-                            value={draft.defaults[key] || ''}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setDraft((p) => ({
-                                ...p,
-                                defaults: { ...p.defaults, [key]: val },
-                              }));
-                            }}
-                          />
-                          {isExtra && (
-                            <button
-                              className="icon-btn icon-btn--sm"
-                              type="button"
-                              title={`Remove default ${key}`}
-                              aria-label={`Remove default ${key}`}
-                              onClick={() => {
-                                setDraft((p) => {
-                                  const next = { ...p.defaults };
-                                  delete next[key];
-                                  return { ...p, defaults: next };
-                                });
-                              }}
-                            >
-                              <svg className="icon" aria-hidden="true"><use href="#i-x" /></svg>
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Live substitution preview */}
-            <div className="stack" style={{ gap: 'var(--sp-2)' }}>
-              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div className="field">
-                  <span className="label">Substitution preview</span>
-                  <span className="field__hint field__hint--block">
-                    Renders the final command using the test values below, so you can check the template before
-                    saving. Nothing is run and nothing is saved.
-                  </span>
-                </div>
-                {previewState.loading && <span className="muted">Rendering...</span>}
-              </div>
-
-              {detectedPlaceholders.length > 0 && (
-                <div className="form-grid">
-                  {detectedPlaceholders.map((key) => (
-                    <div className="field" key={`prev-${key}`}>
-                      <label htmlFor={`b-prev-${key}`}>
-                        Test <span className="mono">{`{${key}}`}</span>
-                      </label>
-                      <input
-                        className="input input--mono"
-                        id={`b-prev-${key}`}
-                        placeholder={draft.defaults[key] ? `default: ${draft.defaults[key]}` : 'supply value to test'}
-                        value={previewInputs[key] || ''}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setPreviewInputs((p) => ({ ...p, [key]: val }));
-                        }}
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {previewState.command && (
-                <pre className="codeblock" aria-label="Rendered command preview">
-                  {previewState.command}
-                </pre>
-              )}
-
-              {previewState.error && (
-                <div
-                  className={previewState.unresolved.length > 0 ? 'alert alert--warn' : 'alert alert--danger'}
-                  role="status"
-                  aria-label="Preview validation message"
-                >
-                  <svg className="icon" aria-hidden="true"><use href="#i-alert" /></svg>
-                  <div>{previewState.error}</div>
-                </div>
-              )}
-            </div>
-
-            <StatusAlert status={formStatus} />
-
-            <div className="row" style={{ flexWrap: 'wrap' }}>
-              <button
-                className="btn btn--primary"
-                type="submit"
-                disabled={saving || noBackend}
-              >
-                <svg className="icon" aria-hidden="true"><use href="#i-save" /></svg>
-                {selectedId ? 'Save changes' : 'Create item'}
-              </button>
-
-              {selectedItem && (
-                <button
-                  className="btn"
-                  type="button"
-                  disabled={saving || noBackend}
-                  onClick={() => handleDuplicate(selectedItem)}
-                >
-                  <svg className="icon" aria-hidden="true"><use href="#i-copy" /></svg>
-                  Duplicate
-                </button>
-              )}
-
-              <button
-                className="btn"
-                type="button"
-                disabled={saving}
-                onClick={discardChanges}
-              >
-                Discard
-              </button>
-
-              {selectedItem && (
-                <button
-                  className="btn btn--danger"
-                  type="button"
-                  disabled={saving || noBackend}
-                  onClick={() => setDeleteTarget(selectedItem)}
-                >
-                  <svg className="icon" aria-hidden="true"><use href="#i-trash" /></svg>
-                  Delete
-                </button>
-              )}
-            </div>
-          </form>
-        </section>
-        {/* ============ Library ============ */}
-        <section className="card" aria-labelledby="lib-title">
+      {/* ============ Library ============ */}
+      <section className="card" aria-labelledby="lib-title">
           <div className="card__head">
             <h2 id="lib-title">Library</h2>
             <span className="muted">
@@ -647,7 +384,7 @@ export function BaselinePage() {
                   <tr>
                     <td colSpan={5} className="muted">
                       {items.length === 0
-                        ? 'No baseline items yet. Use the form above to create your first reusable command template.'
+                        ? 'No baseline items yet. Use New item to create your first reusable command template.'
                         : 'No baseline items match that search.'}
                     </td>
                   </tr>
@@ -734,7 +471,304 @@ export function BaselinePage() {
           </div>
         </section>
 
-      </div>
+      {/* Create / Edit modal dialog */}
+      <dialog
+        ref={editorDialogRef}
+        className="dialog dialog--wide"
+        aria-labelledby="ed-title"
+        onCancel={(e) => {
+          e.preventDefault();
+          closeEditor();
+        }}
+      >
+        <form onSubmit={handleSave}>
+          <div className="dialog__head">
+            <div>
+              <h2 id="ed-title">{selectedId ? 'Edit item' : 'New item'}</h2>
+              <p>
+                {selectedItem ? (
+                  <>
+                    {selectedItem.name}{' '}
+                    <span className="mono faint">({selectedItem.id})</span>
+                  </>
+                ) : (
+                  'Create a reusable command template'
+                )}
+              </p>
+            </div>
+            <button
+              className="icon-btn icon-btn--bordered"
+              type="button"
+              aria-label="Close editor"
+              title="Close"
+              disabled={saving}
+              onClick={closeEditor}
+            >
+              <svg className="icon" aria-hidden="true"><use href="#i-x" /></svg>
+            </button>
+          </div>
+
+          <div className="dialog__body">
+            <div className="form-grid form-grid--2">
+              <div className="field">
+                <label htmlFor="b-name">
+                  Name <span className="faint">(required)</span>
+                </label>
+                <input
+                  ref={nameInputRef}
+                  className="input"
+                  id="b-name"
+                  name="name"
+                  required
+                  placeholder="HTTP GET flood"
+                  value={draft.name}
+                  aria-describedby="b-name-h"
+                  onChange={(e) => setDraft((p) => ({ ...p, name: e.target.value }))}
+                />
+                <span className="field__hint field__hint--block" id="b-name-h">
+                  Label shown when picking this preset for a Maneuver.
+                </span>
+              </div>
+
+              <div className="field">
+                <label htmlFor="b-desc">Description</label>
+                <input
+                  className="input"
+                  id="b-desc"
+                  name="description"
+                  placeholder="Optional short note for operators"
+                  value={draft.description}
+                  aria-describedby="b-desc-h"
+                  onChange={(e) => setDraft((p) => ({ ...p, description: e.target.value }))}
+                />
+                <span className="field__hint field__hint--block" id="b-desc-h">
+                  Optional operator note shown under the name in the Library.
+                </span>
+              </div>
+            </div>
+
+            <div className="field">
+              <label htmlFor="b-tpl">
+                Command template <span className="faint">(required)</span>
+              </label>
+              <textarea
+                className="textarea input--mono"
+                id="b-tpl"
+                name="command_template"
+                rows={3}
+                required
+                spellCheck={false}
+                placeholder="hey -z {duration}s -q {rate} {url}"
+                aria-describedby="b-tpl-h"
+                value={draft.command_template}
+                onChange={(e) => setDraft((p) => ({ ...p, command_template: e.target.value }))}
+              />
+              <span className="field__hint field__hint--block" id="b-tpl-h">
+                Command run per target; use <span className="token">{'{name}'}</span> for variables and{' '}
+                <span className="token">{'{{'}</span> or <span className="token">{'}}'}</span> for literal braces.{' '}
+                {detectedPlaceholders.length > 0 && (
+                  <>
+                    Detected:{' '}
+                    {detectedPlaceholders.map((p) => (
+                      <span key={p} className="token" style={{ marginRight: '0.25rem' }}>
+                        {`{${p}}`}
+                      </span>
+                    ))}
+                  </>
+                )}
+              </span>
+            </div>
+
+            <div className="form-grid form-grid--2">
+              <div className="field">
+                <label htmlFor="b-warm">Warm-up (startup lag, s)</label>
+                <input
+                  className="input input--mono input--narrow"
+                  id="b-warm"
+                  name="warmup_sec"
+                  inputMode="decimal"
+                  placeholder="0"
+                  aria-describedby="b-warm-h"
+                  value={draft.warmup_sec}
+                  onChange={(e) => setDraft((p) => ({ ...p, warmup_sec: e.target.value }))}
+                />
+                <span className="field__hint field__hint--block" id="b-warm-h">
+                  Startup lag in seconds before real work begins (0 for none).
+                </span>
+              </div>
+              <div className="field">
+                <label htmlFor="b-tags">Tags</label>
+                <input
+                  className="input"
+                  id="b-tags"
+                  name="tags"
+                  placeholder="http, l7"
+                  aria-describedby="b-tags-h"
+                  value={draft.tags}
+                  onChange={(e) => setDraft((p) => ({ ...p, tags: e.target.value }))}
+                />
+                <span className="field__hint field__hint--block" id="b-tags-h">
+                  Optional comma-separated labels for filtering (e.g. http, l7).
+                </span>
+              </div>
+            </div>
+
+            <div className="stack" style={{ gap: 'var(--sp-2)' }}>
+              <div className="field">
+                <div className="label">Default inputs</div>
+                <span className="field__hint field__hint--block">
+                  {allDefaultKeys.length > 0
+                    ? 'Fallback values when a Maneuver leaves a placeholder unset; blank means required.'
+                    : 'Placeholders from the command template appear here for optional default values.'}
+                </span>
+              </div>
+              {allDefaultKeys.length > 0 && (
+                <div className="form-grid">
+                  {allDefaultKeys.map((key) => {
+                    const isExtra = !detectedPlaceholders.includes(key);
+                    return (
+                      <div className="field" key={`def-${key}`}>
+                        <label htmlFor={`b-def-${key}`}>
+                          <span className="mono">{`{${key}}`}</span> default
+                          {isExtra && <span className="faint"> (unused)</span>}
+                        </label>
+                        <div className="row" style={{ gap: 'var(--sp-1)' }}>
+                          <input
+                            className="input input--mono"
+                            id={`b-def-${key}`}
+                            placeholder="Leave blank if filled per Maneuver"
+                            value={draft.defaults[key] || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setDraft((p) => ({
+                                ...p,
+                                defaults: { ...p.defaults, [key]: val },
+                              }));
+                            }}
+                          />
+                          {isExtra && (
+                            <button
+                              className="icon-btn icon-btn--sm"
+                              type="button"
+                              title={`Remove default ${key}`}
+                              aria-label={`Remove default ${key}`}
+                              onClick={() => {
+                                setDraft((p) => {
+                                  const next = { ...p.defaults };
+                                  delete next[key];
+                                  return { ...p, defaults: next };
+                                });
+                              }}
+                            >
+                              <svg className="icon" aria-hidden="true"><use href="#i-x" /></svg>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Live substitution preview */}
+            <div className="stack" style={{ gap: 'var(--sp-2)' }}>
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div className="field">
+                  <span className="label">Substitution preview</span>
+                  <span className="field__hint field__hint--block">
+                    Renders the command with test values below without running or saving anything.
+                  </span>
+                </div>
+                {previewState.loading && <span className="muted">Rendering...</span>}
+              </div>
+
+              {detectedPlaceholders.length > 0 && (
+                <div className="form-grid">
+                  {detectedPlaceholders.map((key) => (
+                    <div className="field" key={`prev-${key}`}>
+                      <label htmlFor={`b-prev-${key}`}>
+                        Test <span className="mono">{`{${key}}`}</span>
+                      </label>
+                      <input
+                        className="input input--mono"
+                        id={`b-prev-${key}`}
+                        placeholder={draft.defaults[key] ? `default: ${draft.defaults[key]}` : 'supply value to test'}
+                        value={previewInputs[key] || ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setPreviewInputs((p) => ({ ...p, [key]: val }));
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {previewState.command && (
+                <pre className="codeblock" aria-label="Rendered command preview">
+                  {previewState.command}
+                </pre>
+              )}
+
+              {previewState.error && (
+                <div
+                  className={previewState.unresolved.length > 0 ? 'alert alert--warn' : 'alert alert--danger'}
+                  role="status"
+                  aria-label="Preview validation message"
+                >
+                  <svg className="icon" aria-hidden="true"><use href="#i-alert" /></svg>
+                  <div>{previewState.error}</div>
+                </div>
+              )}
+            </div>
+
+            <StatusAlert status={formStatus} />
+          </div>
+
+          <div className="dialog__foot">
+            {selectedItem && (
+              <div className="row" style={{ marginRight: 'auto' }}>
+                <button
+                  className="btn"
+                  type="button"
+                  disabled={saving || noBackend}
+                  onClick={() => handleDuplicate(selectedItem)}
+                >
+                  <svg className="icon" aria-hidden="true"><use href="#i-copy" /></svg>
+                  Duplicate
+                </button>
+                <button
+                  className="btn btn--danger"
+                  type="button"
+                  disabled={saving || noBackend}
+                  onClick={() => setDeleteTarget(selectedItem)}
+                >
+                  <svg className="icon" aria-hidden="true"><use href="#i-trash" /></svg>
+                  Delete
+                </button>
+              </div>
+            )}
+
+            <button
+              className="btn"
+              type="button"
+              disabled={saving}
+              onClick={discardChanges}
+            >
+              Discard
+            </button>
+            <button
+              className="btn btn--primary"
+              type="submit"
+              disabled={saving || noBackend}
+            >
+              <svg className="icon" aria-hidden="true"><use href="#i-save" /></svg>
+              {selectedId ? 'Save changes' : 'Create item'}
+            </button>
+          </div>
+        </form>
+      </dialog>
 
       {/* Delete confirmation dialog */}
       <dialog

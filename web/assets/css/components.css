@@ -119,7 +119,7 @@
   text-transform: uppercase; letter-spacing: 0.05em; color: var(--text);
 }
 .field__hint { font-size: var(--fs-xs); color: var(--text-faint); }
-.field__hint--block { max-width: 65ch; color: var(--text-muted); line-height: 1.45; }
+.field__hint--block { max-width: 68ch; font-size: 0.6875rem; color: var(--text-muted); line-height: 1.25; }
 .input--narrow { max-width: 10rem; }
 .field__error { font-size: var(--fs-xs); color: var(--danger); font-weight: 700; }
 .input, .select, .textarea {
@@ -379,6 +379,10 @@ dl.kv dd { white-space: nowrap; font-weight: 700; font-variant-numeric: tabular-
 .dialog__head p { color: var(--text-muted); margin-top: var(--sp-1); font-size: var(--fs-xs); }
 .dialog__body { padding: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-3); }
 .dialog__foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border-top: 1px dashed var(--border); background: var(--foot-bg); }
+.dialog--wide { width: min(60rem, calc(100vw - 2rem)); }
+.dialog--wide .dialog__head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-3); }
+.dialog--wide .dialog__body { max-height: calc(100vh - 11rem); overflow: auto; }
+.dialog--wide .dialog__body > * { min-width: 0; }
 
 /* ---------- Switch ---------- */
 .switch { display: inline-flex; align-items: center; gap: var(--sp-3); min-height: var(--control-h); cursor: pointer; font-weight: 700; font-size: var(--fs-sm); }
