@@ -69,6 +69,7 @@ func (s *server) routesAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/commands/{id}/cancel", s.live(s.cancelCommand))
 
 	s.routesBaseline(mux)
+	s.routesPastebin(mux)
 	s.routesManeuver(mux)
 	s.routesProject(mux)
 	s.routesReport(mux)
