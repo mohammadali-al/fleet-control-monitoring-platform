@@ -44,6 +44,8 @@ const (
 	ProjectsDirName = "projects"
 	// ManeuversFileName is the persisted Maneuver store inside ProjectsDirName.
 	ManeuversFileName = "maneuvers.json"
+	// ProjectsFileName is the persisted project and test store inside ProjectsDirName.
+	ProjectsFileName = "projects.json"
 	// ManeuverDirName holds agent-local Maneuver execution state for outage
 	// continuation and wall-clock rejoin under <agentDataDir>/maneuver/.
 	ManeuverDirName = "maneuver"
