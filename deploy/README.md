@@ -27,7 +27,7 @@ fleet-server --SSH, onboarding only-----------> new machine :22
 | Proxy home | `/opt/fleet/proxy/` | `compose.yml`, `Caddyfile`, `authelia/configuration.yml` (+ `*.example`) |
 | Proxy mutable state | `/var/lib/fleet-proxy/` | `certs/`, `secrets/`, `authelia/` (`users.yml`, `db.sqlite3`), `caddy/` |
 | Proxy systemd unit(s) | `/etc/systemd/system/fleet-proxy.service` | Native `fleet-caddy` + `fleet-authelia` (`--proxy=native`, default) or Docker Compose (`--proxy=docker`) |
-| Upgrade helper | `/usr/local/lib/fleet/upgrade-server.sh` | Invoked by `install-server.sh --upgrade` or directly |
+| Upgrade & install helpers | `/usr/local/lib/fleet/upgrade-server.sh`, `install-server.sh` | Invoked by `install-server.sh --upgrade` or directly; `upgrade-server.sh` sources `install-server.sh` so pinned versions and component/proxy renderers stay in lockstep |
 
 ## Prerequisites
 
@@ -103,12 +103,13 @@ sudo deploy/install-server.sh --upgrade
 The upgrader:
 1. Queries the GitHub Releases API (pass `--token` or `GH_TOKEN` if private) and compares versions.
 2. Reuses `/etc/fleet-server/install-answers.env` without re-prompting (only asking for genuinely new keys).
-3. Stops `fleet-server`, backs up `/var/lib/fleet-server` + binaries + `config.json` under `/var/backups/fleet-server/`.
-4. Swaps binaries, updates `*.example` templates without clobbering live files, and runs `fleet-server migrate`.
+3. Stops `fleet-server`, backs up `/var/lib/fleet-server` + binaries + `config.json` + existing proxy configs & systemd units under `/var/backups/fleet-server/`.
+4. Swaps binaries, updates `*.example` templates without clobbering live `config.json` or `grafana.ini`, and runs `fleet-server migrate`.
 5. Restarts `fleet-server` and verifies health (`http://127.0.0.1:6789/` + CA intact); **automatically rolls back** binary + config + data backup on any failure.
-6. Upgrades the proxy (`docker compose pull && up -d` on pinned tags, or native binary upgrade) while preserving `/var/lib/fleet-proxy/`.
+6. Converges newly-bundled native services (`fleet-victoriametrics` on `:8428` and `fleet-grafana` on `:3000` with provisioned VictoriaMetrics datasource + default dashboards) and `fleet-server.service` (`FLEET_MONITOR_STORE_ADDR`) idempotently using the pinned versions and SHA-256 checksums shared from `install-server.sh`.
+7. Re-renders `/opt/fleet/proxy/Caddyfile` and `/opt/fleet/proxy/authelia/configuration.yml` (plus proxy systemd units) from saved `/etc/fleet-server/install-answers.env` after backing up existing configs, upgrades native Caddy/Authelia binaries or Docker Compose images, reloads/restarts `fleet-proxy`, and runs a health check with automatic rollback on failure — while preserving `/var/lib/fleet-proxy/` (secrets, TLS certs, `users.yml`, `db.sqlite3`), `/var/lib/fleet-server/ca/`, `/var/lib/fleet-victoriametrics/`, and `/var/lib/fleet-grafana/`.
 
-> **Note on switching domain modes:** `upgrade-server.sh` preserves live `/opt/fleet/proxy/Caddyfile` and `/opt/fleet/proxy/authelia/configuration.yml` and does not migrate an existing two-subdomain host to `--single-domain` (or vice versa). To switch layouts on an existing host, update those two files (or remove them and re-run `install-server.sh --single-domain` / `--two-domain` to regenerate them and refresh the TLS cert if using `--tls-mode internal`).
+> **Note on switching domain modes:** `upgrade-server.sh` re-renders `/opt/fleet/proxy/Caddyfile` and `/opt/fleet/proxy/authelia/configuration.yml` using the saved `FLEET_DOMAIN_MODE` in `/etc/fleet-server/install-answers.env` (preserving your existing single- or two-domain layout) and does not migrate an existing two-subdomain host to `--single-domain` (or vice versa). To switch layouts on an existing host, update `FLEET_DOMAIN_MODE` (and `FLEET_AUTH_DOMAIN`) in `install-answers.env` and re-run `install-server.sh --single-domain` / `--two-domain` (removing the old internal TLS cert if regenerating SANs for `--tls-mode internal`).
 
 ## 6. Uninstalling
 
