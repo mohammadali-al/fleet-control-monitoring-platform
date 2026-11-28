@@ -1,7 +1,7 @@
 ---
 id: T-0071
 title: enroll-success-confirmation
-state: ready
+state: merged
 touches: [web/src/pages/MachinesPage.jsx, web/src/hooks/, internal/enroll/, internal/panel/api.go,
           internal/panel/machines_test.go]
 tests: [server]

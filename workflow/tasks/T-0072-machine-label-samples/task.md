@@ -1,7 +1,7 @@
 ---
 id: T-0072
 title: machine-label-samples
-state: ready
+state: merged
 touches: [workflow/design/machine-label-samples/]
 tests: []
 after: []

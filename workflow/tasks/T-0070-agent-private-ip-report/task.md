@@ -1,7 +1,7 @@
 ---
 id: T-0070
 title: agent-private-ip-report
-state: ready
+state: merged
 touches: [internal/channel/envelope.go, internal/agent/, internal/capture/, internal/fleet/fleet.go,
           internal/registry/registry.go, web/src/pages/MachinesPage.jsx, internal/panel/machines_test.go]
 tests: [server, agent]
