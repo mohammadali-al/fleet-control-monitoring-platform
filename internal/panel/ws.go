@@ -60,12 +60,16 @@ type eventMsg struct {
 
 	Stream string `json:"stream,omitempty"`
 	Data   []byte `json:"data,omitempty"`
+
+	Maneuver *fleet.ManeuverRun `json:"maneuver,omitempty"`
 }
 
 func toEventMsg(ev fleet.Event) (eventMsg, bool) {
 	switch ev.Kind {
 	case fleet.EventMachine:
 		return eventMsg{Type: "machine", Machine: ev.Info}, ev.Info != nil
+	case fleet.EventManeuver:
+		return eventMsg{Type: "maneuver", Maneuver: ev.Maneuver}, ev.Maneuver != nil
 	case fleet.EventExec:
 		x := ev.Exec
 		if x == nil {

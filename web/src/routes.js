@@ -3,6 +3,7 @@ import { BaselinePage } from './pages/BaselinePage';
 import { CommandsPage } from './pages/CommandsPage';
 import { EvidencePage } from './pages/EvidencePage';
 import { MachinesPage } from './pages/MachinesPage';
+import { ManeuverPage } from './pages/ManeuverPage';
 import { MonitorPage } from './pages/MonitorPage';
 import { TerminalPage } from './pages/TerminalPage';
 import { WatchdogPage } from './pages/WatchdogPage';
@@ -77,8 +78,7 @@ export const ROUTES = [
     group: 'Plan',
     label: 'Maneuver',
     icon: 'i-sliders',
-    tag: 'Stub',
-    component: null,
+    component: ManeuverPage,
   },
   // Observe
   {

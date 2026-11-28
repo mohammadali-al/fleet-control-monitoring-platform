@@ -1,32 +1,48 @@
 package panel
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/baseline"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/fleet"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/maneuver"
 )
 
-// Maneuver CRUD + preview API (internal/maneuver, T-0063).
+// Maneuver CRUD, preview, and execution API (internal/maneuver + internal/fleet, T-0063).
 //
-//	GET    /api/maneuvers                list all Maneuvers
-//	POST   /api/maneuvers                create a Maneuver
-//	POST   /api/maneuvers/preview        validate and materialize a Maneuver spec
-//	GET    /api/maneuvers/{id}           fetch a single Maneuver
-//	PUT    /api/maneuvers/{id}           update a Maneuver
-//	POST   /api/maneuvers/{id}/duplicate clone a Maneuver
-//	DELETE /api/maneuvers/{id}           delete a Maneuver
+//	GET    /api/maneuvers                   list all Maneuvers
+//	POST   /api/maneuvers                   create a Maneuver
+//	POST   /api/maneuvers/preview           validate and materialize a Maneuver spec
+//	GET    /api/maneuvers/runs              list active and recent Maneuver runs
+//	POST   /api/maneuvers/runs/{runId}/stop stop a running/preparing Maneuver
+//	GET    /api/maneuvers/{id}              fetch a single Maneuver
+//	PUT    /api/maneuvers/{id}              update a Maneuver
+//	POST   /api/maneuvers/{id}/duplicate    clone a Maneuver
+//	POST   /api/maneuvers/{id}/start        start a synchronized Maneuver run
+//	DELETE /api/maneuvers/{id}              delete a Maneuver
 func (s *server) routesManeuver(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/maneuvers", s.live(s.listManeuvers))
 	mux.HandleFunc("POST /api/maneuvers", s.live(s.createManeuver))
 	mux.HandleFunc("POST /api/maneuvers/preview", s.live(s.previewManeuver))
+	mux.HandleFunc("GET /api/maneuvers/runs", s.live(s.listManeuverRuns))
+	mux.HandleFunc("POST /api/maneuvers/runs/{runId}/stop", s.live(s.stopManeuverRun))
 	mux.HandleFunc("GET /api/maneuvers/{id}", s.live(s.getManeuver))
 	mux.HandleFunc("PUT /api/maneuvers/{id}", s.live(s.updateManeuver))
 	mux.HandleFunc("POST /api/maneuvers/{id}/duplicate", s.live(s.duplicateManeuver))
+	mux.HandleFunc("POST /api/maneuvers/{id}/start", s.live(s.startManeuver))
 	mux.HandleFunc("DELETE /api/maneuvers/{id}", s.live(s.deleteManeuver))
+}
+
+type maneuverRunner interface {
+	StartManeuver(ctx context.Context, req fleet.StartManeuverRequest) (fleet.ManeuverRun, error)
+	StopManeuver(ctx context.Context, runID, reason string) (fleet.ManeuverRun, error)
+	ManeuverRuns() []fleet.ManeuverRun
+	ManeuverRun(runID string) (fleet.ManeuverRun, bool)
 }
 
 type maneuverStoreProvider interface {
@@ -288,4 +304,109 @@ func (s *server) previewManeuver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, plan)
+}
+
+type startManeuverBody struct {
+	Confirm bool `json:"confirm,omitempty"`
+	LeadMS  int  `json:"lead_ms,omitempty"`
+}
+
+func (s *server) listManeuverRuns(w http.ResponseWriter, _ *http.Request) {
+	mr, ok := s.be.(maneuverRunner)
+	if !ok {
+		writeJSON(w, http.StatusOK, map[string]any{"runs": []fleet.ManeuverRun{}})
+		return
+	}
+	runs := mr.ManeuverRuns()
+	if runs == nil {
+		runs = []fleet.ManeuverRun{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"runs": runs})
+}
+
+func (s *server) startManeuver(w http.ResponseWriter, r *http.Request) {
+	mr, ok := s.be.(maneuverRunner)
+	if !ok {
+		notConfigured(w, "maneuver execution")
+		return
+	}
+	st, err := s.maneuverStore()
+	if err != nil {
+		s.writeManeuverErr(w, err)
+		return
+	}
+	var b startManeuverBody
+	if r.ContentLength != 0 && !decode(w, r, &b) {
+		return
+	}
+	id := r.PathValue("id")
+	mv, ok := st.Get(id)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, errBody("maneuver not found"))
+		return
+	}
+	plan, err := s.validateAndMaterializeSpec(maneuver.Spec{
+		ID:          mv.ID,
+		Name:        mv.Name,
+		Description: mv.Description,
+		Target:      mv.Target,
+		TotalSec:    mv.TotalSec,
+		Pattern:     mv.Pattern,
+		Timeline:    mv.Timeline,
+		Agents:      mv.Agents,
+	})
+	if err != nil {
+		s.writeManeuverErr(w, err)
+		return
+	}
+	req := fleet.StartManeuverRequest{
+		ManeuverID: mv.ID,
+		Plan:       &plan,
+		User:       operatorFrom(r),
+		Confirm:    b.Confirm,
+	}
+	if b.LeadMS != 0 {
+		req.LeadTime = time.Duration(b.LeadMS) * time.Millisecond
+	}
+	run, err := mr.StartManeuver(r.Context(), req)
+	if err != nil {
+		var cr *fleet.ConfirmRequiredError
+		if errors.As(err, &cr) {
+			writeJSON(w, http.StatusConflict, gateResponse{
+				Error:             cr.Error(),
+				NeedsConfirmation: true,
+				Pattern:           cr.Pattern,
+				Command:           cr.Command,
+				Machines:          []string{cr.Machine},
+			})
+			return
+		}
+		s.writeManeuverErr(w, err)
+		return
+	}
+	s.log.Info("maneuver started", "component", "panel", "operator", req.User, "maneuver", mv.ID, "run", run.RunID)
+	writeJSON(w, http.StatusAccepted, map[string]any{"run": run})
+}
+
+func (s *server) stopManeuverRun(w http.ResponseWriter, r *http.Request) {
+	mr, ok := s.be.(maneuverRunner)
+	if !ok {
+		notConfigured(w, "maneuver execution")
+		return
+	}
+	if r.ContentLength != 0 {
+		var empty struct{}
+		if !decode(w, r, &empty) {
+			return
+		}
+	}
+	runID := r.PathValue("runId")
+	op := operatorFrom(r)
+	run, err := mr.StopManeuver(r.Context(), runID, "stopped by "+op)
+	if err != nil {
+		s.writeManeuverErr(w, err)
+		return
+	}
+	s.log.Info("maneuver stopped", "component", "panel", "operator", op, "run", runID)
+	writeJSON(w, http.StatusOK, map[string]any{"run": run})
 }

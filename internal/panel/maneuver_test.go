@@ -1,13 +1,27 @@
 package panel
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/coder/websocket"
+
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/agent"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/baseline"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/exec"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/fleet"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/fleet/fleettest"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/maneuver"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/registry"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/web"
 )
 
 func TestManeuverAPIWithoutBackend(t *testing.T) {
@@ -162,4 +176,141 @@ func TestManeuverAPICRUDPreviewAndValidation(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("delete = %d", status)
 	}
+}
+
+func TestManeuverStartStopAndWebSocketEvents(t *testing.T) {
+	mt, err := fleettest.NewMTLS()
+	if err != nil {
+		t.Fatal(err)
+	}
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ra, err := mt.StartAgent("w1", agent.Config{DataDir: t.TempDir(), TermGrace: 200 * time.Millisecond, Logger: quiet})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ra.Stop() })
+
+	dataDir := t.TempDir()
+	reg := registry.New()
+	if err := reg.Add(registry.Machine{
+		ID: "w1", Role: registry.RoleWorker, ConnectMode: registry.ConnectModeServerDial,
+		PrivateIPs: []string{"127.0.0.1"}, Provisioned: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	gate, err := exec.NewGate([]byte("panel-secret"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr, err := fleet.New(fleet.Config{
+		Registry:     reg,
+		Gate:         gate,
+		NewLink:      mt.Factory(),
+		PollInterval: 10 * time.Millisecond,
+		GateSecret:   []byte("panel-secret"),
+		DataDir:      dataDir,
+		Logger:       quiet,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	mgr.Start(ctx)
+	t.Cleanup(func() { cancel(); mgr.Close() })
+
+	h, err := New(Options{Assets: web.FS, Templates: web.Templates, Backend: mgr, Logger: quiet})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	// Wait for w1 online.
+	deadline := time.Now().Add(wait)
+	for time.Now().Before(deadline) {
+		if info, ok := mgr.Machine("w1"); ok && info.State == fleet.StateOnline {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Connect to /ws/events before starting the maneuver.
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws/events"
+	wsConn, wsCtx := dialWithHeaders(t, wsURL, nil)
+	var hello eventMsg
+	if err := readJSON(wsCtx, wsConn, &hello); err != nil || hello.Type != "hello" {
+		t.Fatalf("ws hello = %+v, err=%v", hello, err)
+	}
+
+	// Create baseline item + maneuver.
+	status, raw := doJSON(t, http.MethodPost, srv.URL+"/api/baseline", map[string]any{
+		"id":               "sleep-probe",
+		"name":             "Sleep probe",
+		"command_template": "echo target={ip}; sleep {duration}",
+	}, nil)
+	if status != http.StatusCreated {
+		t.Fatalf("create baseline = %d (%s)", status, raw)
+	}
+	status, raw = doJSON(t, http.MethodPost, srv.URL+"/api/maneuvers", map[string]any{
+		"id":        "mv-live",
+		"name":      "Live test",
+		"target":    map[string]string{"ip": "198.51.100.10", "origin": "https://shop.example.test"},
+		"total_sec": 10,
+		"pattern":   map[string]any{"type": "all"},
+		"timeline": []map[string]any{
+			{"baseline_id": "sleep-probe", "start_sec": 0, "duration_sec": 5, "replicas": 1},
+		},
+		"agents": []string{"w1"},
+	}, nil)
+	if status != http.StatusCreated {
+		t.Fatalf("create maneuver = %d (%s)", status, raw)
+	}
+
+	// Start maneuver via API.
+	status, raw = doJSON(t, http.MethodPost, srv.URL+"/api/maneuvers/mv-live/start", map[string]any{"lead_ms": 250}, nil)
+	if status != http.StatusAccepted {
+		t.Fatalf("start maneuver = %d (%s)", status, raw)
+	}
+	var startResp struct {
+		Run fleet.ManeuverRun `json:"run"`
+	}
+	if err := json.Unmarshal(raw, &startResp); err != nil {
+		t.Fatal(err)
+	}
+	runID := startResp.Run.RunID
+
+	// Verify /ws/events receives live maneuver frames through running.
+	sawRunning := false
+	wsDeadline := time.Now().Add(wait)
+	for time.Now().Before(wsDeadline) && !sawRunning {
+		typ, data, err := wsConn.Read(wsCtx)
+		if err != nil {
+			t.Fatalf("ws read: %v", err)
+		}
+		if typ != websocket.MessageText {
+			continue
+		}
+		var msg eventMsg
+		if json.Unmarshal(data, &msg) == nil && msg.Type == "maneuver" && msg.Maneuver != nil && msg.Maneuver.RunID == runID {
+			if msg.Maneuver.State == fleet.ManeuverStateRunning {
+				sawRunning = true
+			}
+		}
+	}
+	if !sawRunning {
+		t.Fatalf("did not observe maneuver running event on /ws/events")
+	}
+
+	// Stop maneuver via API.
+	status, raw = doJSON(t, http.MethodPost, srv.URL+"/api/maneuvers/runs/"+runID+"/stop", map[string]any{}, nil)
+	if status != http.StatusOK {
+		t.Fatalf("stop maneuver = %d (%s)", status, raw)
+	}
+
+	// Runs endpoint reflects stopped state.
+	status, raw = doJSON(t, http.MethodGet, srv.URL+"/api/maneuvers/runs", nil, nil)
+	if status != http.StatusOK || !strings.Contains(string(raw), runID) {
+		t.Fatalf("runs = %d (%s)", status, raw)
+	}
+	_ = config.ProjectsDirName
 }
