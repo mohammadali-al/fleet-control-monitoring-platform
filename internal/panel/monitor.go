@@ -240,14 +240,32 @@ func (s *server) monHistory(w http.ResponseWriter, r *http.Request, _ observer, 
 		writeJSON(w, http.StatusBadRequest, errBody("to must not be before from"))
 		return
 	}
-	var step time.Duration
-	if raw := strings.TrimSpace(q.Get("step")); raw != "" {
-		d, err := parseStep(raw)
-		if err != nil || d < 0 {
-			writeJSON(w, http.StatusBadRequest, errBody("step must be a non-negative duration or seconds"))
+	maxPoints := defaultHistoryMaxPoints
+	if raw := strings.TrimSpace(q.Get("max_points")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < minHistoryMaxPoints || n > maxHistoryMaxPoints {
+			writeJSON(w, http.StatusBadRequest, errBody("max_points must be between 12 and 500"))
 			return
 		}
-		step = d
+		maxPoints = n
+	}
+	var step time.Duration
+	if raw := strings.TrimSpace(q.Get("step")); raw != "" {
+		if strings.EqualFold(raw, "auto") {
+			step = chooseHistoryStep(end.Sub(start), maxPoints)
+		} else {
+			d, err := parseStep(raw)
+			if err != nil || d < 0 {
+				writeJSON(w, http.StatusBadRequest, errBody("step must be a non-negative duration, seconds, or \"auto\""))
+				return
+			}
+			step = d
+		}
+	}
+	agg := strings.ToLower(strings.TrimSpace(q.Get("aggregate")))
+	if agg != "" && agg != "mean" {
+		writeJSON(w, http.StatusBadRequest, errBody("aggregate must be \"mean\""))
+		return
 	}
 	hq := monitor.HistoryQuery{
 		Metric:     metric,
@@ -269,6 +287,9 @@ func (s *server) monHistory(w http.ResponseWriter, r *http.Request, _ observer, 
 		writeJSON(w, http.StatusBadGateway, errBody("monitor history query failed: "+err.Error()))
 		return
 	}
+	if agg == "mean" && len(series) > 0 {
+		series = mergeHistorySeriesMean(metric, hq, series)
+	}
 	if series == nil {
 		series = []monitor.HistorySeries{}
 	}
@@ -279,6 +300,81 @@ func (s *server) monHistory(w http.ResponseWriter, r *http.Request, _ observer, 
 		"step_sec": step.Seconds(),
 		"series":   series,
 	})
+}
+
+const (
+	defaultHistoryMaxPoints = 120
+	minHistoryMaxPoints     = 12
+	maxHistoryMaxPoints     = 500
+)
+
+var cleanHistorySteps = []time.Duration{
+	time.Second, 2 * time.Second, 5 * time.Second, 10 * time.Second, 15 * time.Second, 30 * time.Second,
+	time.Minute, 2 * time.Minute, 5 * time.Minute, 10 * time.Minute, 15 * time.Minute, 30 * time.Minute,
+	time.Hour, 2 * time.Hour, 4 * time.Hour, 6 * time.Hour, 12 * time.Hour, 24 * time.Hour,
+}
+
+func chooseHistoryStep(span time.Duration, maxPoints int) time.Duration {
+	if maxPoints <= 0 {
+		maxPoints = defaultHistoryMaxPoints
+	}
+	if span <= 0 {
+		return time.Second
+	}
+	for _, s := range cleanHistorySteps {
+		if int(span/s) <= maxPoints {
+			return s
+		}
+	}
+	days := (int(span/(24*time.Hour)) + maxPoints - 1) / maxPoints
+	if days < 1 {
+		days = 1
+	}
+	return time.Duration(days) * 24 * time.Hour
+}
+
+func mergeHistorySeriesMean(metric string, hq monitor.HistoryQuery, series []monitor.HistorySeries) []monitor.HistorySeries {
+	type acc struct {
+		sum   float64
+		count int
+	}
+	byTS := make(map[int64]*acc)
+	for _, s := range series {
+		for _, p := range s.Points {
+			ms := p.T.UTC().UnixMilli()
+			a := byTS[ms]
+			if a == nil {
+				a = &acc{}
+				byTS[ms] = a
+			}
+			a.sum += p.Value
+			a.count++
+		}
+	}
+	if len(byTS) == 0 {
+		return []monitor.HistorySeries{}
+	}
+	tsList := make([]int64, 0, len(byTS))
+	for ts := range byTS {
+		tsList = append(tsList, ts)
+	}
+	slices.Sort(tsList)
+	pts := make([]monitor.HistoryPoint, len(tsList))
+	for i, ts := range tsList {
+		a := byTS[ts]
+		pts[i] = monitor.HistoryPoint{
+			T:     time.UnixMilli(ts).UTC(),
+			Value: a.sum / float64(a.count),
+		}
+	}
+	return []monitor.HistorySeries{{
+		Metric:     metric,
+		Agent:      "all",
+		Target:     "merged",
+		HistoryKey: hq.HistoryKey,
+		Type:       hq.Type,
+		Points:     pts,
+	}}
 }
 
 func firstQuery(q map[string][]string, keys ...string) string {
