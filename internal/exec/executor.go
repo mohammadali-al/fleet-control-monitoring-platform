@@ -242,12 +242,15 @@ func (e *Executor) run(p RunPayload) {
 		e.sendExit(p.SessionID, ExitPayload{SessionID: p.SessionID, ExitCode: exitStartFail, Reason: ReasonError, Error: "invalid session id"})
 		return
 	}
-	if p.Mode != ModeOneShot && p.Mode != ModePTY {
+	if p.Mode != ModeOneShot && p.Mode != ModePTY && p.Mode != ModeReplica {
 		e.sendExit(p.SessionID, ExitPayload{SessionID: p.SessionID, ExitCode: exitStartFail, Reason: ReasonError, Error: "unknown mode " + p.Mode})
 		return
 	}
 
-	sess := &Session{ID: p.SessionID, Command: p.Command, User: p.User, Host: e.cfg.Host, Mode: p.Mode}
+	sess := &Session{
+		ID: p.SessionID, Command: p.Command, User: p.User, Host: e.cfg.Host, Mode: p.Mode,
+		ManeuverID: p.ManeuverID, RunID: p.RunID, ItemID: p.ItemID, Replica: p.Replica,
+	}
 	a := &active{sess: sess, mode: p.Mode, stopCh: make(chan struct{})}
 	e.mu.Lock()
 	if _, dup := e.sessions[p.SessionID]; dup {
@@ -265,7 +268,7 @@ func (e *Executor) run(p RunPayload) {
 
 	// The gate runs here, in the agent, before anything executes. A PTY
 	// session's program is the shell; its input lines are gated as typed.
-	if p.Mode == ModeOneShot {
+	if p.Mode == ModeOneShot || p.Mode == ModeReplica {
 		if err := e.cfg.Gate.Authorize(e.cfg.MachineID, p.Command, p.ConfirmToken); err != nil {
 			e.refuse(sess, p.Command, err.Error())
 			return
@@ -318,7 +321,7 @@ func (e *Executor) refuse(sess *Session, line, reason string) {
 		"mode", sess.Mode, "command", line, "reason", reason)
 	_ = send(e.base, e.cfg.Sender, channel.TypeState, sess.ID,
 		StatePayload{SessionID: sess.ID, State: StateRefused, Detail: reason})
-	if sess.Mode == ModeOneShot {
+	if sess.Mode == ModeOneShot || sess.Mode == ModeReplica {
 		e.sendExit(sess.ID, ExitPayload{SessionID: sess.ID, ExitCode: exitRefused, Reason: ReasonRefused, Error: reason})
 	}
 }
@@ -337,7 +340,15 @@ func (e *Executor) sendState(a *active, st StatePayload) {
 
 // announceRunning reports the running state and notifies the capture hook.
 func (e *Executor) announceRunning(a *active) {
-	e.sendState(a, StatePayload{SessionID: a.sess.ID, State: StateRunning, CgroupPath: a.sess.CgroupPath()})
+	e.sendState(a, StatePayload{
+		SessionID:  a.sess.ID,
+		State:      StateRunning,
+		CgroupPath: a.sess.CgroupPath(),
+		ManeuverID: a.sess.ManeuverID,
+		RunID:      a.sess.RunID,
+		ItemID:     a.sess.ItemID,
+		Replica:    a.sess.Replica,
+	})
 	if e.cfg.OnSessionStart != nil {
 		e.cfg.OnSessionStart(a.sess)
 	}
@@ -366,9 +377,12 @@ func (e *Executor) pump(a *active, r *os.File, stream string) {
 	}
 }
 
-// runOneShot is Mode A.
+// runOneShot is Mode A (and ModeReplica).
 func (e *Executor) runOneShot(a *active, p RunPayload) (int, error) {
 	timeout := time.Duration(p.TimeoutSec) * time.Second
+	if p.DurationMS > 0 {
+		timeout = time.Duration(p.DurationMS) * time.Millisecond
+	}
 	if timeout <= 0 {
 		timeout = e.cfg.DefaultTimeout
 	}

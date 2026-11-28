@@ -188,6 +188,14 @@ func (l liveCapturer) Capture(sessionID, cgroupPath string) (SessionCapture, err
 	return sc, nil
 }
 
+func (l liveCapturer) CaptureWithMeta(sessionID, cgroupPath string, meta capture.SessionMeta) (SessionCapture, error) {
+	sc, err := l.c.CaptureWithMeta(sessionID, cgroupPath, meta)
+	if err != nil {
+		return nil, err
+	}
+	return sc, nil
+}
+
 func (l liveCapturer) Close() { l.c.Close() }
 
 func (l liveCapturer) PublicIPCache() *capture.PublicIPCache { return l.c.PublicIPCache() }

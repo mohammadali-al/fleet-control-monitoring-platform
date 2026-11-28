@@ -288,7 +288,21 @@ func (w *worker) sessionStart(s *exec.Session) {
 		w.log.Debug("evidence capture skipped: session has no cgroup", "component", "fleet-agent", "session_id", s.ID)
 		return
 	}
-	sc, err := c.Capture(s.ID, cg)
+	var (
+		sc  SessionCapture
+		err error
+	)
+	if mc, ok := c.(metaCapturer); ok && (s.ManeuverID != "" || s.Mode == exec.ModeReplica) {
+		sc, err = mc.CaptureWithMeta(s.ID, cg, capture.SessionMeta{
+			Mode:       s.Mode,
+			ManeuverID: s.ManeuverID,
+			RunID:      s.RunID,
+			ItemID:     s.ItemID,
+			Replica:    s.Replica,
+		})
+	} else {
+		sc, err = c.Capture(s.ID, cg)
+	}
 	if err != nil {
 		w.log.Warn("evidence capture not started; the command runs uncaptured",
 			"component", "fleet-agent", "session_id", s.ID, "err", err)
@@ -326,6 +340,12 @@ func (w *worker) stopCapture(id string, sc SessionCapture) {
 type Capturer interface {
 	Capture(sessionID, cgroupPath string) (SessionCapture, error)
 	Close()
+}
+
+// metaCapturer is an optional extension of Capturer that receives Maneuver
+// replica attribution metadata alongside sessionID and cgroupPath.
+type metaCapturer interface {
+	CaptureWithMeta(sessionID, cgroupPath string, meta capture.SessionMeta) (SessionCapture, error)
 }
 
 // SessionCapture is one running per-session capture.

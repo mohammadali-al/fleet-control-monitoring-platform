@@ -717,9 +717,14 @@ func (r *maneuverRunner) runItemReplica(ctx context.Context, act *activeManeuver
 		SessionID:    sessID,
 		Command:      it.Command,
 		User:         "maneuver",
-		Mode:         exec.ModeOneShot,
+		Mode:         exec.ModeReplica,
 		TimeoutSec:   timeoutSec,
+		DurationMS:   rem.Milliseconds(),
 		ConfirmToken: confirmTok,
+		ManeuverID:   act.plan.ManeuverID,
+		RunID:        act.plan.RunID,
+		ItemID:       it.ItemID,
+		Replica:      rep,
 	})
 	itemCancel()
 	<-done

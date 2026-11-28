@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/agent"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/capture"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/channel"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/exec"
@@ -359,4 +360,135 @@ func indexString(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+type metaFakeCapture struct {
+	fakeCapture
+	mu   sync.Mutex
+	meta []struct {
+		Session string
+		Cgroup  string
+		Meta    capture.SessionMeta
+	}
+}
+
+func (f *metaFakeCapture) factory(ctx context.Context, cfg capture.Config) (agent.Capturer, error) {
+	_, err := f.fakeCapture.factory(ctx, cfg)
+	return metaFakeCapturer{f}, err
+}
+
+type metaFakeCapturer struct{ f *metaFakeCapture }
+
+func (c metaFakeCapturer) Capture(id, cg string) (agent.SessionCapture, error) {
+	return fakeCapturer{&c.f.fakeCapture}.Capture(id, cg)
+}
+
+func (c metaFakeCapturer) CaptureWithMeta(id, cg string, meta capture.SessionMeta) (agent.SessionCapture, error) {
+	c.f.mu.Lock()
+	c.f.meta = append(c.f.meta, struct {
+		Session string
+		Cgroup  string
+		Meta    capture.SessionMeta
+	}{Session: id, Cgroup: cg, Meta: meta})
+	c.f.mu.Unlock()
+	return fakeCapturer{&c.f.fakeCapture}.Capture(id, cg)
+}
+
+func (c metaFakeCapturer) Close() { fakeCapturer{&c.f.fakeCapture}.Close() }
+
+func TestAgentManeuverReplicaCaptureAttribution(t *testing.T) {
+	root := delegatedCgroupRoot(t)
+	mfc := &metaFakeCapture{}
+
+	mt, err := fleettest.NewMTLS()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ra := startAgent(t, mt, "w1", func(c *agent.Config) {
+		c.DataDir = t.TempDir()
+		c.CgroupRoot = root
+		c.CaptureFactory = mfc.factory
+	})
+	_ = ra
+
+	reg := registry.New()
+	if err := reg.Add(registry.Machine{
+		ID: "w1", Role: registry.RoleWorker, ConnectMode: registry.ConnectModeServerDial,
+		PrivateIPs: []string{"127.0.0.1"}, Provisioned: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	gate, err := exec.NewGate([]byte("cap-secret"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := fleet.New(fleet.Config{
+		Registry: reg, Gate: gate, NewLink: mt.Factory(),
+		PollInterval: 10 * time.Millisecond, GateSecret: []byte("cap-secret"), Logger: quiet(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.Start(ctx)
+	t.Cleanup(func() { cancel(); m.Close() })
+
+	eventually(t, "w1 online", func() bool {
+		info, ok := m.Machine("w1")
+		return ok && info.State == fleet.StateOnline
+	})
+
+	run, err := m.StartManeuver(ctx, fleet.StartManeuverRequest{
+		Plan: &maneuver.MaterializedPlan{
+			ManeuverID: "mv-cap",
+			Name:       "Capture attribution",
+			Target:     maneuver.Target{IP: "198.51.100.10"},
+			TotalSec:   3,
+			Pattern:    maneuver.PatternConfig{Type: maneuver.PatternAllInOne},
+			Items: []maneuver.MaterializedItem{
+				{ItemID: "item-1", BaselineID: "b1", Command: "cat /proc/self/cgroup", StartSec: 0, DurationSec: 2, Replicas: 2},
+			},
+			Agents: []string{"w1"},
+		},
+		LeadTime: 250 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("StartManeuver: %v", err)
+	}
+
+	eventually(t, "maneuver completed", func() bool {
+		r, ok := m.ManeuverRun(run.RunID)
+		return ok && r.State == fleet.ManeuverStateCompleted
+	})
+
+	mfc.mu.Lock()
+	metas := append([]struct {
+		Session string
+		Cgroup  string
+		Meta    capture.SessionMeta
+	}(nil), mfc.meta...)
+	mfc.mu.Unlock()
+
+	if len(metas) != 2 {
+		t.Fatalf("captured replicas = %d, want 2 (%+v)", len(metas), metas)
+	}
+	seenReps := map[int]bool{}
+	seenSess := map[string]bool{}
+	for _, entry := range metas {
+		if entry.Cgroup != filepath.Join(root, entry.Session) {
+			t.Errorf("replica %s cgroup = %q, want %q", entry.Session, entry.Cgroup, filepath.Join(root, entry.Session))
+		}
+		if entry.Meta.Mode != exec.ModeReplica || entry.Meta.ManeuverID != "mv-cap" || entry.Meta.RunID != run.RunID || entry.Meta.ItemID != "item-1" {
+			t.Errorf("unexpected meta = %+v", entry.Meta)
+		}
+		seenReps[entry.Meta.Replica] = true
+		seenSess[entry.Session] = true
+	}
+	if !seenReps[1] || !seenReps[2] || len(seenSess) != 2 {
+		t.Errorf("replicas=%v sessions=%v, want replicas 1&2 with distinct sessions", seenReps, seenSess)
+	}
+	_, _, stopped := mfc.fakeCapture.snapshot()
+	if len(stopped) != 2 {
+		t.Errorf("stopped captures = %d, want 2", len(stopped))
+	}
 }
