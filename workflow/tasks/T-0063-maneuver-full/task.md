@@ -1,7 +1,7 @@
 ---
 id: T-0063
 title: maneuver-full
-state: ready
+state: merged
 touches: [internal/maneuver/, internal/channel/envelope.go, internal/fleet/, internal/agent/,
           internal/capture/, internal/exec/, internal/config/config.go,
           internal/panel/api.go, internal/panel/maneuver.go,

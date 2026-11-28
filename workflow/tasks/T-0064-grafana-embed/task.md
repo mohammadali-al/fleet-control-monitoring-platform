@@ -1,7 +1,7 @@
 ---
 id: T-0064
 title: grafana-embed
-state: ready
+state: merged
 touches: [deploy/install-server.sh, deploy/proxy/Caddyfile, deploy/authelia/configuration.yml,
           deploy/grafana/, deploy/REQUIREMENTS.md, deploy/README.md,
           web/src/pages/MonitorPage.jsx, internal/panel/server.go]
