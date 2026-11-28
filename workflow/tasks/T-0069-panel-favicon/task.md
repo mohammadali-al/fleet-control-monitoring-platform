@@ -1,7 +1,7 @@
 ---
 id: T-0069
 title: panel-favicon
-state: ready
+state: merged
 touches: [web/build.mjs, web/assets/, web/_src/shell.html, internal/panel/server.go, internal/panel/server_test.go]
 tests: [server]
 after: [T-0047]

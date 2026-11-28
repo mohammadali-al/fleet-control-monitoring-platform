@@ -1,7 +1,7 @@
 ---
 id: T-0068
 title: agent-self-update
-state: ready
+state: merged
 touches: [internal/channel/envelope.go, internal/agent/, internal/fleet/, internal/registry/registry.go,
           internal/enroll/server.go, internal/panel/api.go, internal/panel/machines.go,
           web/src/pages/MachinesPage.jsx, web/src/hooks/, internal/panel/machines_test.go]
