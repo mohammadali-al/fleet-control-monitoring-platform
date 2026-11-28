@@ -5,6 +5,7 @@ import { EvidencePage } from './pages/EvidencePage';
 import { MachinesPage } from './pages/MachinesPage';
 import { ManeuverPage } from './pages/ManeuverPage';
 import { MonitorPage } from './pages/MonitorPage';
+import { PastebinPage } from './pages/PastebinPage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { TerminalPage } from './pages/TerminalPage';
 import { WatchdogPage } from './pages/WatchdogPage';
@@ -118,6 +119,14 @@ export const ROUTES = [
     label: 'Backup',
     icon: 'i-database',
     component: BackupPage,
+  },
+  {
+    id: 'pastebin',
+    path: '/pastebin',
+    group: 'Administer',
+    label: 'Pastebin',
+    icon: 'i-copy',
+    component: PastebinPage,
   },
 ];
 

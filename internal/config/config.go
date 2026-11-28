@@ -39,6 +39,8 @@ const (
 	WatchdogDirName = "watchdog"
 	// BaselineDirName holds the global library of reusable baseline items.
 	BaselineDirName = "baseline"
+	// PastebinDirName holds the single shared pastebin pad (paste.txt).
+	PastebinDirName = "pastebin"
 	// ProjectsDirName holds Maneuver/project metadata (part of the backup set,
 	// T-0013).
 	ProjectsDirName = "projects"

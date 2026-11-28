@@ -22,6 +22,7 @@ import (
 //	             on one side, the agent's PTY on the other.
 //	/ws/monitor  live probe results as the monitor agents deliver them (Monitor data page).
 //	/ws/watchdog watchdog events as the worker agents forward them (Watchdog page).
+//	/ws/pastebin the shared pastebin pad, pushed on every change (Pastebin page).
 //
 // The browser speaks to the main server only; the agent link stays behind the
 // control channel. Origin is checked by the websocket library (same host).
@@ -30,6 +31,7 @@ func (s *server) routesWS(mux *http.ServeMux) {
 	mux.HandleFunc("GET /ws/shell", s.wsShell)
 	mux.HandleFunc("GET /ws/monitor", s.wsMonitor)
 	mux.HandleFunc("GET /ws/watchdog", s.wsWatchdog)
+	mux.HandleFunc("GET /ws/pastebin", s.wsPastebin)
 }
 
 const (
