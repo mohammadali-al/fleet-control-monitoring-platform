@@ -1,12 +1,11 @@
 ---
 id: T-0062
 title: report-generator-wiring
-state: blocked
-blocked_on: "Needs the Projects/tests construct (GAP-24, not yet briefed): a test report is generated from a completed test's archive + monitor data, and there are no tests to report on yet. Brief + build Projects first, then run this."
+state: ready
 touches: [internal/panel/api.go, internal/panel/report.go, internal/report/,
           web/src/pages/ProjectsPage.jsx, internal/panel/report_test.go]
 tests: [server]
-after: [T-0047, T-0055]
+after: [T-0047, T-0055, T-0066]
 shares: {}
 model: {claude: "sonnet high"}
 operator_check: "Each completed test can produce the self-contained interactive HTML report (via internal/report) from its evidence archive + monitor data, downloadable/viewable from the panel. The Projects page Report buttons actually generate a report instead of showing a stub. (Requires Projects/tests to exist first.)"

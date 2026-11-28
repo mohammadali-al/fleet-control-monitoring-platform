@@ -68,6 +68,8 @@ _none_
 - **T-0056** long-lived-shell-sessions  `after: [T-0048]`
 - **T-0063** maneuver-full  `after: [T-0047, T-0054]`
 - **T-0064** grafana-embed  `after: [T-0055]`
+- **T-0065** monitor-history-semantic-zoom  `after: [T-0055, T-0058]`
+- **T-0066** projects-tests  `after: [T-0063]`
 
 ## Blocked
 _none_

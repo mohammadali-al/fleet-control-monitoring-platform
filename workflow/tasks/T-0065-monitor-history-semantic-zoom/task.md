@@ -1,7 +1,7 @@
 ---
 id: T-0065
 title: monitor-history-semantic-zoom
-state: ready
+state: merged
 touches: [web/src/pages/MonitorPage.jsx, web/src/hooks/, internal/panel/monitor.go, internal/panel/monitor_test.go]
 tests: [server]
 after: [T-0055, T-0058]

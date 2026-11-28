@@ -1,7 +1,7 @@
 ---
 id: T-0066
 title: projects-tests
-state: ready
+state: merged
 touches: [internal/project/, internal/config/config.go, internal/fleet/, internal/panel/api.go,
           internal/panel/project.go, web/src/pages/ProjectsPage.jsx, web/src/routes.js, web/src/hooks/,
           internal/panel/project_test.go]
