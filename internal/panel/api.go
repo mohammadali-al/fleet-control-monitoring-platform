@@ -64,6 +64,7 @@ func (s *server) routesAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/commands/{id}/cancel", s.live(s.cancelCommand))
 
 	s.routesBaseline(mux)
+	s.routesManeuver(mux)
 	s.routesObserve(mux)
 }
 

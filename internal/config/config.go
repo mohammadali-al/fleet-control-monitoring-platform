@@ -42,6 +42,11 @@ const (
 	// ProjectsDirName holds Maneuver/project metadata (part of the backup set,
 	// T-0013).
 	ProjectsDirName = "projects"
+	// ManeuversFileName is the persisted Maneuver store inside ProjectsDirName.
+	ManeuversFileName = "maneuvers.json"
+	// ManeuverDirName holds agent-local Maneuver execution state for outage
+	// continuation and wall-clock rejoin under <agentDataDir>/maneuver/.
+	ManeuverDirName = "maneuver"
 )
 
 // Backup state files under <data>/config/ (T-0013). They are deliberately not

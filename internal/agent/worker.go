@@ -88,6 +88,8 @@ type worker struct {
 	lastDisk     capture.DiskStatus
 	diskReported bool
 
+	man *maneuverRunner
+
 	wg sync.WaitGroup // runs waiting for the first config
 }
 
@@ -112,6 +114,7 @@ func newWorker(cfg Config) *worker {
 		defer w.mu.Unlock()
 		return w.base
 	})
+	w.man = newManeuverRunner(w)
 	w.initEvidence()
 	return w
 }
@@ -129,6 +132,7 @@ func (w *worker) start(ctx context.Context) {
 	w.base, w.stop = context.WithCancel(ctx)
 	w.startEvidence()
 	w.startDiskMonitor()
+	w.man.start(w.base)
 }
 
 // onConnect runs when the main server's connection is established: it asks for
@@ -148,6 +152,7 @@ func (w *worker) onConnect(peer string) {
 	go w.offerEvidence()
 	w.reportPublicIPOnConnect()
 	w.reportDiskOnConnect()
+	w.man.onConnect()
 }
 
 // handle is the channel.Handler. It never blocks on a running command.
@@ -171,6 +176,8 @@ func (w *worker) handle(ctx context.Context, env channel.Envelope) {
 		handleServiceControl(ctx, w.log, w.sender, w.serviceController(), env)
 	case channel.TypePublicIPRefresh:
 		w.handlePublicIPRefresh()
+	case channel.TypeManeuverPrepare, channel.TypeManeuverCommit, channel.TypeManeuverAbort:
+		w.man.handle(ctx, env)
 	default:
 		// input, resize, terminate, confirm: addressed by session id, so every
 		// executor gets them and the one that owns the session acts.
@@ -229,6 +236,7 @@ func (w *worker) shutdown() {
 	w.stop()
 	w.unbindPublicIP()
 	w.unbindDiskState()
+	w.man.shutdown()
 	w.mu.Lock()
 	w.closed = true
 	exs := append([]*exec.Executor(nil), w.retired...)
@@ -280,7 +288,21 @@ func (w *worker) sessionStart(s *exec.Session) {
 		w.log.Debug("evidence capture skipped: session has no cgroup", "component", "fleet-agent", "session_id", s.ID)
 		return
 	}
-	sc, err := c.Capture(s.ID, cg)
+	var (
+		sc  SessionCapture
+		err error
+	)
+	if mc, ok := c.(metaCapturer); ok && (s.ManeuverID != "" || s.Mode == exec.ModeReplica) {
+		sc, err = mc.CaptureWithMeta(s.ID, cg, capture.SessionMeta{
+			Mode:       s.Mode,
+			ManeuverID: s.ManeuverID,
+			RunID:      s.RunID,
+			ItemID:     s.ItemID,
+			Replica:    s.Replica,
+		})
+	} else {
+		sc, err = c.Capture(s.ID, cg)
+	}
 	if err != nil {
 		w.log.Warn("evidence capture not started; the command runs uncaptured",
 			"component", "fleet-agent", "session_id", s.ID, "err", err)
@@ -318,6 +340,12 @@ func (w *worker) stopCapture(id string, sc SessionCapture) {
 type Capturer interface {
 	Capture(sessionID, cgroupPath string) (SessionCapture, error)
 	Close()
+}
+
+// metaCapturer is an optional extension of Capturer that receives Maneuver
+// replica attribution metadata alongside sessionID and cgroupPath.
+type metaCapturer interface {
+	CaptureWithMeta(sessionID, cgroupPath string, meta capture.SessionMeta) (SessionCapture, error)
 }
 
 // SessionCapture is one running per-session capture.

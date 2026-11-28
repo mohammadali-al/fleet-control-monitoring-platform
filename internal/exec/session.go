@@ -22,11 +22,15 @@ func ValidSessionID(id string) bool { return sessionIDRe.MatchString(id) }
 // once here, not repeated per packet; evidence capture (T-0008) binds to ID
 // and CgroupPath.
 type Session struct {
-	ID      string
-	Command string
-	User    string
-	Host    string
-	Mode    string
+	ID         string
+	Command    string
+	User       string
+	Host       string
+	Mode       string
+	ManeuverID string
+	RunID      string
+	ItemID     string
+	Replica    int
 
 	cgroup *Cgroup
 
@@ -40,6 +44,10 @@ type Session struct {
 // SessionInfo is an immutable snapshot of a Session.
 type SessionInfo struct {
 	ID, Command, User, Host, Mode string
+	ManeuverID                    string
+	RunID                         string
+	ItemID                        string
+	Replica                       int
 	CgroupPath                    string // "" when cgroups are disabled
 	Start, End                    time.Time
 	ExitCode                      int
@@ -61,6 +69,7 @@ func (s *Session) Info() SessionInfo {
 	defer s.mu.Unlock()
 	return SessionInfo{
 		ID: s.ID, Command: s.Command, User: s.User, Host: s.Host, Mode: s.Mode,
+		ManeuverID: s.ManeuverID, RunID: s.RunID, ItemID: s.ItemID, Replica: s.Replica,
 		CgroupPath: s.CgroupPath(), Start: s.start, End: s.end,
 		ExitCode: s.exitCode, Finished: s.finished,
 	}

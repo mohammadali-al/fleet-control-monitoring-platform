@@ -217,6 +217,87 @@ type DiskStatePayload struct {
 	At         time.Time `json:"at"`
 }
 
+// Maneuver execution envelope types (GAP-12 §4.9, GAP-04 §4.3). Unknown types
+// are ignored by older peers, so adding these is backward-tolerant.
+const (
+	TypeManeuverPrepare = "maneuver-prepare" // server -> agent: full materialized plan + future start T
+	TypeManeuverAck     = "maneuver-ack"     // agent -> server: ready | missed | rejected
+	TypeManeuverCommit  = "maneuver-commit"  // server -> agent: commit start at T (after all ACKs)
+	TypeManeuverAbort   = "maneuver-abort"   // server -> agent: abort/stop prepared or running maneuver
+	TypeManeuverStatus  = "maneuver-status"  // agent -> server: live progress, rejoin, or completion status
+)
+
+// ManeuverAckPayload status values.
+const (
+	ManeuverAckReady    = "ready"
+	ManeuverAckMissed   = "missed"
+	ManeuverAckRejected = "rejected"
+)
+
+// ManeuverPlanItem is one materialized timeline item inside ManeuverPreparePayload.
+type ManeuverPlanItem struct {
+	ItemID       string `json:"item_id"`
+	BaselineID   string `json:"baseline_id"`
+	Name         string `json:"name,omitempty"`
+	Command      string `json:"command"`
+	ConfirmToken string `json:"confirm_token,omitempty"`
+	StartSec     int    `json:"start_sec"`
+	DurationSec  int    `json:"duration_sec"`
+	Replicas     int    `json:"replicas"`
+}
+
+// String redacts ConfirmToken from logs and formatted output.
+func (p ManeuverPlanItem) String() string {
+	return fmt.Sprintf("ManeuverPlanItem{id:%s baseline:%s start:%ds dur:%ds replicas:%d token:%s}",
+		p.ItemID, p.BaselineID, p.StartSec, p.DurationSec, p.Replicas, redacted(p.ConfirmToken))
+}
+
+// ManeuverPreparePayload is the payload of maneuver-prepare (server -> agent).
+type ManeuverPreparePayload struct {
+	RunID        string             `json:"run_id"`
+	ManeuverID   string             `json:"maneuver_id"`
+	Name         string             `json:"name"`
+	TargetIP     string             `json:"target_ip"`
+	TargetOrigin string             `json:"target_origin,omitempty"`
+	StartAt      time.Time          `json:"start_at"`
+	TotalSec     int                `json:"total_sec"`
+	Pattern      string             `json:"pattern"`
+	Items        []ManeuverPlanItem `json:"items"`
+}
+
+// ManeuverAckPayload is the payload of maneuver-ack (agent -> server).
+type ManeuverAckPayload struct {
+	RunID      string    `json:"run_id"`
+	Status     string    `json:"status"` // ready | missed | rejected
+	Reason     string    `json:"reason,omitempty"`
+	ReceivedAt time.Time `json:"received_at,omitempty"`
+	StartAt    time.Time `json:"start_at,omitempty"`
+}
+
+// ManeuverCommitPayload is the payload of maneuver-commit (server -> agent).
+type ManeuverCommitPayload struct {
+	RunID   string    `json:"run_id"`
+	StartAt time.Time `json:"start_at"`
+}
+
+// ManeuverAbortPayload is the payload of maneuver-abort (server -> agent).
+type ManeuverAbortPayload struct {
+	RunID  string `json:"run_id"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// ManeuverStatusPayload is the payload of maneuver-status (agent -> server).
+type ManeuverStatusPayload struct {
+	RunID          string    `json:"run_id"`
+	ManeuverID     string    `json:"maneuver_id,omitempty"`
+	State          string    `json:"state"` // scheduled | running | completed | stopped | missed | error
+	ActiveReplicas int       `json:"active_replicas,omitempty"`
+	SessionIDs     []string  `json:"session_ids,omitempty"`
+	ElapsedSec     float64   `json:"elapsed_sec,omitempty"`
+	Error          string    `json:"error,omitempty"`
+	At             time.Time `json:"at"`
+}
+
 // Path is the URL path the agent serves the channel on.
 const Path = "/v1/channel"
 

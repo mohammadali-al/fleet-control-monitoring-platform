@@ -1,12 +1,14 @@
 package capture
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -91,6 +93,58 @@ func TestSessionCaptureEndToEnd(t *testing.T) {
 	}
 	if drops != 3 {
 		t.Errorf("manifest dropped total = %d, want 3", drops)
+	}
+}
+
+func TestSessionCaptureWithReplicaMetaAttribution(t *testing.T) {
+	dataDir := t.TempDir()
+	c, err := NewController(Config{DataDir: dataDir, Machine: "m1"})
+	if err != nil {
+		t.Fatalf("NewController: %v", err)
+	}
+	c.resolver = &SourceIPResolver{route: func(net.IP) (net.IP, error) { return net.ParseIP("192.168.9.9"), nil }}
+	src := newFakeSource([]capturedPacket{
+		{data: tcpv4(t, "192.168.1.5", "93.184.216.34", 5000, 80, true, false, nil), ts: time.Now()},
+	}, 0)
+	sw, err := NewSegmentWriter(c.machineDir(), "m1", c.cfg.Segment, c.log)
+	if err != nil {
+		t.Fatalf("NewSegmentWriter: %v", err)
+	}
+	sw.diskUse = func(string) (float64, error) { return 10, nil }
+
+	sc := c.startSessionWithMeta("mr-rep-1", sw, src, SessionMeta{
+		Mode:       "replica",
+		ManeuverID: "mv-probe",
+		RunID:      "m-run-99",
+		ItemID:     "item-1",
+		Replica:    2,
+	})
+	deadline := time.Now().Add(2 * time.Second)
+	for sc.Records() < 1 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if _, err := sc.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	mf, err := LoadManifest(c.machineDir(), "m1")
+	if err != nil || len(mf.Entries()) != 1 {
+		t.Fatalf("manifest = %+v, err=%v", mf, err)
+	}
+	raw, err := os.ReadFile(filepath.Join(c.machineDir(), mf.Entries()[0].File))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("lines = %d, want 1", len(lines))
+	}
+	var r Record
+	if err := json.Unmarshal([]byte(lines[0]), &r); err != nil {
+		t.Fatalf("Unmarshal record: %v", err)
+	}
+	if r.SessionID != "mr-rep-1" || r.ManeuverID != "mv-probe" || r.RunID != "m-run-99" || r.ItemID != "item-1" || r.Replica != 2 {
+		t.Fatalf("attributed record = %+v", r)
 	}
 }
 

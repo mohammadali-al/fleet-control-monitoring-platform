@@ -68,6 +68,16 @@ type Summary struct {
 	Segments int
 }
 
+// SessionMeta carries optional execution attribution for a captured session
+// (such as a Maneuver replica). Empty for one-shot and PTY sessions.
+type SessionMeta struct {
+	Mode       string `json:"mode,omitempty"`
+	ManeuverID string `json:"maneuver_id,omitempty"`
+	RunID      string `json:"run_id,omitempty"`
+	ItemID     string `json:"item_id,omitempty"`
+	Replica    int    `json:"replica,omitempty"`
+}
+
 // Controller owns the agent-wide capture state: the public-IP cache (refreshed
 // on a timer) and the source-IP resolver. Per session it spins up a
 // SessionCapture bound to that session's cgroup.
@@ -191,6 +201,12 @@ func (c *Controller) machineDir() string {
 // the command: a source that cannot be set up (e.g. missing privilege) returns
 // an error the caller should log and ignore, letting the command run uncaptured.
 func (c *Controller) Capture(sessionID, cgroupPath string) (*SessionCapture, error) {
+	return c.CaptureWithMeta(sessionID, cgroupPath, SessionMeta{})
+}
+
+// CaptureWithMeta starts capturing a session's outbound traffic bound to its
+// cgroup with optional replica attribution metadata stamped onto each record.
+func (c *Controller) CaptureWithMeta(sessionID, cgroupPath string, meta SessionMeta) (*SessionCapture, error) {
 	sw, err := NewSegmentWriter(c.machineDir(), c.cfg.Machine, c.cfg.Segment, c.log)
 	if err != nil {
 		return nil, err
@@ -201,7 +217,7 @@ func (c *Controller) Capture(sessionID, cgroupPath string) (*SessionCapture, err
 		_ = sw.Close()
 		return nil, fmt.Errorf("capture: start source for %s: %w", sessionID, err)
 	}
-	return c.startSession(sessionID, sw, src), nil
+	return c.startSessionWithMeta(sessionID, sw, src, meta), nil
 }
 
 // nextGroup allocates a distinct NFLOG group for a session.
@@ -217,6 +233,10 @@ func (c *Controller) nextGroup() int {
 // startSession wires a writer and source into a running SessionCapture. It is
 // the seam tests use with a synthetic source.
 func (c *Controller) startSession(sessionID string, sw *SegmentWriter, src packetSource) *SessionCapture {
+	return c.startSessionWithMeta(sessionID, sw, src, SessionMeta{})
+}
+
+func (c *Controller) startSessionWithMeta(sessionID string, sw *SegmentWriter, src packetSource, meta SessionMeta) *SessionCapture {
 	rollEvery := c.cfg.Segment.MaxAge
 	if rollEvery <= 0 || rollEvery > DefaultSegmentMaxAge {
 		rollEvery = DefaultSegmentMaxAge
@@ -226,6 +246,7 @@ func (c *Controller) startSession(sessionID string, sw *SegmentWriter, src packe
 	}
 	sc := &SessionCapture{
 		SessionID: sessionID,
+		Meta:      meta,
 		sw:        sw,
 		src:       src,
 		resolver:  c.resolver,
@@ -243,6 +264,7 @@ func (c *Controller) startSession(sessionID string, sw *SegmentWriter, src packe
 // destination), and appends them to rolling segments.
 type SessionCapture struct {
 	SessionID string
+	Meta      SessionMeta
 
 	sw       *SegmentWriter
 	src      packetSource
@@ -291,6 +313,10 @@ func (sc *SessionCapture) handle(p capturedPacket) {
 	}
 	src := sc.resolver.For(d.dstIP)
 	rec := buildFromDecoded(sc.SessionID, p.ts, d, src, sc.trim)
+	rec.ManeuverID = sc.Meta.ManeuverID
+	rec.RunID = sc.Meta.RunID
+	rec.ItemID = sc.Meta.ItemID
+	rec.Replica = sc.Meta.Replica
 	switch err := sc.sw.Write(rec); {
 	case err == nil:
 		sc.records.Add(1)

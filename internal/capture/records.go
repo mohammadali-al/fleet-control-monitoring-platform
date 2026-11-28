@@ -80,6 +80,12 @@ type Record struct {
 	PayloadHead      []byte `json:"payload_head,omitempty"` // full payload when full; first <=4 KB when trimmed
 
 	SrcIPUsed string `json:"src_ip_used"` // attribution source address (§6.4)
+
+	// Optional Maneuver replica attribution (§6.1); omitted for one-shot/PTY.
+	ManeuverID string `json:"maneuver_id,omitempty"`
+	RunID      string `json:"run_id,omitempty"`
+	ItemID     string `json:"item_id,omitempty"`
+	Replica    int    `json:"replica,omitempty"`
 }
 
 // decoded holds the protocol-specific fields pulled from one packet.

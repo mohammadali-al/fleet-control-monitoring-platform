@@ -12,6 +12,7 @@ import (
 const (
 	ModeOneShot = "oneshot" // Mode A: run a command, stream, exit
 	ModePTY     = "pty"     // Mode B: interactive shell over a PTY
+	ModeReplica = "replica" // Maneuver replica execution in tracked cgroup
 )
 
 // Stream names carried in ChunkPayload.
@@ -57,6 +58,12 @@ type RunPayload struct {
 	ConfirmToken string `json:"confirm_token,omitempty"`
 	Cols         uint16 `json:"cols,omitempty"`
 	Rows         uint16 `json:"rows,omitempty"`
+	// Optional Maneuver replica attribution (ModeReplica) and exact duration.
+	ManeuverID string `json:"maneuver_id,omitempty"`
+	RunID      string `json:"run_id,omitempty"`
+	ItemID     string `json:"item_id,omitempty"`
+	Replica    int    `json:"replica,omitempty"`
+	DurationMS int64  `json:"duration_ms,omitempty"`
 }
 
 // StatePayload is the payload of a state envelope (agent -> server).
@@ -65,6 +72,10 @@ type StatePayload struct {
 	State      string `json:"state"`
 	CgroupPath string `json:"cgroup_path,omitempty"` // set on running
 	Detail     string `json:"detail,omitempty"`      // refusal reason / refused line
+	ManeuverID string `json:"maneuver_id,omitempty"`
+	RunID      string `json:"run_id,omitempty"`
+	ItemID     string `json:"item_id,omitempty"`
+	Replica    int    `json:"replica,omitempty"`
 }
 
 // ChunkPayload is the payload of a chunk envelope (agent -> server): output.
