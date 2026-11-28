@@ -74,6 +74,24 @@ func kernelRouteSourceIP(target net.IP) (net.IP, error) {
 	return la.IP, nil
 }
 
+// DefaultRouteSourceIP returns the source IP of the interface on the default
+// route: the address an outbound connection to the internet would use. IPv4 is
+// preferred; IPv6 is used only when there is no IPv4 default route. No packet is
+// sent (UDP connect only performs the route lookup).
+func DefaultRouteSourceIP() (string, error) {
+	var firstErr error
+	for _, t := range []string{"8.8.8.8", "2001:4860:4860::8888"} {
+		ip, err := kernelRouteSourceIP(net.ParseIP(t))
+		if err == nil {
+			return ip.String(), nil
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	return "", firstErr
+}
+
 // PublicIPResult is the outcome of one reflector-consensus resolution.
 type PublicIPResult struct {
 	IP        string    // the chosen public IP ("" when unresolved)

@@ -200,6 +200,18 @@ type PublicIPPayload struct {
 	Confirmed bool      `json:"confirmed,omitempty"`
 }
 
+// Net-info envelope (agent -> server): the agent's primary private IP, i.e. the
+// source IP of the default route. Unknown types are ignored by older peers.
+const (
+	TypeNetInfo = "net-info" // NetInfoPayload
+)
+
+// NetInfoPayload is the payload of a net-info envelope (agent -> server).
+type NetInfoPayload struct {
+	PrimaryPrivateIP string    `json:"primary_private_ip"`
+	At               time.Time `json:"at"`
+}
+
 // Disk-state envelope types (architecture §6.5). Unknown types are ignored by
 // older peers, so adding this is backward-tolerant.
 const (

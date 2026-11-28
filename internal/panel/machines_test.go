@@ -109,6 +109,7 @@ func TestGetMachineDetailsEndpoint(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	if err := e.reg.Update("w1", func(m *registry.Machine) {
 		m.ConnectMode = registry.ConnectModeAgentDial
+		m.PrimaryPrivateIP = "10.0.0.5"
 		m.PublicIP = "203.0.113.10"
 		m.PublicIPAt = &now
 		m.CertFingerprint = "abcdef0123456789"
@@ -147,6 +148,9 @@ func TestGetMachineDetailsEndpoint(t *testing.T) {
 	}
 	if got.Machine.ConnectMode != registry.ConnectModeAgentDial {
 		t.Errorf("connect_mode = %q, want %q", got.Machine.ConnectMode, registry.ConnectModeAgentDial)
+	}
+	if got.Machine.PrimaryPrivateIP != "10.0.0.5" {
+		t.Errorf("primary private IP = %q", got.Machine.PrimaryPrivateIP)
 	}
 	if got.Machine.PublicIP != "203.0.113.10" || got.Machine.PublicIPAt == nil {
 		t.Errorf("public IP = %q at %v", got.Machine.PublicIP, got.Machine.PublicIPAt)

@@ -590,6 +590,24 @@ func TestPublicIPDispatchAndRefresh(t *testing.T) {
 	}
 }
 
+func TestNetInfoDispatch(t *testing.T) {
+	m, links := newWatchdogMgr(t, fleet.WatchdogSource{}, false)
+	eventually(t, "w1 online", func() bool {
+		info, ok := m.Machine("w1")
+		return ok && info.State == fleet.StateOnline
+	})
+	ctx := context.Background()
+	links["w1"].h(ctx, envOf(t, channel.TypeNetInfo, channel.NetInfoPayload{PrimaryPrivateIP: "10.0.0.5", At: time.Now()}))
+	eventually(t, "primary private IP stored", func() bool {
+		info, ok := m.Machine("w1")
+		return ok && info.PrimaryPrivateIP == "10.0.0.5"
+	})
+	links["w1"].h(ctx, envOf(t, channel.TypeNetInfo, channel.NetInfoPayload{PrimaryPrivateIP: "bogus"}))
+	if info, _ := m.Machine("w1"); info.PrimaryPrivateIP != "10.0.0.5" {
+		t.Errorf("PrimaryPrivateIP changed on invalid payload: %q", info.PrimaryPrivateIP)
+	}
+}
+
 func TestDiskStateDispatch(t *testing.T) {
 	m, links := newWatchdogMgr(t, fleet.WatchdogSource{}, false)
 	eventually(t, "w1 online", func() bool {

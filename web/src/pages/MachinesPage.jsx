@@ -299,6 +299,7 @@ function MachineDetailsDrawer({
   if (!machineId) return null;
 
   const privateIPs = machine?.private_ips || [];
+  const primaryPrivateIP = machine?.primary_private_ip || '';
   const wdCond = watchdog ? WATCHDOG_COND_CHIPS[watchdog.condition] || WATCHDOG_COND_CHIPS['not-reporting'] : null;
   const wdStageLabel = watchdog ? WATCHDOG_STAGE_LABELS[watchdog.stage] || watchdog.stage || 'None' : '';
   const wdHref = routeHref('watchdog');
@@ -732,6 +733,10 @@ function MachineDetailsDrawer({
                 </div>
                 <div className="card__body">
                   <dl style={DETAIL_DL_STYLE}>
+                    <dt style={DETAIL_DT_STYLE}>Primary private IP</dt>
+                    <dd className="mono" style={DETAIL_DD_STYLE}>
+                      {primaryPrivateIP || 'Not reported yet'}
+                    </dd>
                     <dt style={DETAIL_DT_STYLE}>Private IPs</dt>
                     <dd className="mono" style={DETAIL_DD_STYLE}>
                       {privateIPs.length > 0 ? privateIPs.join(', ') : 'None'}
@@ -1093,6 +1098,7 @@ export function MachinesPage() {
         m.state,
         m.connect_mode,
         m.public_ip || '',
+        m.primary_private_ip || '',
         m.note || '',
         ...(m.private_ips || []),
         ...(m.groups || []),
@@ -1846,7 +1852,9 @@ export function MachinesPage() {
                               : rawDisk.word,
                       }
                     : null;
-                  const privateIPs = m.private_ips || [];
+                  const privateShown = m.primary_private_ip
+                    ? [m.primary_private_ip]
+                    : m.private_ips || [];
                   const termSearch = `?machine=${encodeURIComponent(m.id)}`;
                   const termHref = routeHref('terminal', termSearch);
                   const rowRefreshing = refreshingIds.has(m.id);
@@ -1899,23 +1907,32 @@ export function MachinesPage() {
                       <td><VersionCell machine={m} serverVersion={serverVersion} /></td>
                       <td className="mono">{m.connect_mode}</td>
                       <td>
-                        {privateIPs.length > 0 ? (
-                          privateIPs.map((ip) => (
-                            <div key={ip} className="mono">{ip}</div>
-                          ))
+                        {privateShown.length > 0 ? (
+                          <div>
+                            Private <span className="mono">{privateShown.join(', ')}</span>
+                            {m.public_ip && (
+                              <>
+                                {' · Public '}
+                                <span className="mono">{m.public_ip}</span>
+                                {m.public_ip_at ? ` · ${fmtAgo(m.public_ip_at)}` : ''}
+                              </>
+                            )}
+                          </div>
                         ) : (
                           <div className="faint">No address</div>
                         )}
-                        <div className="cell-sub">
-                          {m.public_ip ? (
-                            <>
-                              Public <span className="mono">{m.public_ip}</span>
-                              {m.public_ip_at ? ` · ${fmtAgo(m.public_ip_at)}` : ''}
-                            </>
-                          ) : (
-                            'Public IP not checked yet'
-                          )}
-                        </div>
+                        {(privateShown.length === 0 || !m.public_ip) && (
+                          <div className="cell-sub">
+                            {m.public_ip ? (
+                              <>
+                                Public <span className="mono">{m.public_ip}</span>
+                                {m.public_ip_at ? ` · ${fmtAgo(m.public_ip_at)}` : ''}
+                              </>
+                            ) : (
+                              'Public IP not checked yet'
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td>
                         {disk ? (

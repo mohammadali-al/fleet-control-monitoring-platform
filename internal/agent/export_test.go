@@ -10,3 +10,11 @@ func SetEvidencePushInterval(d time.Duration) (restore func()) {
 	evidencePushInterval = d
 	return func() { evidencePushInterval = old }
 }
+
+// SetPrimaryIPFunc substitutes the default-route source-IP resolver and returns
+// the function that restores it.
+func SetPrimaryIPFunc(f func() (string, error)) (restore func()) {
+	old := primaryIPFunc
+	primaryIPFunc = f
+	return func() { primaryIPFunc = old }
+}

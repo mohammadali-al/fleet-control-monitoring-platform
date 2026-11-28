@@ -82,6 +82,7 @@ type worker struct {
 	svc   ServiceController
 
 	pip *publicIPReporter
+	nip *netInfoReporter
 
 	diskMu       sync.Mutex // guards diskSrc, lastDisk, diskReported
 	diskSrc      diskStateSource
@@ -115,6 +116,7 @@ func newWorker(cfg Config) *worker {
 		defer w.mu.Unlock()
 		return w.base
 	})
+	w.nip = newNetInfoReporter(w.sender, w.log)
 	w.man = newManeuverRunner(w)
 	w.upd = newAgentUpdater(cfg.DataDir, cfg.AgentVersion, w.log, w.sender, func() context.Context {
 		w.mu.Lock()
@@ -138,6 +140,8 @@ func (w *worker) start(ctx context.Context) {
 	w.base, w.stop = context.WithCancel(ctx)
 	w.startEvidence()
 	w.startDiskMonitor()
+	w.wg.Add(1)
+	go func() { defer w.wg.Done(); w.nip.run(w.base) }()
 	w.man.start(w.base)
 	w.upd.start(w.base)
 }
@@ -161,6 +165,7 @@ func (w *worker) onConnect(peer string) {
 	go w.offerEvidence()
 	w.reportPublicIPOnConnect()
 	w.reportDiskOnConnect()
+	w.nip.reportNow(w.base)
 	w.man.onConnect()
 }
 
