@@ -229,6 +229,21 @@ type DiskStatePayload struct {
 	At         time.Time `json:"at"`
 }
 
+// Resource-state envelope types. Unknown types are ignored by older peers, so
+// adding this is backward-tolerant.
+const (
+	TypeResourceState = "resource-state" // agent -> server: live machine CPU, memory, load, and egress (ResourceStatePayload)
+)
+
+// ResourceStatePayload is the payload of a resource-state envelope (agent -> server).
+type ResourceStatePayload struct {
+	CPUPercent float64   `json:"cpu_percent"`
+	MemPercent float64   `json:"mem_percent"`
+	LoadPerCPU float64   `json:"load_per_cpu"`
+	EgressMbps float64   `json:"egress_mbps,omitempty"`
+	At         time.Time `json:"at"`
+}
+
 // Maneuver execution envelope types (GAP-12 §4.9, GAP-04 §4.3). Unknown types
 // are ignored by older peers, so adding these is backward-tolerant.
 const (
