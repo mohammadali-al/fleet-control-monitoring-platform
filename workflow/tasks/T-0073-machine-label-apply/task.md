@@ -1,7 +1,7 @@
 ---
 id: T-0073
 title: machine-label-apply
-state: ready
+state: merged
 touches: [web/src/components/, web/src/pages/MachinesPage.jsx, web/src/pages/CommandsPage.jsx,
           web/src/pages/TerminalPage.jsx, web/src/pages/ManeuverPage.jsx, web/src/pages/WatchdogPage.jsx,
           web/src/hooks/, internal/panel/server_test.go]

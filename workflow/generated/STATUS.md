@@ -67,6 +67,7 @@ _none_
 - **T-0060** watchdog-groups  `after: [T-0047, T-0050]`
 - **T-0068** agent-self-update  `after: [T-0026, T-0059]`
 - **T-0069** panel-favicon  `after: [T-0047]`
+- **T-0073** machine-label-apply  `after: [T-0047]`
 - **T-0056** long-lived-shell-sessions  `after: [T-0048]`
 - **T-0063** maneuver-full  `after: [T-0047, T-0054]`
 - **T-0064** grafana-embed  `after: [T-0055]`
