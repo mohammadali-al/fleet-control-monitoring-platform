@@ -177,6 +177,154 @@ function DetailDiskSection({ disk }) {
   );
 }
 
+const RESOURCE_WARN_PCT = 75;
+const RESOURCE_DANGER_PCT = 90;
+
+function clampResourcePct(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, n));
+}
+
+function resourceMeterMod(pct) {
+  if (pct >= RESOURCE_DANGER_PCT) return ' meter--danger';
+  if (pct >= RESOURCE_WARN_PCT) return ' meter--warn';
+  return '';
+}
+
+function ResourceMeter({ label, value, valueText, ariaLabel, compact = false }) {
+  const pct = clampResourcePct(value);
+  return (
+    <div
+      className={`meter${resourceMeterMod(pct)}`}
+      style={compact ? { minWidth: '9.5rem' } : undefined}
+    >
+      <div
+        className="meter__bar"
+        role="progressbar"
+        aria-label={ariaLabel || label}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(pct)}
+        style={compact ? { height: '0.375rem' } : undefined}
+      >
+        <div className="meter__fill" style={{ width: `${pct}%` }} />
+      </div>
+      <div
+        className="meter__text"
+        style={compact ? { marginTop: '2px', lineHeight: 1.2 } : undefined}
+      >
+        <span>{label}</span>
+        <span>{valueText}</span>
+      </div>
+    </div>
+  );
+}
+
+function ResourceCell({ machine }) {
+  const res = machine?.resource;
+  if (!res) {
+    return <span className="faint">Unreported</span>;
+  }
+  const cpu = clampResourcePct(res.cpu_percent);
+  const mem = clampResourcePct(res.mem_percent);
+  const load = Number.isFinite(Number(res.load_per_cpu)) ? Number(res.load_per_cpu).toFixed(2) : '0.00';
+  const egress = Number.isFinite(Number(res.egress_mbps)) ? Number(res.egress_mbps).toFixed(1) : '0.0';
+  const offline = machine.state !== 'online';
+  const updated = res.at ? ` · Updated ${fmtAgo(res.at)}` : '';
+  const tooltip = `${offline ? 'Last reported while online · ' : ''}Load/CPU ${load} · Egress ${egress} Mbps${updated}`;
+
+  return (
+    <div
+      className="stack"
+      style={{
+        gap: 'var(--sp-1)',
+        minWidth: '9.5rem',
+        ...(offline ? { opacity: 0.65 } : undefined),
+      }}
+      title={tooltip}
+    >
+      <ResourceMeter
+        label="CPU"
+        value={cpu}
+        valueText={`${Math.round(cpu)}%`}
+        ariaLabel={`CPU usage ${Math.round(cpu)}%`}
+        compact
+      />
+      <ResourceMeter
+        label="MEM"
+        value={mem}
+        valueText={`${Math.round(mem)}%`}
+        ariaLabel={`Memory usage ${Math.round(mem)}%`}
+        compact
+      />
+    </div>
+  );
+}
+
+function DetailResourceSection({ resource, online }) {
+  const cpu = resource ? clampResourcePct(resource.cpu_percent) : 0;
+  const mem = resource ? clampResourcePct(resource.mem_percent) : 0;
+  const peak = Math.max(cpu, mem);
+
+  const statusChip = !resource ? (
+    <span className="chip chip--outline">Unreported</span>
+  ) : !online ? (
+    <span className="chip chip--outline">Last known</span>
+  ) : peak >= RESOURCE_DANGER_PCT ? (
+    <span className="chip chip--danger">High usage</span>
+  ) : peak >= RESOURCE_WARN_PCT ? (
+    <span className="chip chip--warn">Elevated</span>
+  ) : (
+    <span className="chip chip--ok">Normal</span>
+  );
+
+  return (
+    <section className="card" aria-label="Resource telemetry">
+      <div className="card__head">
+        <h3>Resources</h3>
+        {statusChip}
+      </div>
+      <div className="card__body stack" style={{ gap: 'var(--sp-3)' }}>
+        {resource ? (
+          <>
+            <ResourceMeter
+              label="CPU"
+              value={cpu}
+              valueText={`${cpu.toFixed(1)}%`}
+              ariaLabel={`CPU usage ${cpu.toFixed(1)}%`}
+            />
+            <ResourceMeter
+              label="Memory"
+              value={mem}
+              valueText={`${mem.toFixed(1)}%`}
+              ariaLabel={`Memory usage ${mem.toFixed(1)}%`}
+            />
+            <dl style={DETAIL_DL_STYLE}>
+              <dt style={DETAIL_DT_STYLE}>Load / CPU</dt>
+              <dd className="mono" style={DETAIL_DD_STYLE}>
+                {Number(resource.load_per_cpu || 0).toFixed(2)}
+              </dd>
+              <dt style={DETAIL_DT_STYLE}>Egress</dt>
+              <dd className="mono" style={DETAIL_DD_STYLE}>
+                {`${Number(resource.egress_mbps || 0).toFixed(2)} Mbps`}
+              </dd>
+              <dt style={DETAIL_DT_STYLE}>Updated</dt>
+              <dd style={DETAIL_DD_STYLE}>
+                {resource.at ? `${fmtAgo(resource.at)} (${fmtDateTime(resource.at)})` : 'Never'}
+              </dd>
+            </dl>
+          </>
+        ) : (
+          <div className="muted" style={{ fontSize: 'var(--fs-sm)' }}>
+            Unreported — no live CPU or memory telemetry has been received from this agent.
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function sameStringList(a, b) {
   const xs = Array.isArray(a) ? a : [];
   const ys = Array.isArray(b) ? b : [];
@@ -762,6 +910,8 @@ function MachineDetailsDrawer({
                   </dl>
                 </div>
               </section>
+
+              <DetailResourceSection resource={machine.resource} online={machine.state === 'online'} />
 
               <DetailDiskSection disk={machine.disk} />
 
@@ -1904,6 +2054,7 @@ export function MachinesPage() {
                 <th scope="col">Version</th>
                 <th scope="col">Connect mode</th>
                 <th scope="col">Addresses</th>
+                <th scope="col">Resources</th>
                 <th scope="col">Disk</th>
                 <th scope="col">Last seen</th>
                 <th scope="col"><span className="sr-only">Actions</span></th>
@@ -1912,7 +2063,7 @@ export function MachinesPage() {
             <tbody id="machines-rows">
               {machines.length === 0 ? (
                 <tr data-empty-row>
-                  <td colSpan={9} className="empty">
+                  <td colSpan={10} className="empty">
                     No machines are registered yet. Use <strong>Onboard machine</strong> to add the first one.
                   </td>
                 </tr>
@@ -2018,6 +2169,9 @@ export function MachinesPage() {
                             )}
                           </div>
                         )}
+                      </td>
+                      <td>
+                        <ResourceCell machine={m} />
                       </td>
                       <td>
                         {disk ? (
