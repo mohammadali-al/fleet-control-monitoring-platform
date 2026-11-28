@@ -1,7 +1,7 @@
 ---
 id: T-0062
 title: report-generator-wiring
-state: ready
+state: merged
 touches: [internal/panel/api.go, internal/panel/report.go, internal/report/,
           web/src/pages/ProjectsPage.jsx, internal/panel/report_test.go]
 tests: [server]
