@@ -193,8 +193,16 @@ function isAgentOutdated(machine, serverVersion) {
   return machine.state === 'online';
 }
 
+// Safety net for the server-side stall sweep (5 min): an in-progress state
+// whose updated_at is older than this is treated as no longer in progress so
+// the Update controls re-enable even if the server flip is delayed.
+const AGENT_UPDATE_STALE_MS = 6 * 60 * 1000;
+
 function isAgentUpdateInProgress(upd) {
-  return Boolean(upd && (upd.status === 'requested' || upd.status === 'downloading' || upd.status === 'applying'));
+  if (!upd || !(upd.status === 'requested' || upd.status === 'downloading' || upd.status === 'applying')) return false;
+  const t = upd.updated_at ? Date.parse(upd.updated_at) : NaN;
+  if (Number.isFinite(t) && Date.now() - t > AGENT_UPDATE_STALE_MS) return false;
+  return true;
 }
 
 function formatUpdateStatus(upd) {

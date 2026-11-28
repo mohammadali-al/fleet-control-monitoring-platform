@@ -210,3 +210,124 @@ func mustJSON(t *testing.T, v any) []byte {
 type offlineLink struct{ *recLink }
 
 func (offlineLink) Online() bool { return false }
+
+// newStallManager builds a manager with a short update stall timeout and one
+// online outdated worker "w1" that has reported linux/amd64.
+func newStallManager(t *testing.T, stall time.Duration) (*fleet.Manager, context.Context, map[string]*recLink) {
+	t.Helper()
+	binDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(binDir, "fleet-agent-linux-amd64"), []byte("bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reg := registry.New()
+	if err := reg.Add(registry.Machine{ID: "w1", Role: registry.RoleWorker, ConnectMode: registry.ConnectModeServerDial, PrivateIPs: []string{"10.0.0.1"}, Provisioned: true, AgentVersion: "1.0.0"}); err != nil {
+		t.Fatal(err)
+	}
+	gate, err := exec.NewGate([]byte("sec"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	links := map[string]*recLink{}
+	m, err := fleet.New(fleet.Config{
+		Registry: reg,
+		Gate:     gate,
+		NewLink: func(mc registry.Machine, h channel.Handler) (fleet.Link, error) {
+			fl := &recLink{h: h}
+			links[mc.ID] = fl
+			return fl, nil
+		},
+		PollInterval:            10 * time.Millisecond,
+		AgentBinaryDir:          binDir,
+		ServerVersion:           "2.0.0",
+		AgentUpdateStallTimeout: stall,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.Start(ctx)
+	t.Cleanup(func() { cancel(); m.Close() })
+	eventually(t, "w1 online", func() bool {
+		a, _ := m.Machine("w1")
+		return a.State == fleet.StateOnline
+	})
+	links["w1"].h(ctx, envOf(t, channel.TypeAgentVersion, channel.AgentVersionPayload{Version: "1.0.0", OS: "linux", Arch: "amd64"}))
+	eventually(t, "w1 version recorded", func() bool {
+		info, _ := m.Machine("w1")
+		return info.AgentVersion == "1.0.0"
+	})
+	return m, ctx, links
+}
+
+func sendUpdateResult(t *testing.T, ctx context.Context, l *recLink, reqID, status string) {
+	t.Helper()
+	l.h(ctx, channel.Envelope{
+		Type: channel.TypeAgentUpdateResult,
+		ID:   reqID,
+		Payload: mustJSON(t, channel.AgentUpdateResultPayload{
+			TargetVersion: "2.0.0", CurrentVersion: "2.0.0", Status: status, At: time.Now().UTC(),
+		}),
+	})
+}
+
+func TestUpdateStallSweptToFailed(t *testing.T) {
+	m, ctx, _ := newStallManager(t, 150*time.Millisecond)
+	out, err := m.UpdateAgent(ctx, "w1")
+	if err != nil || out.Status != "dispatched" {
+		t.Fatalf("UpdateAgent = (%+v, %v), want dispatched", out, err)
+	}
+	// No agent report ever arrives: poll() must flip it to failed (timed out).
+	eventually(t, "stalled update swept to failed", func() bool {
+		info, _ := m.Machine("w1")
+		return info.Update != nil && info.Update.Status == "failed" &&
+			strings.Contains(info.Update.Error, "timed out") &&
+			info.Update.RequestID == out.RequestID && info.Update.TargetVersion == "2.0.0"
+	})
+}
+
+func TestUpdateProgressKeepsItFromTimingOut(t *testing.T) {
+	const stall = 300 * time.Millisecond
+	m, ctx, links := newStallManager(t, stall)
+	out, err := m.UpdateAgent(ctx, "w1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Keep reporting progress for well over the stall timeout in total, with
+	// each gap well under it: must never be swept.
+	start := time.Now()
+	statuses := []string{channel.AgentUpdateDownloading, channel.AgentUpdateApplying}
+	for i := 0; time.Since(start) < 2*stall+100*time.Millisecond; i++ {
+		sendUpdateResult(t, ctx, links["w1"], out.RequestID, statuses[i%2])
+		time.Sleep(80 * time.Millisecond)
+		info, _ := m.Machine("w1")
+		if info.Update == nil || info.Update.Status == "failed" {
+			t.Fatalf("progressing update was swept: %+v", info.Update)
+		}
+	}
+	sendUpdateResult(t, ctx, links["w1"], out.RequestID, channel.AgentUpdateOK)
+	eventually(t, "update ok", func() bool {
+		info, _ := m.Machine("w1")
+		return info.Update != nil && info.Update.Status == channel.AgentUpdateOK
+	})
+}
+
+func TestUpdateTerminalStatesNotSwept(t *testing.T) {
+	const stall = 100 * time.Millisecond
+	for _, term := range []string{channel.AgentUpdateOK, channel.AgentUpdateFailed} {
+		t.Run(term, func(t *testing.T) {
+			m, ctx, links := newStallManager(t, stall)
+			out, err := m.UpdateAgent(ctx, "w1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			sendUpdateResult(t, ctx, links["w1"], out.RequestID, term)
+			// Wait several stall windows; a terminal state must stay as reported
+			// (a failed report carries no error, so a sweep would add one).
+			time.Sleep(4 * stall)
+			info, _ := m.Machine("w1")
+			if info.Update == nil || info.Update.Status != term || info.Update.Error != "" {
+				t.Fatalf("terminal %s state altered: %+v", term, info.Update)
+			}
+		})
+	}
+}

@@ -123,6 +123,10 @@ type Config struct {
 	// remain with no active browser attachment before the reaper terminates it
 	// (default 15 minutes).
 	ShellIdleTimeout time.Duration
+	// AgentUpdateStallTimeout bounds how long a push self-update may sit in
+	// requested/downloading/applying without any agent progress report before
+	// it is swept to failed (default agentUpdateStallTimeout, 5 minutes).
+	AgentUpdateStallTimeout time.Duration
 	// ShellScrollbackBytes is the per-session bounded scrollback ring buffer
 	// size for interactive shells (default 128 KiB).
 	ShellScrollbackBytes int
@@ -297,6 +301,9 @@ func New(cfg Config) (*Manager, error) {
 	}
 	if cfg.ShellIdleTimeout <= 0 {
 		cfg.ShellIdleTimeout = defaultShellIdleTimeout
+	}
+	if cfg.AgentUpdateStallTimeout <= 0 {
+		cfg.AgentUpdateStallTimeout = agentUpdateStallTimeout
 	}
 	if cfg.ShellScrollbackBytes <= 0 {
 		cfg.ShellScrollbackBytes = defaultShellScrollbackBytes
@@ -737,6 +744,7 @@ func (f senderFunc) Send(ctx context.Context, env channel.Envelope) error { retu
 
 // poll samples every link and publishes state transitions.
 func (m *Manager) poll() {
+	m.sweepStalledUpdates(time.Now())
 	type change struct {
 		id     string
 		online bool
