@@ -169,7 +169,7 @@ EOF
 need_val() {
   [ "$#" -ge 2 ] || die "flag $1 requires a value"
 }
-
+parse_args() {
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --check) MODE_CHECK=1; UPGRADE_ARGS+=("--check"); shift ;;
@@ -212,6 +212,7 @@ while [ "$#" -gt 0 ]; do
     *) die "unknown argument: $1 (run with --help)" ;;
   esac
 done
+}
 
 TMP_DIR=""
 cleanup() {
@@ -219,7 +220,6 @@ cleanup() {
     rm -rf "$TMP_DIR"
   fi
 }
-trap cleanup EXIT
 
 make_tmp_dir() {
   if [ -z "$TMP_DIR" ]; then
@@ -277,34 +277,35 @@ load_answers_file() {
   done < "$file"
 }
 
-if [ -n "$ANSWERS_FILE" ]; then
-  load_answers_file "$ANSWERS_FILE"
-fi
-if [ -n "$ADMIN_PASSWORD_FILE" ]; then
-  [ -r "$ADMIN_PASSWORD_FILE" ] || die "cannot read password file: $ADMIN_PASSWORD_FILE"
-  ADMIN_PASSWORD="$(tr -d '\r\n' < "$ADMIN_PASSWORD_FILE")"
-fi
+handle_upgrade_delegation() {
+  if [ -n "$ANSWERS_FILE" ]; then
+    load_answers_file "$ANSWERS_FILE"
+  fi
+  if [ -n "$ADMIN_PASSWORD_FILE" ]; then
+    [ -r "$ADMIN_PASSWORD_FILE" ] || die "cannot read password file: $ADMIN_PASSWORD_FILE"
+    ADMIN_PASSWORD="$(tr -d '\r\n' < "$ADMIN_PASSWORD_FILE")"
+  fi
 
-# Delegate --upgrade cleanly to upgrade-server.sh (local or installed or downloaded).
-if [ "$MODE_UPGRADE" -eq 1 ]; then
-  UPGRADE_SCRIPT=""
-  if [ -n "$SCRIPT_DIR" ] && [ -x "$SCRIPT_DIR/upgrade-server.sh" ]; then
-    UPGRADE_SCRIPT="$SCRIPT_DIR/upgrade-server.sh"
-  elif [ -x /usr/local/lib/fleet/upgrade-server.sh ]; then
-    UPGRADE_SCRIPT="/usr/local/lib/fleet/upgrade-server.sh"
-  else
-    make_tmp_dir
-    UPGRADE_SCRIPT="$TMP_DIR/upgrade-server.sh"
-    api_url="https://api.github.com/repos/$FLEET_REPO/releases/latest"
-    if [ "$FLEET_INSTALL_VERSION" != "latest" ]; then
-      api_url="https://api.github.com/repos/$FLEET_REPO/releases/tags/$FLEET_INSTALL_VERSION"
-    fi
-    hdrs=(-H "Accept: application/vnd.github+json")
-    [ -n "$TOKEN" ] && hdrs+=(-H "Authorization: Bearer $TOKEN")
-    rel_json="$(curl -fsSL "${hdrs[@]}" "$api_url")" || die "failed to query release API for upgrade-server.sh"
-    asset_url=""
-    if command -v python3 >/dev/null 2>&1; then
-      asset_url="$(printf '%s' "$rel_json" | python3 -c '
+  # Delegate --upgrade cleanly to upgrade-server.sh (local or installed or downloaded).
+  if [ "$MODE_UPGRADE" -eq 1 ]; then
+    local upgrade_script=""
+    if [ -n "$SCRIPT_DIR" ] && [ -x "$SCRIPT_DIR/upgrade-server.sh" ]; then
+      upgrade_script="$SCRIPT_DIR/upgrade-server.sh"
+    elif [ -x /usr/local/lib/fleet/upgrade-server.sh ]; then
+      upgrade_script="/usr/local/lib/fleet/upgrade-server.sh"
+    else
+      make_tmp_dir
+      upgrade_script="$TMP_DIR/upgrade-server.sh"
+      local api_url="https://api.github.com/repos/$FLEET_REPO/releases/latest"
+      if [ "$FLEET_INSTALL_VERSION" != "latest" ]; then
+        api_url="https://api.github.com/repos/$FLEET_REPO/releases/tags/$FLEET_INSTALL_VERSION"
+      fi
+      local hdrs=(-H "Accept: application/vnd.github+json")
+      [ -n "$TOKEN" ] && hdrs+=(-H "Authorization: Bearer $TOKEN")
+      local rel_json asset_url=""
+      rel_json="$(curl -fsSL "${hdrs[@]}" "$api_url")" || die "failed to query release API for upgrade-server.sh"
+      if command -v python3 >/dev/null 2>&1; then
+        asset_url="$(printf '%s' "$rel_json" | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
 for a in d.get("assets", []):
@@ -312,35 +313,39 @@ for a in d.get("assets", []):
         print(a.get("url") if sys.argv[1] else a.get("browser_download_url"))
         break
 ' "$TOKEN")"
+      fi
+      [ -n "$asset_url" ] || die "upgrade-server.sh not found locally or in release $FLEET_INSTALL_VERSION"
+      if [ -n "$TOKEN" ]; then
+        curl -fsSL -H "Authorization: Bearer $TOKEN" -H "Accept: application/octet-stream" "$asset_url" -o "$upgrade_script"
+      else
+        curl -fsSL "$asset_url" -o "$upgrade_script"
+      fi
+      chmod 0755 "$upgrade_script"
     fi
-    [ -n "$asset_url" ] || die "upgrade-server.sh not found locally or in release $FLEET_INSTALL_VERSION"
-    if [ -n "$TOKEN" ]; then
-      curl -fsSL -H "Authorization: Bearer $TOKEN" -H "Accept: application/octet-stream" "$asset_url" -o "$UPGRADE_SCRIPT"
+    if [ "${#UPGRADE_ARGS[@]}" -gt 0 ]; then
+      exec bash "$upgrade_script" "${UPGRADE_ARGS[@]}"
     else
-      curl -fsSL "$asset_url" -o "$UPGRADE_SCRIPT"
+      exec bash "$upgrade_script"
     fi
-    chmod 0755 "$UPGRADE_SCRIPT"
   fi
-  if [ "${#UPGRADE_ARGS[@]}" -gt 0 ]; then
-    exec bash "$UPGRADE_SCRIPT" "${UPGRADE_ARGS[@]}"
-  else
-    exec bash "$UPGRADE_SCRIPT"
-  fi
-fi
+}
 
 DESTDIR="${DESTDIR:-}"
 FLEET_PROXY_MODE="${FLEET_PROXY_MODE:-native}"
-case "$FLEET_PROXY_MODE" in
-  docker|native) ;;
-  *) die "invalid --proxy mode '$FLEET_PROXY_MODE' (want: docker or native)" ;;
-esac
 
-if [ -n "$FLEET_DOMAIN_MODE" ]; then
-  case "$FLEET_DOMAIN_MODE" in
-    two|single) ;;
-    *) die "invalid domain mode '$FLEET_DOMAIN_MODE' (want: two or single)" ;;
+validate_install_modes() {
+  case "$FLEET_PROXY_MODE" in
+    docker|native) ;;
+    *) die "invalid --proxy mode '$FLEET_PROXY_MODE' (want: docker or native)" ;;
   esac
-fi
+
+  if [ -n "$FLEET_DOMAIN_MODE" ]; then
+    case "$FLEET_DOMAIN_MODE" in
+      two|single) ;;
+      *) die "invalid domain mode '$FLEET_DOMAIN_MODE' (want: two or single)" ;;
+    esac
+  fi
+}
 
 is_ip_literal() {
   local host="$1"
@@ -799,6 +804,11 @@ fetch_release_binaries() {
     verify_sha256 "$dl_dir" "upgrade-server.sh"
     chmod 0755 "$dl_dir/upgrade-server.sh"
   fi
+  if [ -n "${asset_browser[install-server.sh]:-}" ]; then
+    download_release_asset "${asset_api[install-server.sh]}" "${asset_browser[install-server.sh]}" "$dl_dir/install-server.sh"
+    verify_sha256 "$dl_dir" "install-server.sh"
+    chmod 0755 "$dl_dir/install-server.sh"
+  fi
 
   BIN_DIR="$dl_dir"
   say "release $tag_name binaries downloaded and SHA256-verified"
@@ -823,6 +833,7 @@ install_native_proxy_binaries() {
       die "checksum verification failed for $caddy_tgz"
     tar -xzf "$p_dir/$caddy_tgz" -C "$p_dir" caddy
     install -D -m 0755 "$p_dir/caddy" /usr/local/bin/caddy
+    CHANGED=1
     say "installed /usr/local/bin/caddy v${CADDY_VERSION}"
   fi
 
@@ -842,6 +853,7 @@ install_native_proxy_binaries() {
     auth_bin="$(find "$p_dir/authelia-extract" -type f -name 'authelia' | head -n1)"
     [ -n "$auth_bin" ] || die "authelia binary not found inside $auth_tgz"
     install -D -m 0755 "$auth_bin" /usr/local/bin/authelia
+    CHANGED=1
     say "installed /usr/local/bin/authelia v${AUTHELIA_VERSION}"
   fi
 }
@@ -919,6 +931,9 @@ install_grafana_binary() {
     ln -sf "${FLEET_GRAFANA_HOME}/bin/grafana" /usr/local/bin/grafana
     CHANGED=1
     say "installed ${FLEET_GRAFANA_HOME} (v${GRAFANA_VERSION})"
+  elif [ ! -L /usr/local/bin/grafana ] || [ "$(readlink -f /usr/local/bin/grafana 2>/dev/null || true)" != "${FLEET_GRAFANA_HOME}/bin/grafana" ]; then
+    ln -sf "${FLEET_GRAFANA_HOME}/bin/grafana" /usr/local/bin/grafana
+    CHANGED=1
   fi
 }
 
@@ -1722,6 +1737,12 @@ put_file() {
 
 # ---- Main ----
 
+main() {
+parse_args "$@"
+trap cleanup EXIT
+handle_upgrade_delegation
+validate_install_modes
+
 if [ "$MODE_CHECK" -eq 1 ]; then
   run_preflight
   exit 0
@@ -1788,6 +1809,11 @@ if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/upgrade-server.sh" ]; then
   put_file 0755 "$SCRIPT_DIR/upgrade-server.sh" /usr/local/lib/fleet/upgrade-server.sh
 elif [ -f "$BIN_DIR/upgrade-server.sh" ]; then
   put_file 0755 "$BIN_DIR/upgrade-server.sh" /usr/local/lib/fleet/upgrade-server.sh
+fi
+if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/install-server.sh" ]; then
+  put_file 0755 "$SCRIPT_DIR/install-server.sh" /usr/local/lib/fleet/install-server.sh
+elif [ -f "$BIN_DIR/install-server.sh" ]; then
+  put_file 0755 "$BIN_DIR/install-server.sh" /usr/local/lib/fleet/install-server.sh
 fi
 
 # 3. Server config (ship *.example, never clobber live config.json).
@@ -2005,3 +2031,8 @@ if [ "$FLEET_TLS_MODE" = "internal" ]; then
   say "TLS cert:  $FLEET_PROXY_STATE_DIR/certs/tls.crt (trust on operator browsers or replace with CA-signed cert)"
 fi
 say "TOTP code on first login: cat $FLEET_PROXY_STATE_DIR/authelia/notification.txt"
+}
+
+if [ "${FLEET_INSTALL_LIB_ONLY:-0}" != "1" ]; then
+  main "$@"
+fi

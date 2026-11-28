@@ -39,7 +39,7 @@
 
 ## Pinned Component Versions
 
-Both `--proxy=docker` and `--proxy=native` pin identical Caddy and Authelia versions so upgrades are deterministic; VictoriaMetrics and Grafana are always installed as standalone native binaries (`--proxy` independent).
+Both `--proxy=docker` and `--proxy=native` pin identical Caddy and Authelia versions so upgrades are deterministic; VictoriaMetrics and Grafana are always installed as standalone native binaries (`--proxy` independent). `deploy/upgrade-server.sh` shares these pinned versions, checksums, and component/proxy renderers directly from `deploy/install-server.sh` so upgrades converge newly-added components and proxy routes without version drift.
 
 | Component | Pinned Version | Docker Image (`deploy/proxy/compose.yml`) | Native Release Asset & Checksum |
 |---|---|---|---|
