@@ -1,0 +1,47 @@
+<!doctype html><html lang="en" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sample 3 - MachineLabel variants</title><style>:root{--bg:#09090b;--surface:#101014;--surface-2:#17171c;--surface-3:#222229;--border:#272730;--border-strong:#858594;--text:#f4f4f0;--muted:#9c9ca6;--faint:#676773;--accent:#ff2a3c;--accent-soft:#2e0d12;--ok:#34d399;--ok-soft:#0c261c;--warn:#f59e0b;--warn-soft:#291c06;--hover:#19191f;--term:#050507;
+--font:"Red Hat Mono",ui-monospace,Consolas,"Liberation Mono",monospace;--disp:"Space Mono",ui-monospace,monospace}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 var(--font);padding:24px;max-width:1200px;margin:auto}
+h1,h2,h3{font-family:var(--disp);margin:0 0 8px}h1{font-size:22px;border-bottom:2px solid var(--text);padding-bottom:8px}h2{font-size:17px;margin-top:32px}h3{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+p.note{color:var(--muted);font-size:13px;margin:4px 0 12px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:2px;padding:14px;margin-bottom:16px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:900px){.grid2{grid-template-columns:1fr}}
+table{width:100%;border-collapse:collapse;font-size:13px}th{font-family:var(--disp);font-size:12px;text-align:left;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border-strong);padding:6px 8px}
+td{padding:7px 8px;border-bottom:1px solid var(--border)}tr:hover td{background:var(--hover)}
+.mut{color:var(--muted)}.fa{color:var(--faint)}.sep{color:var(--faint);padding:0 4px}
+.name{font-weight:700;color:var(--text)}.priv{color:var(--ok)}.pub{color:var(--muted)}
+.dup{background:var(--warn-soft);outline:1px dashed var(--warn);color:var(--warn);padding:0 3px}
+.chip{display:inline-block;font-size:12px;padding:1px 8px;border:1px solid var(--border-strong);background:var(--surface-3);border-radius:2px;white-space:nowrap}
+.chip.ok{border-color:var(--ok);color:var(--ok);background:var(--ok-soft)}
+.bad{border:1px solid var(--accent);background:var(--accent-soft);color:var(--text);padding:6px 10px;font-size:12px;margin-top:8px}
+.good{border:1px solid var(--ok);background:var(--ok-soft);padding:6px 10px;font-size:12px;margin-top:8px}
+.tag{font-family:var(--disp);font-size:11px;border:1px solid var(--border-strong);padding:1px 6px;margin-left:6px;color:var(--muted)}
+select,.sel{background:var(--surface-2);color:var(--text);border:1px solid var(--border-strong);padding:6px 8px;font:inherit;width:100%}
+.menu{border:1px solid var(--border-strong);background:var(--surface-2);margin-top:2px}.menu div{padding:6px 10px;border-bottom:1px solid var(--border)}.menu div.on{background:var(--text);color:var(--bg)}.menu div.on .mut,.menu div.on .priv,.menu div.on .pub,.menu div.on .sep{color:var(--bg)}
+.tabs{display:flex;gap:2px;background:var(--term);border:1px solid var(--border-strong);border-bottom:0;padding:4px 4px 0}.tab{padding:5px 12px;font-size:12px;background:var(--surface);color:var(--muted);border:1px solid var(--border);border-bottom:0}.tab.on{background:var(--term);color:var(--text);border-color:var(--border-strong)}
+.termbody{background:var(--term);border:1px solid var(--border-strong);padding:10px;font-size:12px;color:var(--text);min-height:60px}
+.hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid var(--text);padding-bottom:8px}.hdr .t{font-family:var(--disp);font-size:20px}
+.ck{display:flex;gap:10px;align-items:center;padding:7px 4px;border-bottom:1px solid var(--border)}.ck i{width:14px;height:14px;border:1px solid var(--border-strong);display:inline-block}.ck i.x{background:var(--text)}
+.two{display:inline-flex;flex-direction:column;line-height:1.3}.two small{color:var(--muted);font-size:12px}
+.tip{position:relative;border-bottom:1px dotted var(--muted);cursor:help}.tip:hover::after,.tip:focus::after{content:attr(data-tip);position:absolute;left:0;top:130%;background:var(--text);color:var(--bg);padding:4px 8px;font-size:12px;white-space:nowrap;z-index:5}
+nav.x{font-size:12px;color:var(--muted);margin:6px 0 16px}nav.x a{color:var(--text)}
+.vrow{display:grid;grid-template-columns:150px 1fr 1fr;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)}
+</style></head><body><nav class="x">Samples: <a href="01-id-primary.html">1 id-primary</a> · <a href="02-consistent-label.html">2 consistent label</a> · <a href="03-label-variants.html">3 MachineLabel variants</a> &mdash; static mock, not wired to the product.</nav><h1>Sample 3 &mdash; Reusable MachineLabel variants</h1>
+<p class="note">Pick a rendering. Each variant is shown for the colliding machines and for a non-colliding one (ci-runner). Hover the id-only variant for its tooltip.</p>
+<div class="card">
+<div class="vrow"><h3>full</h3><span><span class="name">web-01</span><span class="sep">&middot;</span><span class="priv">10.0.0.5</span><span class="sep">&middot;</span><span class="pub">46.34.170.235</span><span class="sep">&middot;</span><span class="mut">root</span></span><span><span class="name">web-02</span><span class="sep">&middot;</span><span class="priv">10.0.0.9</span><span class="sep">&middot;</span><span class="pub">46.34.170.235</span><span class="sep">&middot;</span><span class="mut">root</span></span></div>
+<div class="vrow"><h3>full (db-01 / ci)</h3><span><span class="name">db-01</span><span class="sep">&middot;</span><span class="priv">10.0.0.21</span><span class="sep">&middot;</span><span class="pub">46.34.170.235</span><span class="sep">&middot;</span><span class="mut">root</span></span><span><span class="name">ci-runner</span><span class="sep">&middot;</span><span class="priv">172.16.4.2</span><span class="sep">&middot;</span><span class="pub">198.51.100.7</span><span class="sep">&middot;</span><span class="mut">ubuntu</span></span></div>
+<div class="vrow"><h3>two-line</h3>
+<span class="two"><span class="name">web-01</span><small><span class="priv">10.0.0.5</span> &middot; 46.34.170.235 &middot; root</small></span>
+<span class="two"><span class="name">web-02</span><small><span class="priv">10.0.0.9</span> &middot; 46.34.170.235 &middot; root</small></span></div>
+<div class="vrow"><h3>two-line (db / ci)</h3>
+<span class="two"><span class="name">db-01</span><small><span class="priv">10.0.0.21</span> &middot; 46.34.170.235 &middot; root</small></span>
+<span class="two"><span class="name">ci-runner</span><small><span class="priv">172.16.4.2</span> &middot; 198.51.100.7 &middot; ubuntu</small></span></div>
+<div class="vrow"><h3>compact</h3><span><span class="name">web-01</span><span class="sep">&middot;</span><span class="priv">10.0.0.5</span></span><span><span class="name">web-02</span><span class="sep">&middot;</span><span class="priv">10.0.0.9</span></span></div>
+<div class="vrow"><h3>compact (db / ci)</h3><span><span class="name">db-01</span><span class="sep">&middot;</span><span class="priv">10.0.0.21</span></span><span><span class="name">ci-runner</span><span class="sep">&middot;</span><span class="priv">172.16.4.2</span></span></div>
+<div class="vrow"><h3>chip</h3><span><span class="chip">web-01 &middot; 10.0.0.5</span></span><span><span class="chip">web-02 &middot; 10.0.0.9</span></span></div>
+<div class="vrow"><h3>chip (db / ci)</h3><span><span class="chip">db-01 &middot; 10.0.0.21</span></span><span><span class="chip">ci-runner &middot; 172.16.4.2</span></span></div>
+<div class="vrow"><h3>id-only + tooltip</h3><span><span class="tip name" tabindex="0" data-tip="web-01 · 10.0.0.5 · 46.34.170.235 · root">web-01</span></span><span><span class="tip name" tabindex="0" data-tip="web-02 · 10.0.0.9 · 46.34.170.235 · root">web-02</span></span></div>
+<div class="vrow" style="border:0"><h3>id-only (db / ci)</h3><span><span class="tip name" tabindex="0" data-tip="db-01 · 10.0.0.21 · 46.34.170.235 · root">db-01</span></span><span><span class="tip name" tabindex="0" data-tip="ci-runner · 172.16.4.2 · 198.51.100.7 · ubuntu">ci-runner</span></span></div>
+</div>
+<p class="note">Note: id-only relies on unique names; if two machines were ever named the same, only the tooltip would reveal the difference.</p>
+</body></html>
