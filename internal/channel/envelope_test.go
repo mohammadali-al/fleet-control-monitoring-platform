@@ -120,6 +120,111 @@ func TestManeuverEnvelopeRoundTrip(t *testing.T) {
 	}
 }
 
+func TestAgentUpdateEnvelopesRoundTrip(t *testing.T) {
+	at := time.Date(2026, 11, 28, 12, 30, 0, 0, time.UTC)
+
+	verEnv, err := NewEnvelope(TypeAgentVersion, "", AgentVersionPayload{
+		Version: "1.2.3",
+		OS:      "linux",
+		Arch:    "amd64",
+		At:      at,
+	})
+	if err != nil {
+		t.Fatalf("NewEnvelope(TypeAgentVersion): %v", err)
+	}
+	b, _ := json.Marshal(verEnv)
+	var verBack Envelope
+	if err := json.Unmarshal(b, &verBack); err != nil {
+		t.Fatal(err)
+	}
+	checkEnvelope(t, verBack, verEnv)
+	var verGot AgentVersionPayload
+	if err := json.Unmarshal(verBack.Payload, &verGot); err != nil {
+		t.Fatal(err)
+	}
+	if verGot.Version != "1.2.3" || verGot.OS != "linux" || verGot.Arch != "amd64" || !verGot.At.Equal(at) {
+		t.Fatalf("AgentVersionPayload = %+v", verGot)
+	}
+
+	upd := AgentUpdatePayload{
+		TargetVersion: "2.0.0",
+		SHA256:        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		Size:          12345,
+		OS:            "linux",
+		Arch:          "arm64",
+		URL:           "https://server.test:7445/enroll/update/agent?os=linux&arch=arm64",
+		Method:        "http",
+	}
+	updEnv, err := NewEnvelope(TypeAgentUpdate, "upd-1", upd)
+	if err != nil {
+		t.Fatalf("NewEnvelope(TypeAgentUpdate): %v", err)
+	}
+	ub, _ := json.Marshal(updEnv)
+	var updBack Envelope
+	if err := json.Unmarshal(ub, &updBack); err != nil {
+		t.Fatal(err)
+	}
+	checkEnvelope(t, updBack, updEnv)
+	var updGot AgentUpdatePayload
+	if err := json.Unmarshal(updBack.Payload, &updGot); err != nil {
+		t.Fatal(err)
+	}
+	if updGot != upd {
+		t.Fatalf("AgentUpdatePayload = %+v, want %+v", updGot, upd)
+	}
+
+	for _, status := range []string{AgentUpdateDownloading, AgentUpdateApplying, AgentUpdateOK, AgentUpdateFailed} {
+		res := AgentUpdateResultPayload{
+			TargetVersion:  "2.0.0",
+			CurrentVersion: "1.2.3",
+			Status:         status,
+			At:             at,
+		}
+		if status == AgentUpdateFailed {
+			res.Error = "checksum mismatch"
+		}
+		resEnv, err := NewEnvelope(TypeAgentUpdateResult, "upd-1", res)
+		if err != nil {
+			t.Fatalf("NewEnvelope(TypeAgentUpdateResult %s): %v", status, err)
+		}
+		rb, _ := json.Marshal(resEnv)
+		var resBack Envelope
+		if err := json.Unmarshal(rb, &resBack); err != nil {
+			t.Fatal(err)
+		}
+		checkEnvelope(t, resBack, resEnv)
+		var resGot AgentUpdateResultPayload
+		if err := json.Unmarshal(resBack.Payload, &resGot); err != nil {
+			t.Fatal(err)
+		}
+		if resGot.Status != res.Status || resGot.TargetVersion != res.TargetVersion || resGot.Error != res.Error || !resGot.At.Equal(at) {
+			t.Fatalf("AgentUpdateResultPayload = %+v, want %+v", resGot, res)
+		}
+	}
+
+	reqEnv, err := NewEnvelope(TypeAgentUpdateChunkReq, "upd-1", AgentUpdateChunkReqPayload{OS: "linux", Arch: "amd64", Offset: 1024, Length: 4096})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cb, _ := json.Marshal(reqEnv)
+	var reqBack Envelope
+	if err := json.Unmarshal(cb, &reqBack); err != nil {
+		t.Fatal(err)
+	}
+	checkEnvelope(t, reqBack, reqEnv)
+
+	chunkEnv, err := NewEnvelope(TypeAgentUpdateChunk, "upd-1", AgentUpdateChunkPayload{Offset: 1024, Total: 5120, Data: []byte("abc"), EOF: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, _ := json.Marshal(chunkEnv)
+	var chunkBack Envelope
+	if err := json.Unmarshal(db, &chunkBack); err != nil {
+		t.Fatal(err)
+	}
+	checkEnvelope(t, chunkBack, chunkEnv)
+}
+
 func contains(s, sub string) bool {
 	return len(sub) > 0 && len(s) >= len(sub) && stringContains(s, sub)
 }
