@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -166,8 +167,27 @@ type MachineInfo struct {
 	Running  int        `json:"running"`
 	Queued   int        `json:"queued"`
 	// Note explains a state the operator might not expect.
-	Note   string            `json:"note,omitempty"`
-	Update *AgentUpdateState `json:"agent_update,omitempty"`
+	Note     string            `json:"note,omitempty"`
+	Update   *AgentUpdateState `json:"agent_update,omitempty"`
+	Resource *ResourceState    `json:"resource,omitempty"`
+}
+
+// ResourceState is the latest live machine-level resource telemetry reported by
+// a worker agent (in-memory only, not persisted to the registry).
+type ResourceState struct {
+	CPUPercent float64   `json:"cpu_percent"`
+	MemPercent float64   `json:"mem_percent"`
+	LoadPerCPU float64   `json:"load_per_cpu"`
+	EgressMbps float64   `json:"egress_mbps,omitempty"`
+	At         time.Time `json:"at"`
+}
+
+func (s *ResourceState) clone() *ResourceState {
+	if s == nil {
+		return nil
+	}
+	cp := *s
+	return &cp
 }
 
 // Summary is the fleet tiles on the Machines page.
@@ -259,6 +279,9 @@ type Manager struct {
 	updMu   sync.Mutex // guards updates
 	updates map[string]*AgentUpdateState
 
+	resMu     sync.Mutex // guards resources
+	resources map[string]*ResourceState
+
 	observeState // the Observe/Admin backends (observe.go)
 	maneuverState
 
@@ -328,6 +351,7 @@ func New(cfg Config) (*Manager, error) {
 		wd:            map[string]*wdState{},
 		scPending:     map[string]chan channel.ServiceControlResultPayload{},
 		updates:       map[string]*AgentUpdateState{},
+		resources:     map[string]*ResourceState{},
 		observeState:  newObserveState(),
 		maneuverState: newManeuverState(),
 		nodes:         map[string]*node{},
@@ -607,6 +631,8 @@ func (m *Manager) agentHandler(n *node, role string, next channel.Handler) chann
 			m.recordNetInfo(n, env)
 		case channel.TypeDiskState:
 			m.recordDiskState(n, env)
+		case channel.TypeResourceState:
+			m.recordResourceState(n, env)
 		case channel.TypeAgentVersion:
 			m.recordAgentVersion(n, env)
 		case channel.TypeAgentUpdateResult:
@@ -816,6 +842,7 @@ func (m *Manager) info(mc registry.Machine, n *node) MachineInfo {
 	}
 	in.Machine.Online = in.State == StateOnline
 	in.Update = m.updateState(mc.ID)
+	in.Resource = m.resourceState(mc.ID)
 	return in
 }
 
@@ -1952,6 +1979,50 @@ func (m *Manager) recordDiskState(n *node, env channel.Envelope) {
 		m.log.Warn("update disk-state", "component", "fleet", "machine", n.id, "err", err)
 		return
 	}
+	m.publishMachine(n.id)
+}
+
+// --- resource state (live in-memory telemetry) -------------------------------
+
+func (m *Manager) resourceState(id string) *ResourceState {
+	m.resMu.Lock()
+	defer m.resMu.Unlock()
+	return m.resources[id].clone()
+}
+
+func invalidPercent(v float64) bool {
+	return math.IsNaN(v) || v < 0 || v > 100
+}
+
+func invalidNonNegative(v float64) bool {
+	return math.IsNaN(v) || math.IsInf(v, 0) || v < 0
+}
+
+func (m *Manager) recordResourceState(n *node, env channel.Envelope) {
+	var p channel.ResourceStatePayload
+	if err := json.Unmarshal(env.Payload, &p); err != nil {
+		m.log.Warn("bad resource-state payload", "component", "fleet", "machine", n.id, "err", err)
+		return
+	}
+	if invalidPercent(p.CPUPercent) || invalidPercent(p.MemPercent) || invalidNonNegative(p.LoadPerCPU) || invalidNonNegative(p.EgressMbps) {
+		m.log.Warn("invalid resource-state metrics", "component", "fleet", "machine", n.id,
+			"cpu_percent", p.CPUPercent, "mem_percent", p.MemPercent, "load_per_cpu", p.LoadPerCPU, "egress_mbps", p.EgressMbps)
+		return
+	}
+	at := p.At
+	if at.IsZero() {
+		at = time.Now()
+	}
+	st := ResourceState{
+		CPUPercent: p.CPUPercent,
+		MemPercent: p.MemPercent,
+		LoadPerCPU: p.LoadPerCPU,
+		EgressMbps: p.EgressMbps,
+		At:         at,
+	}
+	m.resMu.Lock()
+	m.resources[n.id] = &st
+	m.resMu.Unlock()
 	m.publishMachine(n.id)
 }
 

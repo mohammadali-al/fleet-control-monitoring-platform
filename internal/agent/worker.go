@@ -12,6 +12,7 @@ import (
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/config"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/evidence"
 	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/exec"
+	"github.com/mohammadali-al/fleet-control-monitoring-platform/internal/watchdog"
 )
 
 // exitNotConfigured is the exit code reported for a run the agent could not
@@ -89,6 +90,8 @@ type worker struct {
 	lastDisk     capture.DiskStatus
 	diskReported bool
 
+	resSampler watchdog.Sampler
+
 	man *maneuverRunner
 	upd *agentUpdater
 
@@ -106,10 +109,11 @@ func newWorker(cfg Config) *worker {
 	w := &worker{
 		cfg: cfg, log: cfg.Logger, sender: &lazySender{},
 		base: base, stop: stop,
-		ready: make(chan struct{}),
-		caps:  map[string]SessionCapture{},
-		live:  map[string]struct{}{},
-		svc:   defaultServiceController(),
+		ready:      make(chan struct{}),
+		caps:       map[string]SessionCapture{},
+		live:       map[string]struct{}{},
+		svc:        defaultServiceController(),
+		resSampler: watchdog.NewSystemSampler("", ""),
 	}
 	w.pip = newPublicIPReporter(w.sender, w.log, func() context.Context {
 		w.mu.Lock()
@@ -140,6 +144,7 @@ func (w *worker) start(ctx context.Context) {
 	w.base, w.stop = context.WithCancel(ctx)
 	w.startEvidence()
 	w.startDiskMonitor()
+	w.startResourceMonitor()
 	w.wg.Add(1)
 	go func() { defer w.wg.Done(); w.nip.run(w.base) }()
 	w.man.start(w.base)
@@ -165,6 +170,7 @@ func (w *worker) onConnect(peer string) {
 	go w.offerEvidence()
 	w.reportPublicIPOnConnect()
 	w.reportDiskOnConnect()
+	w.reportResourceOnConnect()
 	w.nip.reportNow(w.base)
 	w.man.onConnect()
 }

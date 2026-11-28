@@ -225,6 +225,62 @@ func TestAgentUpdateEnvelopesRoundTrip(t *testing.T) {
 	checkEnvelope(t, chunkBack, chunkEnv)
 }
 
+func TestResourceStateEnvelopeRoundTrip(t *testing.T) {
+	at := time.Date(2026, 11, 28, 15, 0, 0, 0, time.UTC)
+	want := ResourceStatePayload{
+		CPUPercent: 42.5,
+		MemPercent: 68.2,
+		LoadPerCPU: 0.75,
+		EgressMbps: 12.4,
+		At:         at,
+	}
+	env, err := NewEnvelope(TypeResourceState, "", want)
+	if err != nil {
+		t.Fatalf("NewEnvelope(TypeResourceState): %v", err)
+	}
+	b, err := json.Marshal(env)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var back Envelope
+	if err := json.Unmarshal(b, &back); err != nil {
+		t.Fatalf("Unmarshal envelope: %v", err)
+	}
+	checkEnvelope(t, back, env)
+	var got ResourceStatePayload
+	if err := json.Unmarshal(back.Payload, &got); err != nil {
+		t.Fatalf("Unmarshal payload: %v", err)
+	}
+	if got.CPUPercent != want.CPUPercent || got.MemPercent != want.MemPercent ||
+		got.LoadPerCPU != want.LoadPerCPU || got.EgressMbps != want.EgressMbps || !got.At.Equal(want.At) {
+		t.Errorf("got payload %+v, want %+v", got, want)
+	}
+
+	// Zero EgressMbps is omitted on the wire; zero CPU/mem/load are preserved.
+	zeroEnv, err := NewEnvelope(TypeResourceState, "", ResourceStatePayload{At: at})
+	if err != nil {
+		t.Fatalf("NewEnvelope(zero ResourceStatePayload): %v", err)
+	}
+	zb, err := json.Marshal(zeroEnv)
+	if err != nil {
+		t.Fatalf("Marshal zero: %v", err)
+	}
+	if contains(string(zb), "egress_mbps") {
+		t.Errorf("expected egress_mbps to be omitted when zero, got %s", zb)
+	}
+	var zeroBack Envelope
+	if err := json.Unmarshal(zb, &zeroBack); err != nil {
+		t.Fatalf("Unmarshal zero envelope: %v", err)
+	}
+	var zeroGot ResourceStatePayload
+	if err := json.Unmarshal(zeroBack.Payload, &zeroGot); err != nil {
+		t.Fatalf("Unmarshal zero payload: %v", err)
+	}
+	if zeroGot.CPUPercent != 0 || zeroGot.MemPercent != 0 || zeroGot.LoadPerCPU != 0 || zeroGot.EgressMbps != 0 || !zeroGot.At.Equal(at) {
+		t.Errorf("got zero payload %+v, want zeros at %v", zeroGot, at)
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(sub) > 0 && len(s) >= len(sub) && stringContains(s, sub)
 }
